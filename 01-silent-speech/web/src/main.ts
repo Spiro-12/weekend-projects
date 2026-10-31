@@ -64,20 +64,29 @@ renderMode();
 
 // ---------- push to talk ----------
 const typing = (e: Event) => (e.target as HTMLElement)?.closest?.('input, textarea, select, [contenteditable]');
+// In a replay the recording presses push to talk itself; the visitor's Space, clicks and window blur must not.
+const replaying = () => app.source?.kind === 'replay';
 addEventListener('keydown', (e) => {
-  if (e.code !== 'Space' || e.repeat || typing(e)) return;
+  if (e.code !== 'Space' || e.repeat || typing(e) || replaying()) return;
   e.preventDefault();
   app.ptt(true);
 });
 addEventListener('keyup', (e) => {
-  if (e.code !== 'Space' || (typing(e) && !app.pttDown)) return;
+  if (e.code !== 'Space' || (typing(e) && !app.pttDown) || replaying()) return;
   e.preventDefault();
   app.ptt(false);
 });
-addEventListener('blur', () => app.ptt(false));
-pttBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); pttBtn.setPointerCapture(e.pointerId); app.ptt(true); });
-pttBtn.addEventListener('pointerup', () => app.ptt(false));
-pttBtn.addEventListener('pointercancel', () => app.ptt(false));
+addEventListener('blur', () => { if (!replaying()) app.ptt(false); });
+pttBtn.addEventListener('pointerdown', (e) => { if (replaying()) return; e.preventDefault(); pttBtn.setPointerCapture(e.pointerId); app.ptt(true); });
+pttBtn.addEventListener('pointerup', () => { if (!replaying()) app.ptt(false); });
+pttBtn.addEventListener('pointercancel', () => { if (!replaying()) app.ptt(false); });
+const pttLabel = pttBtn.querySelector('span:last-child') as HTMLElement;
+const pttDefault = pttLabel.innerHTML;
+app.bus.on('source', (k) => {
+  const r = k === 'replay';
+  pttBtn.classList.toggle('replay', r);
+  pttLabel.innerHTML = r ? `Watching a replay of a real session. <a href="?mode=fake">Try it yourself with fake data</a>` : pttDefault;
+});
 app.bus.on('ptt', ({ down }) => {
   pttBtn.classList.toggle('down', down);
   document.body.classList.toggle('ptt-down', down);
