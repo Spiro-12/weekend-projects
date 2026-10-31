@@ -4,14 +4,34 @@
 import type { BudLocation, Channel, DtwKnnOptions, MotionSample, NormStats } from '../core/contracts';
 import { DEFAULT_CHANNELS, GRID_HZ } from '../core/contracts';
 
+/**
+ * Defaults picked on Spiro's real recordings (Phase 2, Track F; data/raw s1..s3, exclude list applied, 342 clips):
+ * `eval-dtw --sweep` over 768 configs (8 channel sets x L 48/64/96/128 x band 0.05/0.1/0.2 x norm x k 1/3 x budNorm),
+ * ranked by LOSO over all 3 sessions (tie break: cross bud = train s2 + s3, test s1). Table:
+ * ml/results/dtw-knn/sweep/sweep-real.json. LOSO all 3 / LOSO s2 + s3 / cross bud:
+ *   these defaults (rank 1)                           94.2% / 98.7% / 83.8%
+ *   Phase 1 defaults (L 64, band 0.1, global, k 1)    81.9% / 89.5% / 64.8% (rank 274)
+ * - norm 'clip' is the big win (+10 points): the sessions differ a lot in loudness per channel (head against the
+ *   chair, bud seated differently: s1 rr.z RMS is twice s2's), and per clip z scoring cancels that.
+ * - k 3 beats k 1 now that a class has ~30 takes over 2 training sessions (93.6% -> 94.2% at L 96; Phase 1's
+ *   "k 1 wins" was with 5 to 15 takes from one sitting).
+ * - L 96 with a narrow band (0.05, r = 5) beat L 64 / band 0.1 (93.3%); all 6 channels tie the best subset.
+ * - budNorm 'mirror': cross bud 83.8% vs 40% or less unmirrored (PROTOCOL §5 step 0).
+ * - threshold 0.85, from `eval-dtw --thresholds` at these options: the lowest value in 0.05 steps where
+ *   (1) <= 3% of sentences fire the wrong action (LOSO all 3, LOSO s2 + s3 and cross bud: all 0%), (2) no none take
+ *   fires, and (3) small real models (2 to 4 classes) accept <= 10% of the sentences they were not trained on
+ *   (7.7%; 11.1% at 0.80). Costs: 61.6% of sentences are accepted (vs 85.4% at 0.5); the rest say "not sure".
+ *   tests/unit/ml/safety-real.test.ts holds these lines.
+ * Selection bias: the best of 768 configs on 342 clips is a little optimistic; the top 10 are within 1 point.
+ */
 export const DEFAULT_OPTS: Readonly<Required<DtwKnnOptions>> = Object.freeze({
   channels: [...DEFAULT_CHANNELS],
-  L: 64,
+  L: 96,
   hpHz: 1.0,
-  band: 0.1,
-  k: 1, // 1 beats 3 with few takes per class (first real AirPods data: LOO 94% vs 71%)
-  norm: 'global',
-  threshold: 0.5,
+  band: 0.05,
+  k: 3,
+  norm: 'clip',
+  threshold: 0.85,
   budNorm: 'mirror', // PROTOCOL §5 step 0: right bud clips are mirrored into the left bud frame
 });
 
@@ -265,11 +285,12 @@ function median(v: number[]): number {
  * No training clips: identity stats (mean 0, std 1 / floor 1e-8).
  */
 export function computeNorm(raws: Float64Array[][], mode: 'global' | 'clip', nCh: number): NormStats {
+  if (mode === 'clip') return { mean: new Array<number>(nCh).fill(0), std: clipFloor(raws.map(channelStds), nCh) };
   const mean = new Array<number>(nCh).fill(0);
-  const std = new Array<number>(nCh).fill(mode === 'global' ? 1 : STD_FLOOR);
+  const std = new Array<number>(nCh).fill(1);
   if (raws.length === 0) return { mean, std };
   for (let c = 0; c < nCh; c++) {
-    if (mode === 'global') {
+    {
       let s = 0, cnt = 0;
       for (const r of raws) for (let i = 0; i < r[c].length; i++) { s += r[c][i]; cnt++; }
       const m = s / cnt;
@@ -277,11 +298,18 @@ export function computeNorm(raws: Float64Array[][], mode: 'global' | 'clip', nCh
       for (const r of raws) for (let i = 0; i < r[c].length; i++) v += (r[c][i] - m) ** 2;
       mean[c] = m;
       std[c] = Math.max(Math.sqrt(v / cnt), STD_FLOOR);
-    } else {
-      std[c] = Math.max(0.5 * median(raws.map((r) => meanStd(r[c])[1])), STD_FLOOR);
     }
   }
   return { mean, std };
+}
+
+/** Each channel's own population std (what norm 'clip' z scores a clip by). */
+export const channelStds = (raw: Float64Array[]): number[] => raw.map((x) => meanStd(x)[1]);
+
+/** The norm 'clip' std floor from every training clip's channelStds: 0.5 x median per channel, at least 1e-8. */
+export function clipFloor(stds: number[][], nCh: number): number[] {
+  if (stds.length === 0) return new Array<number>(nCh).fill(STD_FLOOR);
+  return Array.from({ length: nCh }, (_, c) => Math.max(0.5 * median(stds.map((s) => s[c])), STD_FLOOR));
 }
 
 /** Step 5 on one clip. Returns float64 [channel][L]. */

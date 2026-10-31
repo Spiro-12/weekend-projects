@@ -4,7 +4,7 @@ import { NONE } from '../../../web/src/core/contracts';
 import { dtw, loadModel, preprocess, train, type DtwKnnModel } from '../../../web/src/ml/index';
 import { bandRadius } from '../../../web/src/ml/dtw';
 import { fromRaw, trainModel } from '../../../web/src/ml/knn';
-import { preprocessRaw, resolveOpts } from '../../../web/src/ml/preprocess';
+import { DEFAULT_OPTS, preprocessRaw, resolveOpts } from '../../../web/src/ml/preprocess';
 import { syntheticDataset } from './helpers';
 
 const clips = (): DatasetClip[] => syntheticDataset().clips;
@@ -17,7 +17,7 @@ describe('train / predict', () => {
   it('has the Classifier shape', () => {
     expect(model.name).toBe('dtw-knn');
     expect(model.labels).toEqual([...new Set(clips().map((c) => c.label))].sort());
-    expect(model.threshold).toBe(0.5);
+    expect(model.threshold).toBe(DEFAULT_OPTS.threshold);
   });
 
   it('prediction fields are consistent: top[0] is the label and its score is the confidence', () => {
@@ -66,8 +66,8 @@ describe('train / predict', () => {
   }
 
   it('matches a brute force kNN + the documented confidence formula (public dtw, no early abandon)', () => {
-    const m3 = train([...bySession('s1'), ...bySession('s2')], { k: 3 });
-    for (const m of [model, m3]) {
+    const m1 = train([...bySession('s1'), ...bySession('s2')], { k: 1, norm: 'global', L: 64, band: 0.1 }); // Phase 1 path
+    for (const m of [model, m1]) {
       const json = m.toJSON();
       for (const c of test.filter((_, i) => i % 3 === 0)) { // 14 clips, every class
         const want = bruteForce(json, c.samples);
@@ -123,11 +123,11 @@ describe('train / predict', () => {
     const json = model.toJSON();
     expect(json.kind).toBe('dtw-knn');
     expect(json.v).toBe(1);
-    expect(json.opts).toEqual({ channels: ['rr.x', 'rr.y', 'rr.z', 'ua.x', 'ua.y', 'ua.z'], L: 64, hpHz: 1, band: 0.1, k: 1, norm: 'global', threshold: 0.5, budNorm: 'mirror' });
+    expect(json.opts).toEqual({ channels: ['rr.x', 'rr.y', 'rr.z', 'ua.x', 'ua.y', 'ua.z'], L: 96, hpHz: 1, band: 0.05, k: 3, norm: 'clip', threshold: 0.85, budNorm: 'mirror' });
     expect(json.norm.mean.length).toBe(6);
     expect(json.templates.length).toBe(80);
     expect(json.templates[0].x.length).toBe(6);
-    expect(json.templates[0].x[0].length).toBe(64);
+    expect(json.templates[0].x[0].length).toBe(96);
     expect(json.labels).toEqual(model.labels);
   });
 

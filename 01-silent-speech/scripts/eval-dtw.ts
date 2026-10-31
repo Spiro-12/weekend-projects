@@ -307,7 +307,15 @@ async function main() {
     rows.sort(byRank);
     console.log(`\nSweep: ${rows.length} configs, ranked by LOSO all (tie break: xbud, macro F1, none false accepts)`);
     printSweep(rows, args.top);
-    if (args.json) { writeFileSync(args.json, prettyJson({ datasets, exclude: args.exclude && basename(args.exclude), splits: sp.describe, rows }) + '\n'); console.log(`wrote ${args.json}`); }
+    if (args.json) {
+      // one row per line: chans, options, then accuracy / macro F1 / none false accepts for all, same, xbud
+      const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
+      const brief = (x: Summary | null) => x && { acc: r4(x.acc), macroF1: r4(x.macroF1), noneFA: r4(x.noneFA), n: x.n };
+      const lines = rows.map((r) => JSON.stringify({ chans: r.chans, L: r.opts.L, band: r.opts.band, norm: r.opts.norm, k: r.opts.k, budNorm: r.opts.budNorm, all: brief(r.all), same: brief(r.same), xbud: brief(r.xbud) }));
+      const head = JSON.stringify({ datasets, exclude: args.exclude ? basename(args.exclude) : null, splits: sp.describe.split('\n'), base: resolveOpts(args.opts), rankedBy: 'all.acc, then xbud.acc, all.macroF1, all.noneFA' }).slice(0, -1);
+      writeFileSync(args.json, `${head},"rows":[\n${lines.join(',\n')}\n]}\n`);
+      console.log(`wrote ${args.json}`);
+    }
     return;
   }
 

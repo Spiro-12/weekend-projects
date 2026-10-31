@@ -99,7 +99,7 @@ describe('golden: step 5 norm stats on fixture clips', () => {
   const byId = new Map(syntheticDataset().clips.map((c) => [c.id, c] as [string, Clip]));
   const clips = g.norm.ids.map((id) => byId.get(id)!);
   // golden-ml.py's raw() reference options (6 channels, L 64, 1 Hz), not DEFAULT_OPTS: these goldens test the spec
-  const SPEC = { channels: [...DEFAULT_CHANNELS], L: 64, hpHz: 1.0 };
+  const SPEC = { channels: [...DEFAULT_CHANNELS], L: 64, hpHz: 1.0, norm: 'global' as const };
   const raws = clips.map((c) => preprocessRaw(c.samples, SPEC));
 
   it('raw clip matches', () => {

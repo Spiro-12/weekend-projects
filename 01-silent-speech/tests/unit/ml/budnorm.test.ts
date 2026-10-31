@@ -105,5 +105,5 @@ describe('bud normalization (step 0)', () => {
     expect(strip(crossValidate(mixed, {}, 'loo'))).toEqual(strip(crossValidate(cs, {}, 'loo')));
     // without bud normalization the mirrored session is a different signal
     expect(strip(crossValidate(mixed, { budNorm: 'none' }, 'loso'))).not.toEqual(strip(crossValidate(cs, { budNorm: 'none' }, 'loso')));
-  });
+  }, 60_000);
 });

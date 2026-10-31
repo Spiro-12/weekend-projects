@@ -2,8 +2,8 @@
 // The Phase 1 rules (safety.test.ts), measured on real data: an accepted prediction can text real people.
 // Why this file exists: the synthetic generator is a weak stand in here. Its sentences only differ by syllable
 // timing and per channel loudness, so after per clip normalization (norm 'clip', the Phase 2 default) they all look
-// alike, while real sentences don't (other sentences sit at 1.44 to 1.76 x dRef, cross session takes of known
-// ones at 0.94 to 1.31). The Phase 1 small model checks (b) and (c) therefore run on norm 'global' in
+// alike (other sentences at 1.0 to 1.25 x dRef, known ones at 0.6 to 0.95), while real sentences don't (other
+// sentences at 1.35 to 1.7 x dRef, known ones from another session at 0.9 to 1.25; 10th to 90th percentile). The Phase 1 small model checks (b) and (c) therefore run on norm 'global' in
 // safety.test.ts and on the real defaults here. See ml/results/dtw-knn/ and the Track F report for the numbers.
 import { describe, expect, it } from 'vitest';
 import type { Clip, Dataset } from '../../../web/src/core/contracts';
