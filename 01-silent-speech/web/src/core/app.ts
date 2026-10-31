@@ -8,6 +8,14 @@ import type { ClipStore } from '../store';
 export type SourceKind = 'live' | 'fake' | 'replay';
 export type Mode = 'enroll' | 'classify';
 
+/** Where a push to talk started. Predictions and actions must check the press, not just the moment the clip lands. */
+export interface PressContext {
+  mode: Mode; // app mode when the key went down
+  source: SourceKind | null;
+  conn: number; // connection serial (bumps on every source switch and conn event)
+  simulated: boolean | null; // status.simulated when the key went down (null: no status yet)
+}
+
 export interface ClipEvent {
   id: string;
   samples: MotionSample[];
@@ -15,6 +23,7 @@ export interface ClipEvent {
   releaseT: number;
   padSec: number;
   gapPct: number;
+  press: PressContext;
 }
 
 export type Events = {
@@ -25,7 +34,8 @@ export type Events = {
   invalid: { raw: string }; // a frame that failed parseServerMsg (live source emits this)
   ptt: { down: boolean; t: number };
   clip: ClipEvent;
-  prediction: Prediction & { clipId: string };
+  /** Only emitted when the press started in classify mode and the app is still in classify mode. */
+  prediction: Prediction & { clipId: string; model: Classifier; press: PressContext };
   actionResult: ActionResultMsg;
   mode: Mode;
   source: SourceKind;
@@ -94,13 +104,17 @@ export class App {
   ring: MotionSample[] = [];
   pttDown = false;
   private pressT: number | null = null; // null = pressed before any sample arrived
-  private pending: { pressT: number; releaseT: number; timer: ReturnType<typeof setTimeout> } | null = null;
+  private pending: { pressT: number; releaseT: number; press: PressContext; timer: ReturnType<typeof setTimeout> } | null = null;
+  private press: PressContext | null = null;
+  /** Bumps on every source switch and every conn event, so a press can be tied to one connection. */
+  connSerial = 0;
 
   constructor(classes: ClassDef[], store: ClipStore) {
     this.classes = classes;
     this.store = store;
     this.bus.on('motion', (s) => this.onMotion(s));
     this.bus.on('hello', (h) => (this.lastHello = h));
+    this.bus.on('conn', () => { this.connSerial++; });
     this.bus.on('status', (s) => (this.lastStatus = s));
   }
 
@@ -114,6 +128,7 @@ export class App {
     if (!def) throw new Error(`no source registered for ${kind}`);
     this.source?.stop();
     this.resetCapture();
+    this.connSerial++;
     this.source = def.create(this, opts);
     this.bus.emit('source', kind);
     await this.source.start();
@@ -128,13 +143,20 @@ export class App {
     this.pttDown = down;
     const empty = this.ring.length === 0;
     this.bus.emit('ptt', { down, t });
-    if (down) { this.pressT = empty ? null : t; return; }
+    if (down) {
+      this.pressT = empty ? null : t;
+      this.press = { mode: this.mode, source: this.source?.kind ?? null, conn: this.connSerial, simulated: this.lastStatus?.simulated ?? null };
+      return;
+    }
     const pressT = this.pressT;
+    const press = this.press;
     this.pressT = null;
+    this.press = null;
+    if (!press) return;
     if (pressT === null || empty) return; // no data while held: nothing to cut
     // Wait for PAD_SEC of samples after release (or give up after 1.5 s and cut what we have).
     if (this.pending) this.finishClip();
-    this.pending = { pressT, releaseT: t, timer: setTimeout(() => this.finishClip(), 1500) };
+    this.pending = { pressT, releaseT: t, press, timer: setTimeout(() => this.finishClip(), 1500) };
   }
 
   /** Clears the ring and any half finished push to talk (source switch, clock jump). */
@@ -144,6 +166,7 @@ export class App {
     if (this.pending) clearTimeout(this.pending.timer);
     this.pending = null;
     this.pressT = null;
+    this.press = null;
     if (this.pttDown) { this.pttDown = false; this.bus.emit('ptt', { down: false, t }); }
   }
 
@@ -171,13 +194,15 @@ export class App {
     if (samples.length < 3) return;
     const clip: ClipEvent = {
       id: newId('clip'), samples, pressT: p.pressT, releaseT: p.releaseT, padSec: PAD_SEC,
-      gapPct: gapPct(samples),
+      gapPct: gapPct(samples), press: p.press,
     };
     this.bus.emit('clip', clip);
-    if (this.mode === 'classify' && this.model) {
+    // Predict only when the take was both started and finished in Recognize mode.
+    const model = this.model;
+    if (p.press.mode === 'classify' && this.mode === 'classify' && model) {
       try {
-        const pred = this.model.predict(samples, { loc: this.lastStatus?.loc });
-        this.bus.emit('prediction', { ...pred, clipId: clip.id });
+        const pred = model.predict(samples, { loc: this.lastStatus?.loc });
+        this.bus.emit('prediction', { ...pred, clipId: clip.id, model, press: p.press });
       } catch (e) {
         console.error('[model] predict failed', e);
       }
