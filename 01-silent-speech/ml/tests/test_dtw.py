@@ -160,3 +160,28 @@ def test_matches_js_dtw_knn_clip_by_clip(synthetic):
     for cid, label, conf in js:
         assert got[cid].label == label, cid
         assert got[cid].confidence == pytest.approx(conf, abs=1e-9), cid
+
+
+def test_matches_js_dtw_knn_on_real_data_with_bud_mirroring(real_smoke):
+    """Same as above on real AirPods clips: s1 (right bud, mirrored by step 0) + s2 (left bud), 2 classes, LOSO.
+    Regenerate tests/data/js_dtw_knn_real_smoke_loso.json from the JS (see its `_from`) if knn.ts or preprocess.ts change."""
+    import json
+    from pathlib import Path
+
+    from silent.bench import run_fold
+    from silent.cv import splits
+    from silent.preprocess import preprocess_clip
+
+    js = json.loads((Path(__file__).parent / "data" / "js_dtw_knn_real_smoke_loso.json").read_text())
+    assert js["opts"] == {}  # JS defaults = Python defaults (budNorm mirror, L 64, band 0.1, k 1, global norm)
+    clips = real_smoke.clips
+    X = np.stack([preprocess_clip(c.samples, loc=c.loc) for c in clips])
+    y = np.array([c.label for c in clips], dtype=object)
+    got = {}
+    for tr, te in splits("loso", [c.session for c in clips]):
+        preds, _, _ = run_fold("dtw-py", {}, "global", X, y, tr, te)
+        got.update({clips[i].id: p for i, p in zip(te, preds)})
+    assert len(js["preds"]) == len(got) == 60
+    for cid, label, conf in js["preds"]:
+        assert got[cid].label == label, cid
+        assert got[cid].confidence == pytest.approx(conf, abs=1e-9), cid
