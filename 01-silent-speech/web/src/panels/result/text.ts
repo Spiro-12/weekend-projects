@@ -11,7 +11,7 @@ const ACTION_TEXT: Record<string, string> = {
   demo_48h: 'Say “I created this demo in 48 hours” out loud',
   help: 'Text your emergency contact for help',
   calendar: 'Read out today’s calendar',
-  focus_music: 'Play focus music on Spotify',
+  focus_music: 'Play your focus music', // Apple Music or Spotify, whichever the Mac app is set up with
 };
 
 export const describeAction = (action: string): string => ACTION_TEXT[action] ?? `Run “${action}”`;
@@ -71,6 +71,9 @@ const ERROR_TEXT: Record<string, [title: string, body: string]> = {
   bad_contact: ['Contact problem', 'The phone number saved for this doesn’t look right, so nothing was sent.'],
   no_spotify: ['Spotify is missing', 'Spotify isn’t installed on this Mac, so no music played.'],
   bad_uri: ['Music link problem', 'The playlist saved for this doesn’t work, so no music played.'],
+  no_music: ['Music app is missing', 'The Music app isn’t on this Mac, so no music played.'],
+  bad_url: ['Music link problem', 'The Apple Music link saved for this doesn’t work, so no music played.'],
+  bad_playlist: ['Playlist problem', 'The playlist name saved for this doesn’t work, so no music played.'],
   script_failed: ['It didn’t work', 'Your Mac tried but couldn’t do it. It may need permission in System Settings › Privacy & Security › Automation.'],
   not_allowed: ['Needs permission', 'Your Mac needs permission: System Settings › Privacy & Security › Automation.'],
 };

@@ -338,6 +338,7 @@ describe('words', () => {
     ['cooldown', /30 seconds/], ['unknown_action', /doesn’t know/], ['send_failed', /nothing happened/],
     ['duplicate_id', /wasn’t sent twice/], ['bad_json', /didn’t understand/],
     ['not_allowed', /needs permission: System Settings › Privacy & Security › Automation/],
+    ['no_music', /Music app isn’t on this Mac/], ['bad_url', /Apple Music link/], ['bad_playlist', /playlist name/],
   ];
   for (const [code, body] of MAC_CODES) {
     it(`error ${code}: plain English, no code shown`, () => {
