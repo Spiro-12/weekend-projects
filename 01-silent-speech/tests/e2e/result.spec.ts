@@ -15,6 +15,8 @@ const synthetic = JSON.parse(read('../../shared/fixtures/dataset.synthetic.json'
 const PUBLIC_MODEL = JSON.stringify(ml.train(synthetic.clips).toJSON());
 /** The same clips, as if they were real AirPods recordings: 8 sentences, 15 takes each (5 per session). */
 const REAL: Dataset = { ...synthetic, source: 'airpods', session: 'real' };
+/** Session s1 only: every sentence 5 times (enough for "your model"), and light on the Record panel's live accuracy check. */
+const REAL_S1: Dataset = { ...REAL, clips: REAL.clips.filter((c) => c.session === 's1') };
 const PRACTICE: Dataset = { ...synthetic, source: 'fake', session: 'fake-1' };
 
 const ORIGIN = new URL(BASE).origin;
@@ -89,8 +91,8 @@ async function livePage(
   await expect(page.getByTestId('source-pill')).toHaveText('live · open');
   await assertMockBridge(page);
   const clips = opts.clips ?? 'recorded';
-  if (clips === 'recorded') await addRecorded(page, REAL);
-  else if (clips === 'imported') await addImported(page, REAL);
+  if (clips === 'recorded') await addRecorded(page, REAL_S1);
+  else if (clips === 'imported') await addImported(page, REAL_S1);
   else if (clips !== 'none') await addRecorded(page, clips);
   await recognize(page);
   return bridge;
@@ -252,7 +254,7 @@ test('armed, paired, real AirPods, your own model: exactly one action per accept
   const errors = pageErrors(page);
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true });
   try {
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120 recordings/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40 recordings/);
     await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'own');
     await expect(page.getByTestId('result-armed')).toHaveAttribute('data-live', '1');
 
@@ -314,7 +316,7 @@ test('live push to talk end to end: a real prediction sends at most one action, 
   test.setTimeout(60_000);
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true, utterEvery: 1 });
   try {
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
     await page.waitForTimeout(1200);
     const next = page.evaluate(() => new Promise<{ label: string; accepted: boolean; mode: string }>((res) => {
       const off = window.__ss.app.bus.on('prediction', (p) => { off(); res({ label: p.label, accepted: p.accepted, mode: p.press.mode }); });
@@ -340,7 +342,7 @@ test('a take started in Record mode and let go in Recognize mode sends nothing',
   test.setTimeout(60_000);
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true, utterEvery: 1 });
   try {
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
     await expect(page.getByTestId('result-armed')).toHaveAttribute('data-live', '1');
     await page.getByTestId('mode-toggle').click(); // back to Record
     await expect.poll(() => page.evaluate(() => window.__ss.app.mode)).toBe('enroll');
@@ -371,7 +373,7 @@ test('a take started in Record mode and let go in Recognize mode sends nothing',
 test('a take from another connection, or started while simulated, sends nothing', async ({ page }) => {
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true });
   try {
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
     const serial = await page.evaluate(() => window.__ss.app.connSerial);
     await inject(page, { ...accepted('volume_up'), press: { conn: serial - 1 } });
     await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'press-changed');
@@ -401,7 +403,7 @@ test('a take from another connection, or started while simulated, sends nothing'
 test('not armed: ghost chip only, nothing sent', async ({ page }) => {
   const bridge = await livePage(page, { armed: false, token: TOKEN, real: true });
   try {
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
     await expect(page.getByTestId('result-armed')).toHaveAttribute('data-live', '0');
     await expect(page.getByTestId('result-armed')).toContainText('Safe mode');
     await inject(page, accepted('text_mom'));
@@ -422,7 +424,7 @@ test('not armed: ghost chip only, nothing sent', async ({ page }) => {
 test('Simulate mode on the Mac: ghost chip only', async ({ page }) => {
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: false });
   try {
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
     await inject(page, accepted('volume_up'));
     await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'simulated');
     await page.waitForTimeout(500);
@@ -454,7 +456,7 @@ test('imported recordings make a preview model only: shown, never acts', async (
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }, { clips: 'imported' });
   try {
     await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'preview');
-    await expect(page.getByTestId('result-model')).toContainText('Your model (preview): 120 recordings');
+    await expect(page.getByTestId('result-model')).toContainText('Your model (preview): 40 recordings');
     await expect(page.getByTestId('result-model')).toContainText(`${RECORD_ALL} (0 of 8 done in this browser)`);
     await expect(page.getByTestId('result-armed')).toContainText(RECORD_ALL);
     await inject(page, accepted('volume_up'));
@@ -469,16 +471,16 @@ test('imported recordings make a preview model only: shown, never acts', async (
 });
 
 test('only 2 sentences recorded: a preview model that never acts, even for a sure, real looking prediction', async ({ page }) => {
-  const two: Dataset = { ...REAL, clips: REAL.clips.filter((c) => c.label === 'none' || c.label === 'text_mom') };
+  const two: Dataset = { ...REAL_S1, clips: REAL_S1.clips.filter((c) => c.label === 'none' || c.label === 'text_mom') };
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }, { clips: two });
   try {
-    await expect(page.getByTestId('result-model')).toContainText('Your model (preview): 30 recordings');
+    await expect(page.getByTestId('result-model')).toContainText('Your model (preview): 10 recordings');
     await expect(page.getByTestId('result-model')).toContainText('(2 of 8 done in this browser)');
     await inject(page, accepted('text_mom', 0.99));
     await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'not-own-model');
     await expect(page.getByTestId('result-action')).toContainText(RECORD_ALL);
     // Recording the rest makes it ready: Re-train turns it into your model, which may act.
-    await addRecorded(page, { ...REAL, clips: REAL.clips.filter((c) => c.label !== 'none' && c.label !== 'text_mom') });
+    await addRecorded(page, { ...REAL_S1, clips: REAL_S1.clips.filter((c) => c.label !== 'none' && c.label !== 'text_mom') });
     await expect(page.getByTestId('result-model')).toContainText('New recordings since. Press Re-train.');
     await page.getByTestId('result-retrain').click();
     await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'own');
@@ -493,7 +495,7 @@ test('only 2 sentences recorded: a preview model that never acts, even for a sur
 test('replay always uses Spiro\'s public model, never your recordings', async ({ page }) => {
   await servePublicModel(page);
   await page.goto('./?mode=fake');
-  await addRecorded(page, REAL);
+  await addRecorded(page, REAL_S1);
   await page.evaluate(async () => {
     const app = window.__ss.app;
     app.registerSource({ // a stand in for Track K's replay source
@@ -510,7 +512,7 @@ test('replay always uses Spiro\'s public model, never your recordings', async ({
     await app.setSource('live', { ws: 'ws://127.0.0.1:9' }); // nowhere: no connection
   });
   await recognize(page);
-  await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/); // live: yours
+  await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/); // live: yours
   await page.evaluate(() => window.__ss.app.setSource('replay'));
   await expect(page.getByTestId('result-model')).toContainText("Spiro's model (public)");
   await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'public');
@@ -519,7 +521,7 @@ test('replay always uses Spiro\'s public model, never your recordings', async ({
 test('unpaired: a wrong token gets the Mac\'s "unpaired" and the unpaired toast', async ({ page }) => {
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }, { pair: OTHER_TOKEN });
   try {
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
     await inject(page, accepted('volume_up'));
     const toast = page.getByTestId('result-toast');
     await expect(toast).toHaveAttribute('data-kind', 'bad');
@@ -537,7 +539,7 @@ test('unpaired: with no token at all nothing is sent and the unpaired toast show
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }, { pair: null });
   try {
     expect(await page.evaluate(() => window.__ss.app.pairToken)).toBeNull();
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
     await expect(page.getByTestId('result-armed')).toContainText('Open this page from the Mac app’s link');
     await inject(page, accepted('volume_up'));
     await expect(page.getByTestId('result-toast-body'))
@@ -555,7 +557,7 @@ test('a dropped connection is never retried: one send, "may have run" toast', as
   // A bridge that takes the action and then dies without answering.
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true });
   try {
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
     const sent: string[] = [];
     await page.exposeFunction('__sent', (a: string) => { sent.push(a); });
     await page.evaluate(() => {
