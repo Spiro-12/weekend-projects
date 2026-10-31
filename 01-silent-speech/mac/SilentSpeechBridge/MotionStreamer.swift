@@ -202,6 +202,11 @@ final class MotionStreamer: NSObject, ObservableObject, CMHeadphoneMotionManager
 
     private func refreshStats() {
         refreshAuth()
+        // In case "available" was false at launch and changes later.
+        if headphones == .unavailable && manager.isDeviceMotionAvailable {
+            setHeadphones(.disconnected)
+            startRealUpdates()
+        }
         let stats = meter.stats(now: ProcessInfo.processInfo.systemUptime)
         hz = stats.hz
         gapPct = stats.gapPct

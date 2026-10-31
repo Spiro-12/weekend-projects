@@ -262,8 +262,8 @@ final class WebSocketServer: ObservableObject {
             if let data = data, !data.isEmpty, let meta = meta, meta.opcode == .text || meta.opcode == .binary {
                 self.handleMessage(data, from: client)
             }
-            if context?.isFinal == true || (data == nil && meta == nil) {
-                client.connection.cancel() // the other side is gone
+            if data == nil && (context?.isFinal == true || meta == nil) {
+                client.connection.cancel() // nothing more will come: the other side is gone
                 return
             }
             self.receive(on: client)
