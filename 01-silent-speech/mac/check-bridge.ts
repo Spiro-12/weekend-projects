@@ -2,11 +2,15 @@
 // Run from 01-silent-speech/ (after `npm ci`):
 //   npx tsx mac/check-bridge.ts                          normal run against the app on 8765
 //   npx tsx mac/check-bridge.ts --expect-no-origin-open  when the app was launched with --allow-no-origin
-//   npx tsx mac/check-bridge.ts --port 18765             against the mock bridge (npm run bridge)
-// Safety: the only action it sends is volume_up, and only while hello and the latest status both say armed: false,
-// so it is always a dry run.
+//   npx tsx mac/check-bridge.ts --port 18765 --token-file <f>   against the mock bridge (npm run bridge -- --token <hex>)
+// Pairing: the token comes from ~/.silentspeech/token (or --token-file) and is never printed.
+// Safety: it only sends volume_up (plus one made up action name), and only while hello and the latest status both
+// say armed: false, so it is always a dry run.
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import WebSocket from 'ws';
 import type { HelloMsg, MotionMsg, StatusMsg } from '../web/src/core/contracts';
 import { parseServerFrame } from '../web/src/core/validate';
@@ -15,6 +19,9 @@ const argv = process.argv.slice(2);
 const portAt = argv.indexOf('--port');
 const port = portAt >= 0 ? Number(argv[portAt + 1]) : 8765;
 const expectNoOriginOpen = argv.includes('--expect-no-origin-open');
+const tokenAt = argv.indexOf('--token-file');
+const tokenFile = tokenAt >= 0 ? argv[tokenAt + 1] : path.join(os.homedir(), '.silentspeech', 'token');
+const appLog = path.join(os.homedir(), 'Library', 'Logs', 'SilentSpeechBridge.log');
 const REAL_APP_PORT = 8765;
 const GOOD_ORIGIN = 'https://spiro-12.github.io';
 
@@ -79,6 +86,26 @@ function connect(url: string, origin: string | undefined, timeoutMs = 3000): Pro
 }
 
 const local = `ws://127.0.0.1:${port}`;
+
+// (f) pairing token file: 32 lowercase hex, folder 0700, file 0600. Never printed.
+let token: string | null = null;
+try {
+  const text = fs.readFileSync(tokenFile, 'utf8').trim();
+  if (/^[0-9a-f]{16,128}$/.test(text)) token = text;
+} catch { /* reported below */ }
+report(token !== null, '(f) pairing token file holds a token', token ? tokenFile : `${tokenFile} missing or not hex (launch the app once)`);
+if (port === REAL_APP_PORT && token) {
+  report(token.length === 32, '(f) token is 32 hex chars', `${token.length}`);
+  const fileMode = fs.statSync(tokenFile).mode & 0o777;
+  const dirMode = fs.statSync(path.dirname(tokenFile)).mode & 0o777;
+  report(fileMode === 0o600 && dirMode === 0o700, '(f) token file is 600 and its folder 700',
+    `file ${fileMode.toString(8)}, folder ${dirMode.toString(8)}`);
+  if (fs.existsSync(appLog)) {
+    // Only the --print-pair-url line may hold it.
+    const leaks = fs.readFileSync(appLog, 'utf8').split('\n').filter((l) => l.includes(token as string) && !l.includes('#pair='));
+    report(leaks.length === 0, '(f) the token is not in the app log (except a --print-pair-url line)', `${leaks.length} line(s)`);
+  }
+}
 
 // (a) listening only on loopback: lsof, then an active probe of this Mac's network addresses
 let lsofOut = '';
@@ -161,29 +188,69 @@ if (good.open) {
   const bad = await box.next((f) => f.msg?.type === 'error' && f.msg.code === 'bad_json');
   report(!!bad, '(e) broken JSON -> error bad_json');
 
-  if (safeToSendAction('(e) unknown action')) {
-    ws.send(JSON.stringify({ type: 'action', id: 'chk-unknown', action: 'launch_rockets', label: 'x', confidence: 0.9 }));
-    const unknown = await box.next((f) => f.msg?.type === 'error' && f.msg.id === 'chk-unknown');
-    report(unknown?.msg?.code === 'unknown_action', '(e) unknown action -> error unknown_action', String(unknown?.msg?.code));
-  }
-
-  if (safeToSendAction('(e) dry run')) {
+  let n = 0;
+  /** Sends one action. tok: the token to send, or null to leave the field out. Resolves with the reply frame
+   * (with this id, or an error without id sent after it: that is how bad_json answers). */
+  const act = async (name: string, tok: string | null) => {
+    const id = `chk-${++n}`;
+    const msg: Record<string, unknown> = { type: 'action', id, action: name, label: name, confidence: 0.9 };
+    if (tok !== null) msg.token = tok;
+    const before = box.frames.length;
     const t0 = Date.now();
-    ws.send(JSON.stringify({ type: 'action', id: 'chk-1', action: 'volume_up', label: 'volume_up', confidence: 0.9 }));
-    const res = await box.next((f) => f.msg?.id === 'chk-1');
-    const ms = Date.now() - t0;
-    const m = res?.msg;
-    // A cooldown is fine too: an earlier run of this check may have used volume_up in the last 3 s.
-    const dry = m?.type === 'actionResult' && m.ok === true && m.dryRun === true;
-    const cooling = m?.type === 'error' && m.code === 'cooldown';
-    report((dry || cooling) && ms < 1000, '(e) volume_up while not armed -> dry run, reply under 1 s',
-      m ? `${String(m.type)} "${String(m.message)}" in ${ms} ms` : 'no reply');
+    ws.send(JSON.stringify(msg));
+    const res = await box.next((f) => f.msg?.id === id
+      || (f.msg?.type === 'error' && f.msg.id === undefined && box.frames.indexOf(f) >= before));
+    return { m: res?.msg, ms: Date.now() - t0 };
+  };
+  const describe = (r: { m?: Record<string, unknown>; ms: number }) =>
+    r.m ? `${String(r.m.type)} ${String(r.m.code ?? '')} "${String(r.m.message)}" in ${r.ms} ms` : 'no reply';
+  const isUnpaired = (r: { m?: Record<string, unknown> }) => r.m?.type === 'error' && r.m.code === 'unpaired';
+  const isCooldown = (r: { m?: Record<string, unknown> }) => r.m?.type === 'error' && r.m.code === 'cooldown';
+  const isDryRun = (r: { m?: Record<string, unknown> }) => r.m?.type === 'actionResult' && r.m.ok === true && r.m.dryRun === true;
+  let wrong = randomBytes(16).toString('hex');
+  while (wrong === token) wrong = randomBytes(16).toString('hex');
+
+  // (f) pairing: checked before anything else about the action
+  if (safeToSendAction('(f) pairing')) {
+    const noField = await act('volume_up', null);
+    // The TS mock treats a missing token field as a broken action (bad_json); the Mac app says unpaired.
+    const mockOk = hello?.app === 'MockBridge' && noField.m?.code === 'bad_json';
+    report(isUnpaired(noField) || mockOk, '(f) action with no token -> error unpaired', describe(noField));
+    const empty = await act('volume_up', '');
+    report(isUnpaired(empty), '(f) action with an empty token -> error unpaired', describe(empty));
+    const bad = await act('volume_up', wrong);
+    report(isUnpaired(bad), '(f) action with a wrong token -> error unpaired', describe(bad));
+    const badUnknown = await act('launch_rockets', wrong);
+    report(isUnpaired(badUnknown), '(f) wrong token comes before unknown action -> error unpaired', describe(badUnknown));
   }
 
-  if (safeToSendAction('(e) cooldown')) {
-    ws.send(JSON.stringify({ type: 'action', id: 'chk-2', action: 'volume_up', label: 'volume_up', confidence: 0.9 }));
-    const again = await box.next((f) => f.msg?.id === 'chk-2');
-    report(again?.msg?.type === 'error' && again.msg.code === 'cooldown', '(e) volume_up again right away -> error cooldown', String(again?.msg?.code));
+  if (token && safeToSendAction('(e) unknown action')) {
+    const unknown = await act('launch_rockets', token);
+    report(unknown.m?.code === 'unknown_action', '(e) unknown action (paired) -> error unknown_action', describe(unknown));
+  }
+
+  if (token && safeToSendAction('(e) dry run')) {
+    let first = await act('volume_up', token);
+    if (isCooldown(first)) {
+      // An earlier run of this check may have used volume_up in the last 3 s: wait it out once.
+      await sleep(3200);
+      first = await act('volume_up', token);
+    }
+    report(isDryRun(first) && first.ms < 1000, '(e) volume_up (paired) while not armed -> dry run, reply under 1 s', describe(first));
+  }
+
+  if (token && safeToSendAction('(e) cooldown')) {
+    const again = await act('volume_up', token);
+    report(isCooldown(again), '(e) volume_up again right away -> error cooldown', describe(again));
+    const badDuring = await act('volume_up', wrong);
+    report(isUnpaired(badDuring), '(f) wrong token during the cooldown -> error unpaired (pairing first)', describe(badDuring));
+  }
+
+  if (token && safeToSendAction('(f) unpaired uses no cooldown')) {
+    await sleep(3200); // let the 3 s cooldown run out
+    const bad = await act('volume_up', wrong);
+    const right = await act('volume_up', token);
+    report(isUnpaired(bad) && isDryRun(right), '(f) an unpaired action does not use up the cooldown', `${describe(bad)}; then ${describe(right)}`);
   }
 
   const st = latestStatus();
