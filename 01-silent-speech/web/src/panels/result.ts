@@ -169,6 +169,10 @@ class ResultPanel {
       this.hello = null;
       this.status = null;
       this.conn = 'connecting';
+      // A new source starts clean: no leftover result, chip or history from the previous one (e.g. the replay).
+      this.history = [];
+      this.r.history.innerHTML = '<div class="rs-empty">Nothing yet</div>';
+      this.r.action.hidden = true;
       this.renderArmed();
       this.renderIdle();
       if (app.mode === 'classify') void this.ensureModel(false); // fake ↔ live/replay need different models

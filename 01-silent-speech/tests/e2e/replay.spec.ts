@@ -302,6 +302,9 @@ test('visitor: the push to talk bar is hidden in the replay, and "Try it yoursel
   await expect(page.getByTestId('replay-note-bar')).toBeHidden();
   expect(new URL(page.url()).search).toBe('?mode=fake');
   await expect(page.getByTestId('result-model')).toContainText('Demo model', { timeout: 20_000 });
+  // Nothing left over from the replay: idle, empty history.
+  await expect(page.getByTestId('result-state')).toHaveAttribute('data-state', 'idle');
+  await expect(page.getByTestId('result-history')).toContainText('Nothing yet');
   await page.getByTestId('fake-label').selectOption('calendar');
   await page.waitForTimeout(600);
   // "What's on my calendar today?" takes about 2 s to mouth; hold a little longer, like a person would. Up to 3 tries.
