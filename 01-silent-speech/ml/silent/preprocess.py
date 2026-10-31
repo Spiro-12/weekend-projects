@@ -22,6 +22,7 @@ import numpy as np
 from scipy.signal import butter, filtfilt
 
 GRID_HZ = 50  # contracts.ts GRID_HZ
+GRID_EPS = 1e-6  # PROTOCOL §5 step 1: k_last = floor((t_last - t_0) * 50 + 1e-6)
 DEFAULT_CHANNELS: tuple[str, ...] = ("rr.x", "rr.y", "rr.z", "ua.x", "ua.y", "ua.z")
 STD_FLOOR = 1e-8
 Norm = Literal["global", "clip"]
@@ -94,7 +95,8 @@ def mirror_samples(samples: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def to_grid(samples: Sequence[dict[str, Any]], channels: Sequence[str] = DEFAULT_CHANNELS) -> np.ndarray:
     """Step 1 + 2: sort by t, drop duplicate t (first kept), linear interpolation onto
-    t_k = t_0 + k/50, k = 0 .. floor((t_last - t_0) * 50 + 1e-9). Returns (ch, n)."""
+    t_k = t_0 + k/50, k = 0 .. floor((t_last - t_0) * 50 + 1e-6). Returns (ch, n).
+    (1e-6, not 1e-9: real timestamps are seconds since boot, ~1.3e6 s, where the float error of t_last - t_0 is ~1e-8.)"""
     getters = [_channel_getter(c) for c in channels]
     t = np.array([s["t"] for s in samples], dtype=np.float64)
     x = np.array([[s[k][i] for (k, i) in getters] for s in samples], dtype=np.float64).T.reshape(len(getters), len(t))
@@ -104,7 +106,7 @@ def to_grid(samples: Sequence[dict[str, Any]], channels: Sequence[str] = DEFAULT
     t, x = t[keep], x[:, keep]
     if len(t) < 2:
         raise ValueError("clip needs at least 2 distinct timestamps")
-    k_last = math.floor((t[-1] - t[0]) * GRID_HZ + 1e-9)
+    k_last = math.floor((t[-1] - t[0]) * GRID_HZ + GRID_EPS)
     grid = t[0] + np.arange(k_last + 1) / GRID_HZ
     return np.stack([np.interp(grid, t, row) for row in x])
 
