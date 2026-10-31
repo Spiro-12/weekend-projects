@@ -70,6 +70,10 @@ export async function startMockBridge(o: MockBridgeOpts = {}): Promise<MockBridg
       try { obj = JSON.parse(text); } catch { /* bad json */ }
       const isObj = typeof obj === 'object' && obj !== null && !Array.isArray(obj);
       if (isObj && (obj as { type?: unknown }).type !== 'action') return; // not an action: ignore
+      // Like the Mac app: an action with no token string is unpaired, not bad_json.
+      const o2 = obj as { id?: unknown; token?: unknown } | undefined;
+      if (isObj && typeof o2?.token !== 'string' && o2?.token === undefined)
+        return send(ws, { type: 'error', code: 'unpaired', message: 'missing pairing token', ...(typeof o2?.id === 'string' ? { id: o2.id } : {}) } satisfies ErrorMsg);
       const req = parseClientMsg(text);
       if (!req) return send(ws, { type: 'error', code: 'bad_json', message: 'could not parse message' } satisfies ErrorMsg);
       if (o.token !== undefined && req.token !== o.token)

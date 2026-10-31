@@ -67,6 +67,7 @@ describe('mock bridge pairing (token)', () => {
     ws.on('message', (d) => { const m = parseServerMsg(d.toString()); if (m) msgs.push(m); });
     await new Promise<void>((res) => ws.on('open', () => res()));
     const send = (id: string, token: string) => ws.send(JSON.stringify({ type: 'action', id, action: 'volume_up', label: 'v', confidence: 0.9, token }));
+    ws.send(JSON.stringify({ type: 'action', id: 't0', action: 'volume_up', label: 'v', confidence: 0.9 })); // no token field
     send('t1', '');
     send('t2', 'ffff0123456789abcdef0123456789ab');
     send('t3', 'abcdef0123456789abcdef0123456789');
@@ -74,6 +75,7 @@ describe('mock bridge pairing (token)', () => {
     ws.close();
     await b.close();
     const byId = (id: string) => msgs.find((m) => 'id' in m && m.id === id);
+    expect(byId('t0')).toMatchObject({ type: 'error', code: 'unpaired' });
     expect(byId('t1')).toMatchObject({ type: 'error', code: 'unpaired' });
     expect(byId('t2')).toMatchObject({ type: 'error', code: 'unpaired' });
     expect(byId('t3')).toMatchObject({ type: 'actionResult', ok: true });
