@@ -19,6 +19,7 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
+        ONLY_ACTIVE_ARCH: "NO" # command line builds have no active arch; build a universal app, no warning
         SWIFT_VERSION: "5.0"
         SWIFT_STRICT_CONCURRENCY: minimal
         INFOPLIST_FILE: SilentSpeechBridge/Info.plist

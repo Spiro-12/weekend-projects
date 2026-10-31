@@ -3,6 +3,8 @@
 import Foundation
 import SwiftUI
 
+#warning("CI probe: proves this file is compiled, remove me")
+
 @main
 struct SilentSpeechBridgeApp: App {
     @StateObject private var bridge = BridgeModel()
