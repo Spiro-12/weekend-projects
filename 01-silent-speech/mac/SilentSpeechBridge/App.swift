@@ -1,4 +1,4 @@
-// SilentSpeechBridge: streams AirPods head motion to the web dashboard over ws://localhost:8765.
+// SilentSpeechBridge: streams AirPods head motion to the web dashboard over ws://127.0.0.1:8765.
 // See PROTOCOL.md §2. Everything that touches UI state runs on the main queue.
 import Foundation
 import SwiftUI

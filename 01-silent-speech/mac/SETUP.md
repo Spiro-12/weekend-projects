@@ -19,14 +19,17 @@ session never sees or types the password. (In a session with a real terminal, pl
    if xcodebuild -version >/dev/null 2>&1 && xcodebuild -checkFirstLaunchStatus; then echo "Xcode ready"; else
    osascript -e 'do shell script "xcode-select -s /Applications/Xcode.app/Contents/Developer && xcodebuild -license accept && xcodebuild -runFirstLaunch" with administrator privileges'; fi
    ```
-3. **Homebrew**: `command -v brew || ls /opt/homebrew/bin/brew`. Missing (Spiro: password box):
+3. **Homebrew**: `command -v brew || ls /opt/homebrew/bin/brew /usr/local/bin/brew`. Missing (Spiro: password box):
    ```bash
    PKG_URL=$(curl -fsSL https://api.github.com/repos/Homebrew/brew/releases/latest | grep -o 'https://[^"]*\.pkg' | head -1)
    curl -fsSL -o /tmp/Homebrew.pkg "$PKG_URL"
    osascript -e 'do shell script "installer -pkg /tmp/Homebrew.pkg -target /" with administrator privileges'
-   eval "$(/opt/homebrew/bin/brew shellenv)"
    ```
-   If brew is installed but not on PATH, run `eval "$(/opt/homebrew/bin/brew shellenv)"` at the start of each command.
+   If `brew` is not on PATH (new install, or a fresh shell), start each command with this line. It finds the prefix:
+   `/opt/homebrew` on Apple silicon, `/usr/local` on Intel.
+   ```bash
+   for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ -x "$b" ] && eval "$("$b" shellenv)" && break; done
+   ```
 4. **Node + npm**: `command -v node || brew install node`
 5. **XcodeGen**: `command -v xcodegen || brew install xcodegen`
 
@@ -95,7 +98,9 @@ cd ~/Documents/weekend-projects/01-silent-speech && npm ci && npx tsx mac/check-
 2. Relaunch without options (step 3, ending in `open build/Debug/SilentSpeechBridge.app` with no `--args`).
 3. `grep -E "Headphones|Motion" ~/Library/Logs/SilentSpeechBridge.log` shows `Headphones: connected`.
 4. `npx tsx mac/check-bridge.ts` from `01-silent-speech`: all PASS, and the INFO line shows hz 25 to 50 and gapPct under 5.
-   Run it again 60 s later: still the same, with Terminal in front (the app is in the background, App Nap is off).
+   Then put another app in front and wait, to prove App Nap is off:
+   `open -a Finder && sleep 60 && cd ~/Documents/weekend-projects/01-silent-speech && npx tsx mac/check-bridge.ts`
+   gives the same result.
 5. Leave the app running for the dashboard, or quit it: `pkill -x SilentSpeechBridge`.
 
 ## Troubleshooting

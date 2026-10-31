@@ -141,7 +141,16 @@ final class WebSocketServer: ObservableObject {
     private func listenerChanged(_ state: NWListener.State) {
         switch state {
         case .ready:
-            setListening(true, "Listening on ws://127.0.0.1:\(ProtocolV1.port)")
+            // Log the port we really got; anything but 8765 counts as a failure.
+            let actual = listener?.port?.rawValue ?? 0
+            guard actual == ProtocolV1.port else {
+                setListening(false, "Opened port \(actual) instead of \(ProtocolV1.port). Retrying every 2 s.")
+                listener?.cancel()
+                listener = nil
+                scheduleRetry()
+                return
+            }
+            setListening(true, "Listening on ws://127.0.0.1:\(actual)")
         case .failed(let error):
             if case .posix(let code) = error, code == .EADDRINUSE {
                 setListening(false, "Port \(ProtocolV1.port) is in use. Quit the other copy of the app. Retrying every 2 s.")

@@ -19,6 +19,8 @@ if [ "$(valid_count)" = "1" ]; then
   echo "OK: \"$NAME\" already exists and is valid."
 else
   # Delete every old copy (certificate + its private key) so codesign never sees two or a broken one.
+  # Old trust settings are left alone on purpose: removing them (-t) can pop another password box, and they only
+  # match the deleted certificate's hash, so they are harmless.
   HASHES=$(security find-certificate -a -c "$NAME" -Z "$KEYCHAIN" 2>/dev/null | awk '/SHA-1 hash:/ {print $3}' || true)
   for H in $HASHES; do
     echo "Deleting old \"$NAME\" certificate $H"
@@ -68,7 +70,7 @@ fi
 
 # Test signature now, so the keychain popup shows up while Spiro is at the keyboard (not during a build).
 echo "Test signing: if a popup asks, type the Mac password and click Always Allow."
-TEST=/tmp/ss-sign-test
+TEST=$(mktemp /tmp/ss-sign-test.XXXXXX)
 cp /usr/bin/true "$TEST"
 if OUT=$(codesign -f -s "$NAME" "$TEST" 2>&1); then
   rm -f "$TEST"

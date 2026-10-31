@@ -143,11 +143,12 @@ if (good.open) {
   const motion = box.ofType<MotionMsg>('motion').slice(before);
   const hz = motion.length / 2;
   const steps = motion.slice(1).map((m, i) => m.seq - motion[i].seq);
-  if (latestStatus()?.simulated) {
+  // The real app's Simulate mode streams at 50 Hz. The TS mock says simulated: true at 25 Hz, so only check the app.
+  if (latestStatus()?.simulated && hello?.app === 'SilentSpeechBridge') {
     report(hz > 40, '(e) Simulate motion streams over 40 Hz', `${hz} Hz`);
     report(motion.length > 1 && steps.every((d) => d === 1), '(e) seq goes up by exactly 1', `steps seen: ${[...new Set(steps)].join(', ')}`);
   } else {
-    report(steps.every((d) => d >= 1), '(e) seq only goes up', `${hz} Hz from the AirPods (0 = no AirPods, launch with --simulate)`);
+    report(steps.every((d) => d >= 1), '(e) seq only goes up', `${hz} Hz (real app: 0 = no AirPods, launch with --simulate)`);
   }
 
   // (e) protocol replies
