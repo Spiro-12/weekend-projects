@@ -1,10 +1,12 @@
 // Where the Recognize screen's model comes from (Track J brief, step 1). Pure helpers, no DOM.
 //
-// - The store has real (airpods) clips for at least 2 classes: train on them. That is "your model",
-//   the only kind that may run actions. Fake practice clips never train it.
-// - Otherwise: Spiro's public model (`models/templates.json`, Track F). Missing file: "No public model yet".
+// - Fake source: the demo model (demo-model.ts), trained in the browser on made-up motion like the fake
+//   source's. Spiro's public model is trained on real AirPods data and doesn't know fake motion.
+// - Live / replay: the store has real (airpods) clips for at least 2 classes: train on them. That is
+//   "your model", the only kind that may run actions. Fake practice clips never train it.
+//   Otherwise: Spiro's public model (`models/templates.json`, Track F). Missing file: "No public model yet".
 // - A model another panel set (Record's "Train & use it" on practice data) is kept when there is no
-//   real data, but it never counts as yours.
+//   real data (or in fake mode), but it never counts as yours.
 import excludeJson from '../../../../data/raw/exclude.json';
 import type { Clip, DatasetClip, DtwKnnModelJSON } from '../../core/contracts';
 import type { ClipMeta } from '../../store';
@@ -40,17 +42,19 @@ export const classCount = (clips: { label: string }[]) => new Set(clips.map((c) 
 /** Identifies a training set (which clips), to tell if "your model" is out of date. */
 export const fingerprint = (clips: { id: string }[]) => clips.map((c) => c.id).sort().join('\n');
 
-export type Provenance = 'own' | 'public' | 'other';
-export type Plan = 'train' | 'keep' | 'public';
+export type Provenance = 'own' | 'public' | 'demo' | 'other';
+export type Plan = 'train' | 'keep' | 'public' | 'demo';
 
 /** Minimum number of classes with real clips before we train "your model". */
 export const MIN_REAL_CLASSES = 2;
 
 /**
- * What to do when Recognize mode starts (or Re-train is pressed).
- * `fresh`: the current model is ours and was trained on exactly today's real clips.
+ * What to do when Recognize mode starts, the source changes, or Re-train is pressed.
+ * `fake`: the source is the fake one. `fresh`: the current model is ours and was trained on exactly
+ * today's real clips.
  */
-export function planModel(o: { realClasses: number; current: Provenance | null; fresh: boolean; force: boolean }): Plan {
+export function planModel(o: { fake: boolean; realClasses: number; current: Provenance | null; fresh: boolean; force: boolean }): Plan {
+  if (o.fake) return !o.force && (o.current === 'demo' || o.current === 'other') ? 'keep' : 'demo';
   if (o.realClasses >= MIN_REAL_CLASSES) return o.current === 'own' && o.fresh && !o.force ? 'keep' : 'train';
   if (!o.force && (o.current === 'other' || o.current === 'public')) return 'keep';
   return 'public';

@@ -11,6 +11,7 @@ import type { ActionResultMsg, Classifier, HelloMsg, Prediction, StatusMsg } fro
 import { NONE } from '../core/contracts';
 import * as ml from '../ml/index';
 import { confetti } from './result/confetti';
+import { demoClips } from './result/demo-model';
 import {
   MIN_REAL_CLASSES, classCount, fetchPublicModel, fingerprint, planModel, realClips,
   type Provenance, type PublicModel,
@@ -25,7 +26,7 @@ const THINK_TIMEOUT_MS = 2600; // the shell cuts the clip at most 1.5 s after re
 const SPEAK_KEY = 'ss.result.speak';
 const RING_C = 2 * Math.PI * 52; // ring circumference (r = 52 in a 120 viewBox)
 
-type Tag = { kind: 'own'; n: number; fp: string } | { kind: 'public'; n: number };
+type Tag = { kind: 'own'; n: number; fp: string } | { kind: 'public'; n: number } | { kind: 'demo'; n: number };
 type StageState = 'idle' | 'listening' | 'thinking' | 'accepted' | 'unsure' | 'nomodel';
 type ChipState = 'ghost' | 'sending' | 'done' | 'dry' | 'failed' | 'unknown';
 interface Seen { label: string; accepted: boolean; confidence: number }
@@ -92,6 +93,7 @@ class ResultPanel {
   private failure: { why: 'missing' | 'error'; message: string } | null = null;
   private trainError: string | null = null;
   private publicLoad: Promise<PublicModel> | null = null;
+  private demo: Classifier | null = null; // built once, on first use in fake mode
   private realNow: { n: number; classes: number; fp: string } = { n: 0, classes: 0, fp: '' };
   private conn = 'connecting';
   private hello: HelloMsg | null = null; // from the current connection only
@@ -155,6 +157,7 @@ class ResultPanel {
       this.conn = 'connecting';
       this.renderArmed();
       this.renderIdle();
+      if (app.mode === 'classify') void this.ensureModel(false); // fake ↔ live/replay need different models
     });
     app.bus.on('conn', (c) => {
       this.conn = c.state;
@@ -199,10 +202,35 @@ class ResultPanel {
     const fp = fingerprint(real);
     const tag = app.model ? this.tags.get(app.model) : undefined;
     const plan = planModel({
-      realClasses: classCount(real), current: this.provenance(), fresh: tag?.kind === 'own' && tag.fp === fp, force,
+      fake: app.source?.kind === 'fake', realClasses: classCount(real), current: this.provenance(),
+      fresh: tag?.kind === 'own' && tag.fp === fp, force,
     });
     this.trainError = null;
     if (plan === 'keep') { this.setLoading(null); return; }
+    if (plan === 'demo') {
+      if (!this.demo) {
+        this.setLoading('Building the demo model…');
+        await nextFrame();
+        if (gen !== this.gen) return;
+        try {
+          const t0 = performance.now();
+          const clips = demoClips(app.classes);
+          this.demo = ml.train(clips);
+          this.tags.set(this.demo, { kind: 'demo', n: clips.length });
+          console.info(`[result] demo model: ${clips.length} made-up takes in ${Math.round(performance.now() - t0)} ms`);
+        } catch (e) {
+          console.error('[result] building the demo model failed', e);
+          this.loading = null;
+          this.failure = { why: 'error', message: 'The demo model didn’t build' };
+          if (this.provenance() !== 'other') app.setModel(null); else this.renderModel();
+          return;
+        }
+      }
+      this.failure = null;
+      this.loading = null;
+      app.setModel(this.demo);
+      return;
+    }
     if (plan === 'train') {
       this.setLoading(`Training on your ${recordings(real.length)}…`);
       await nextFrame();
@@ -240,8 +268,9 @@ class ResultPanel {
     }
     this.loading = null;
     if (model) { this.failure = null; app.setModel(model); return; }
-    // No public model. A model of yours whose recordings are gone shouldn't linger; anything else stays.
-    if (this.provenance() === 'own') app.setModel(null);
+    // No public model. Your model whose recordings are gone, or the fake data demo, shouldn't linger.
+    const prov = this.provenance();
+    if (prov === 'own' || prov === 'demo') app.setModel(null);
     else { this.renderModel(); this.renderIdle(); }
   }
 
@@ -417,6 +446,10 @@ class ResultPanel {
       kind = 'own';
       main = `Your model: ${recordings(tag.n)}`;
       sub = tag.fp !== this.realNow.fp && this.realNow.classes >= MIN_REAL_CLASSES ? 'New recordings since. Press Re-train.' : 'Actions can run from this one';
+    } else if (m && tag?.kind === 'demo') {
+      kind = 'demo';
+      main = 'Demo model (fake data)';
+      sub = 'Made-up motion like the fake AirPods. Preview only';
     } else if (m && tag?.kind === 'public') {
       kind = 'public';
       main = "Spiro's model (public)";
@@ -436,7 +469,8 @@ class ResultPanel {
     if (r.modelSub.textContent !== sub) r.modelSub.textContent = sub;
     const b = r.retrain as HTMLButtonElement;
     b.disabled = !!this.loading;
-    b.title = this.realNow.classes >= MIN_REAL_CLASSES
+    b.title = app.source?.kind === 'fake' ? 'Fake AirPods use the demo model (Re-train has nothing new to learn)'
+      : this.realNow.classes >= MIN_REAL_CLASSES
       ? `Train again on your ${recordings(this.realNow.n)} from real AirPods`
       : 'Reload Spiro’s model (record 2 or more sentences with your AirPods to train your own)';
   }

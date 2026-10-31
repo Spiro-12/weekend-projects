@@ -25,7 +25,7 @@
 .rs-model .rs-dot { align-self: center; }
 .rs-model[data-kind=own] .rs-dot { background: var(--good); box-shadow: 0 0 10px #3ddc9777; }
 .rs-model[data-kind=public] .rs-dot { background: var(--accent); box-shadow: 0 0 10px #7c9cff77; }
-.rs-model[data-kind=other] .rs-dot { background: var(--warn); }
+.rs-model[data-kind=other] .rs-dot, .rs-model[data-kind=demo] .rs-dot { background: var(--warn); }
 .rs-model[data-kind=error] .rs-dot { background: var(--bad); }
 .rs-model[data-kind=loading] .rs-dot { background: var(--accent); animation: rs-blink 1s ease-in-out infinite; }
 .rs-model[data-kind=loading] b { color: var(--muted); font-weight: 600; }

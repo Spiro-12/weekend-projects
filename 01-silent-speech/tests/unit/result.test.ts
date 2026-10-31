@@ -2,9 +2,11 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { Mode, SourceKind } from '../../web/src/core/app';
-import type { ActionResultMsg, ClassDef, Dataset, DatasetClip, HelloMsg, StatusMsg } from '../../web/src/core/contracts';
+import type { ActionResultMsg, ClassDef, Dataset, DatasetClip, HelloMsg, MotionSample, StatusMsg } from '../../web/src/core/contracts';
 import { fakeStatus } from '../../web/src/core/synth';
+import { MotionSynth } from '../../web/src/core/synth';
 import * as ml from '../../web/src/ml/index';
+import { DEMO_REPS, FAKE_SPEAK_DELAY, demoClips } from '../../web/src/panels/result/demo-model';
 import {
   EXCLUDED, classCount, fetchPublicModel, fingerprint, planModel, realClips, type Provenance,
 } from '../../web/src/panels/result/model-source';
@@ -337,8 +339,19 @@ describe('model source', () => {
     expect(fingerprint([{ id: 'a' }])).not.toBe(fingerprint([{ id: 'a' }, { id: 'c' }]));
   });
 
+  it('plan, fake source: the demo model (a practice model from Record stays unless Re-train)', () => {
+    const plan = (current: Provenance | null, force = false, realClasses = 8) => planModel({ fake: true, realClasses, current, fresh: true, force });
+    expect(plan(null)).toBe('demo');
+    expect(plan('own')).toBe('demo'); // your real model doesn't know fake motion
+    expect(plan('public')).toBe('demo');
+    expect(plan('demo')).toBe('keep');
+    expect(plan('other')).toBe('keep');
+    expect(plan('other', true)).toBe('demo');
+    expect(plan('demo', true, 0)).toBe('demo');
+  });
+
   it('plan: train on 2+ real classes, else keep a practice or public model, else public', () => {
-    const plan = (realClasses: number, current: Provenance | null, fresh = false, force = false) => planModel({ realClasses, current, fresh, force });
+    const plan = (realClasses: number, current: Provenance | null, fresh = false, force = false) => planModel({ fake: false, realClasses, current, fresh, force });
     expect(plan(2, null)).toBe('train');
     expect(plan(8, 'public')).toBe('train');
     expect(plan(8, 'other')).toBe('train'); // Record's model is replaced by one we know is yours
@@ -350,7 +363,43 @@ describe('model source', () => {
     expect(plan(1, 'other')).toBe('keep'); // practice model from Record stays
     expect(plan(1, 'public')).toBe('keep');
     expect(plan(1, 'other', false, true)).toBe('public');
+    expect(plan(0, 'demo')).toBe('public'); // left fake mode: the demo model doesn't know real motion
+    expect(plan(8, 'demo')).toBe('train');
   });
+
+  it('demo clips: every class, deterministic, long enough, labeled, never airpods', () => {
+    const a = demoClips(classes);
+    expect(a).toHaveLength(classes.length * DEMO_REPS);
+    for (const c of classes) expect(a.filter((x) => x.label === c.id)).toHaveLength(DEMO_REPS);
+    expect(a.every((c) => c.samples.length >= 10 && c.id.startsWith('demo-'))).toBe(true);
+    expect(demoClips(classes)[5].samples).toEqual(a[5].samples); // same seed, same data
+    expect(realClips(a.map((c) => ({ ...syn.clips[0], ...c })), () => undefined, classes.map((c) => c.id))).toEqual([]);
+  });
+
+  it('demo model recognizes fake source motion for any reasonable hold, and never accepts a wrong sentence', () => {
+    const t0 = performance.now();
+    const m = ml.train(demoClips(classes));
+    const ms = performance.now() - t0;
+    let right = 0, n = 0;
+    const wrong: string[] = [];
+    for (const c of classes) {
+      for (const [i, extra] of [0.1, 0.6, 1.1].entries()) {
+        // Like the browser: one continuous fake stream, the sentence 0.15 s after Space, cut with 0.3 s pads.
+        const synth = new MotionSynth(42 + 17 * i);
+        const press = 1003;
+        const { t1 } = synth.utter(c, press + FAKE_SPEAK_DELAY);
+        const all: MotionSample[] = [];
+        for (let k = 0; k < 25 * 12; k++) { const s = synth.sampleAt(1000 + k / 25); if (s) all.push(s); }
+        const p = m.predict(all.filter((s) => s.t >= press - 0.3 && s.t <= t1 + extra + 0.3));
+        n++;
+        if (c.id === 'none' ? !p.accepted : p.accepted && p.label === c.id) right++;
+        else if (p.accepted && p.label !== c.id) wrong.push(`${c.id} -> ${p.label}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+    expect(right / n).toBeGreaterThanOrEqual(0.85);
+    expect(ms).toBeLessThan(2000); // ~90 ms warm; generous for slow CI
+  }, 30_000);
 
   it('a model trained on real clips is a working classifier', () => {
     const all = syn.clips.filter((c) => c.session !== 's3');
