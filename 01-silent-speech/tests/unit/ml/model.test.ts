@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Clip, DatasetClip, DtwKnnModelJSON } from '../../../web/src/core/contracts';
 import { NONE } from '../../../web/src/core/contracts';
 import { dtw, loadModel, preprocess, train, type DtwKnnModel } from '../../../web/src/ml/index';
+import { bandRadius } from '../../../web/src/ml/dtw';
 import { fromRaw, trainModel } from '../../../web/src/ml/knn';
 import { preprocessRaw, resolveOpts } from '../../../web/src/ml/preprocess';
 import { syntheticDataset } from './helpers';
@@ -39,12 +40,13 @@ describe('train / predict', () => {
   /** The header's formula, recomputed from scratch with the public dtw() (no early abandon, no caching). */
   function bruteForce(json: DtwKnnModelJSON, samples: Clip['samples']) {
     const tpl = json.templates.map((t) => ({ label: t.label, x: t.x.map((r) => Float32Array.from(r)) }));
-    const nnSame = tpl.map((t, i) => Math.min(...tpl.filter((u, j) => j !== i && u.label === t.label).map((u) => dtw(t.x, u.x, 6))));
+    const r = bandRadius(json.opts.band, json.opts.L);
+    const nnSame = tpl.map((t, i) => Math.min(...tpl.filter((u, j) => j !== i && u.label === t.label).map((u) => dtw(t.x, u.x, r))));
     const finite = nnSame.filter(Number.isFinite).sort((a, b) => a - b);
     const h = finite.length >> 1;
     const dRef = finite.length % 2 ? finite[h] : (finite[h - 1] + finite[h]) / 2;
     const q = preprocess(samples, json.opts, json.norm);
-    const d = tpl.map((t) => ({ label: t.label, d: dtw(q, t.x, 6) }));
+    const d = tpl.map((t) => ({ label: t.label, d: dtw(q, t.x, r) }));
     const nearest = new Map<string, number>();
     for (const x of d) nearest.set(x.label, Math.min(nearest.get(x.label) ?? Infinity, x.d));
     const knn = [...d].sort((a, b) => a.d - b.d).slice(0, json.opts.k);

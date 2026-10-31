@@ -12,6 +12,13 @@ const only = (labels: string[], cs = clips()) => cs.filter((c) => labels.include
 const except = (labels: string[], cs = clips()) => cs.filter((c) => !labels.includes(c.label));
 const acceptRate = (m: DtwKnnModel, xs: MotionSample[][]) => xs.filter((s) => m.predict(s).accepted).length / xs.length;
 const noise = noiseSet(); // 80 clips: white, band limited and speech like random bursts, several loudness levels
+/**
+ * (b) and (c) on norm 'global' (other options default). The synthetic sentences only differ by syllable timing and
+ * per channel loudness, so per clip normalization (the default since Phase 2, norm 'clip') makes them look alike
+ * and a small model can't tell them apart; real sentences stay apart. The same two checks run on the real
+ * recordings with the full defaults in safety-real.test.ts.
+ */
+const GLOBAL = { norm: 'global' } as const;
 
 describe('safety: out of vocabulary input is rejected', () => {
   it('(a) a 1 class model never accepts (capped below the threshold), not even noise', () => {
@@ -35,7 +42,8 @@ describe('safety: out of vocabulary input is rejected', () => {
   });
 
   it('(b) text_mom + none model: <= 5% of noise clips, <= 10% of other sentence clips accepted', () => {
-    const m = train(only(['text_mom', NONE]));
+    expect(acceptRate(train(only(['text_mom', NONE])), noise)).toBeLessThanOrEqual(0.05); // defaults
+    const m = train(only(['text_mom', NONE]), GLOBAL);
     expect(acceptRate(m, noise)).toBeLessThanOrEqual(0.05);
     const other = except(['text_mom', NONE]).map((c) => c.samples); // 90 clips of the 6 other sentences
     expect(acceptRate(m, other)).toBeLessThanOrEqual(0.1);
@@ -45,7 +53,8 @@ describe('safety: out of vocabulary input is rejected', () => {
     const pilotLabels = ['text_mom', 'volume_up', NONE];
     const pilot = only(pilotLabels).filter((c) => c.session === 's1');
     expect(pilot.length).toBe(15);
-    const m = train(pilot);
+    expect(acceptRate(train(pilot), noise)).toBeLessThanOrEqual(0.05); // defaults
+    const m = train(pilot, GLOBAL);
     expect(acceptRate(m, except(pilotLabels).map((c) => c.samples))).toBeLessThanOrEqual(0.1); // 75 clips
     expect(acceptRate(m, noise)).toBeLessThanOrEqual(0.05);
   });
