@@ -1,0 +1,9 @@
+{
+  "text_mom": { "kind": "imessage", "to": "+15555550100", "text": "On my way!" },
+  "volume_up": { "kind": "volume", "step": 15 },
+  "call_back": { "kind": "imessage", "to": "+15555550101", "text": "Can't talk now, call me back later" },
+  "demo_48h": { "kind": "say", "text": "I created this demo in 48 hours" },
+  "help": { "kind": "imessage", "to": "+15555550102", "text": "I need help right now" },
+  "calendar": { "kind": "calendar" },
+  "focus_music": { "kind": "music", "playlist": "Focus" }
+}
