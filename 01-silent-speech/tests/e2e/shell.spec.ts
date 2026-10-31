@@ -64,15 +64,15 @@ test('header rate drops to 0 when data stops', async ({ page }) => {
   await expect(page.getByTestId('hz-browser')).toHaveText('0.0 Hz', { timeout: 4000 });
 });
 
-test('pairing link: #pair= token is stored, removed from the address bar, and sent with actions', async ({ page }) => {
+test('pairing link: #pair= token is kept in memory only and removed from the address bar', async ({ page }) => {
   const token = '0123456789abcdef0123456789abcdef';
   await page.goto(`./?mode=fake#pair=${token}`);
   await expect(page.getByTestId('source-pill')).toHaveText(/fake · open/);
   expect(new URL(page.url()).hash).toBe('');
-  expect(await page.evaluate(() => localStorage.getItem('ss.pair'))).toBe(token);
   expect(await page.evaluate(() => window.__ss.app.pairToken)).toBe(token);
+  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toContain(token); // other pages on the origin can't read it
   await page.reload();
-  expect(await page.evaluate(() => window.__ss.app.pairToken)).toBe(token); // remembered
+  expect(await page.evaluate(() => window.__ss.app.pairToken)).toBeNull(); // must come from the Mac app's link again
 });
 
 test('a malformed #pair= is ignored', async ({ page }) => {
