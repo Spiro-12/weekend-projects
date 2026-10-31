@@ -234,10 +234,15 @@ def test_tuned_dtw_sits_next_to_the_nested_number_and_is_not_crowned(tmp_path):
     ], ex_file(tmp_path))
     rows = md.splitlines()
     i = next(k for k, ln in enumerate(rows) if ln.startswith("| dtw-py | 94.2% (322/342)"))
-    assert rows[i + 1].startswith("| **DTW, nested** (same settings search, test session left out) | **88.2% (301.5/342)** |")
+    assert rows[i + 1].startswith(
+        "| **DTW, nested** (same grid, budNorm fixed to mirror, 384 configs; test session left out) | **88.2% (301.5/342; .5 = tied settings averaged)** |"
+    )
     assert "| 67.1% | 96.6% | 98.3% |" in rows[i + 1]
     assert "s3 is only held out of the public model's training" in md and "played no part" not in md
-    assert "per held out session s1 67.1%, s2 96.6%, s3 98.3%." in md and "94.2% when tuned on all three sessions is about 6 points" in md
+    assert "per held out session s1 67.1%, s2 96.6%, s3 98.3% (.5 = tied settings averaged)." in md
+    assert "94.2% when tuned on all three sessions is about 6 points" in md
+    assert "*Fixed before this data*: L, band, k, norm and threshold were set before these recordings existed." in md
+    assert "All three sessions are Spiro, recorded about 15 minutes apart on the same afternoon (Oct 31) in the same chair;" in md
     assert "- Highest LOSO with settings fixed before this data: **dtw-py (phase1-settings)**, 280/342 correct (81.9%)." in md
     assert "**dtw-py** (" not in md.split("Highest LOSO")[1].split("\n")[0]  # the tuned row is never crowned
     assert ("- Tuned DTW: 88.2% with settings chosen without the test session (the honest number) vs **minirocket (L96-clip)** at 84.8% "
@@ -262,7 +267,7 @@ def test_nested_number_is_read_from_tracks_f_file_when_present(tmp_path):
                   {"test": "s3", "correct": 117.5, "nClips": 120, "accuracy": 117.5 / 120}],
     }))
     md = build(tmp_path, [fake("dtw-py", "loso", 322, swept, n=342)], ex_file(tmp_path))
-    assert "| **DTW, nested** (same settings search, test session left out) | **87.7% (300/342)** |" in md
+    assert "| **DTW, nested** (same grid, budNorm fixed to mirror; test session left out) | **87.7% (300/342; .5 = tied settings averaged)** |" in md
     assert "| 67.1% (70.5/105) | 95.7% (112/117) | 97.9% (117.5/120) |" in md
     assert "(Track F, `ml/results/dtw-knn/sweep/nested-real.json`)" in md
     assert "Skipped files" not in md  # the sweep folder's JSON files are not Metrics and are not read as results

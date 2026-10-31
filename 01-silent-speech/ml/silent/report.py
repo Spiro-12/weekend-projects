@@ -149,8 +149,9 @@ SWEPT_DTW = {"L": 96, "band": 0.05, "k": 3, "norm": "clip"}
 NESTED_DTW = {
     "datasets": ["ss-dataset-s1-20261031-1621.json", "ss-dataset-s2-20261031-1637.json", "ss-dataset-s3-20261031-1654.json"],
     "accuracy": 0.882, "correct": "301.5", "nClips": 342, "perSession": {"s1": "67.1%", "s2": "96.6%", "s3": "98.3%"},
-    "source": "Track F review; PROTOCOL §6",
+    "source": "Track F review; PROTOCOL §6", "nConfigs": 384,
 }
+HALF_NOTE = ".5 = tied settings averaged"  # nested LOSO: configs tied at the top are all kept and their predictions averaged
 
 
 def _variant(m: dict[str, Any]) -> str | None:
@@ -319,12 +320,16 @@ def nested_from_file(path: Path) -> dict[str, Any] | None:
         pooled = d["pooled"]
         return {
             "datasets": list(d["datasets"]), "accuracy": float(pooled["accuracy"]), "correct": _num(pooled["correct"]),
-            "nClips": int(pooled["nClips"]),
+            "nClips": int(pooled["nClips"]), "nConfigs": d.get("nConfigs"),
             "perSession": {f["test"]: f"{_pct(f['accuracy'])} ({_num(f['correct'])}/{f['nClips']})" for f in d["folds"]},
             "source": "Track F, `ml/results/dtw-knn/sweep/nested-real.json`",
         }
     except (OSError, ValueError, KeyError, TypeError):
         return None
+
+
+def _has_half(nested: dict[str, Any]) -> bool:
+    return ".5" in str(nested["correct"]) or any(".5/" in str(v) for v in nested["perSession"].values())
 
 
 def _nested(rows: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
@@ -380,9 +385,12 @@ def _loso_table(rows: Sequence[dict[str, Any]], cols: Sequence[tuple[str, str]])
         )
         if nested and m is [r for r in rows if _swept(r)][-1]:  # the honest number right under the tuned DTW rows
             ncells = [nested["perSession"].get(s, "?") for s, _ in cols] + (["no randomness"] if seeds else [])
+            n_cfg = nested.get("nConfigs")
+            grid = "same grid, budNorm fixed to mirror" + (f", {n_cfg} configs" if n_cfg else "")
+            half = f"; {HALF_NOTE}" if _has_half(nested) else ""
             lines.append(
-                f"| **DTW, nested** (same settings search, test session left out) | **{_pct(nested['accuracy'])} ({nested['correct']}/"
-                f"{nested['nClips']})** | | " + " | ".join(ncells) + " | chosen without the test session | | |"
+                f"| **DTW, nested** ({grid}; test session left out) | **{_pct(nested['accuracy'])} ({nested['correct']}/"
+                f"{nested['nClips']}{half})** | | " + " | ".join(ncells) + " | chosen without the test session | | |"
             )
     if nested:
         tuned = next(m for m in rows if _swept(m))
@@ -393,15 +401,21 @@ def _loso_table(rows: Sequence[dict[str, Any]], cols: Sequence[tuple[str, str]])
             "included, was a test fold while they were picked (s3 is only held out of the public model's training). The honest",
             f"DTW number is **{_pct(nested['accuracy'])} ({nested['correct']}/{nested['nClips']}) LOSO with settings chosen without the test",
             f"session** ({nested['source']}): per held out session "
-            + ", ".join(f"{k} {v}" for k, v in nested["perSession"].items()) + ".",
+            + ", ".join(f"{k} {v}" for k, v in nested["perSession"].items()) + (f" ({HALF_NOTE})." if _has_half(nested) else "."),
             (f"{_pct(tuned['accuracy'])} when tuned on all three sessions is about {100 * (tuned['accuracy'] - nested['accuracy']):.0f} points"
-             " optimistic. Rows marked *fixed before this data* had no tuning on these recordings."),
+             " optimistic."),
         ]
     elif any(_swept(m) for m in rows):
         lines += [
             "",
             "**Settings picked on these folds:** the DTW defaults (L 96, band 0.05, k 3, clip norm, threshold 0.85) were chosen by a",
             "LOSO sweep over these same sessions (Track F), so those rows are optimistic (the best of many tries).",
+        ]
+    if any(_settings_origin(m) == "fixed before this data" for m in rows):
+        lines += [
+            "",
+            "*Fixed before this data*: L, band, k, norm and threshold were set before these recordings existed. Bud mirroring",
+            "(PROTOCOL §5 step 0) and the exclusion list did come from looking at them: corrections, not accuracy tuning.",
         ]
     if seeds:
         lines += [
@@ -565,6 +579,9 @@ def render(
             "Spiro's own recordings (`data/raw/`, see its README): one person, AirPods Pro 3 on a Mac, silent mouthing,",
             "head resting against a chair. The clips in `data/raw/exclude.json` are skipped everywhere (`none` takes where",
             'he mouthed "stay still"); the raw files are never edited.',
+            "",
+            "**All three sessions are Spiro, recorded about 15 minutes apart on the same afternoon (Oct 31) in the same chair;",
+            "accuracy on another day or for another person is untested.**",
             "",
         ]
         for g in _groups(real):

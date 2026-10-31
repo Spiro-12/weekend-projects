@@ -20,6 +20,9 @@ Spiro's own recordings (`data/raw/`, see its README): one person, AirPods Pro 3 
 head resting against a chair. The clips in `data/raw/exclude.json` are skipped everywhere (`none` takes where
 he mouthed "stay still"); the raw files are never edited.
 
+**All three sessions are Spiro, recorded about 15 minutes apart on the same afternoon (Oct 31) in the same chair;
+accuracy on another day or for another person is untested.**
+
 ### Data: `ss-dataset-s1-20261031-1621.json`, `ss-dataset-s2-20261031-1637.json`, `ss-dataset-s3-20261031-1654.json`
 
 | Session | Sensor bud | Clips used | Skipped (exclusion list) |
@@ -41,7 +44,7 @@ Train on the other sessions, test on a whole new one: the closest thing to real 
 |---|---:|---:|---:|---:|---:|---:|---|---:|---:|
 | dtw-knn (JS) | 94.2% (322/342) | 0.939 | ? | ? | ? | no randomness | picked on these folds (sweep) | 0.0% (0/27) | 12.9 |
 | dtw-py | 94.2% (322/342) | 0.939 | 83.8% (88/105) | 97.4% (114/117) | 100.0% (120/120) | no randomness | picked on these folds (sweep) | 0.0% (0/27) | 93.9 |
-| **DTW, nested** (same settings search, test session left out) | **88.2% (301.5/342)** | | 67.1% (70.5/105) | 96.6% (113/117) | 98.3% (118/120) | no randomness | chosen without the test session | | |
+| **DTW, nested** (same grid, budNorm fixed to mirror, 384 configs; test session left out) | **88.2% (301.5/342; .5 = tied settings averaged)** | | 67.1% (70.5/105) | 96.6% (113/117) | 98.3% (118/120) | no randomness | chosen without the test session | | |
 | dtw-py (phase1-settings) | 81.9% (280/342) | 0.820 | 64.8% (68/105) | 94.0% (110/117) | 85.0% (102/120) | no randomness | fixed before this data | 3.7% (1/27) | 52.3 |
 | minirocket | 76.3% (261/342) | 0.776 | 49.5% (52/105) | 92.3% (108/117) | 84.2% (101/120) | 77.8% (76.3% to 79.8%) | fixed before this data | 0.0% (0/27) | 3.9 |
 | minirocket (L96-clip) | 84.8% (290/342) | 0.854 | 64.8% (68/105) | 95.7% (112/117) | 91.7% (110/120) | 85.4% (83.9% to 88.3%) | preprocessing from the DTW sweep | 3.7% (1/27) | 6.0 |
@@ -52,8 +55,11 @@ Train on the other sessions, test on a whole new one: the closest thing to real 
 LOSO sweep of 768 configurations over all 3 sessions (Track F, `web/src/ml/preprocess.ts`), so every session, s3
 included, was a test fold while they were picked (s3 is only held out of the public model's training). The honest
 DTW number is **88.2% (301.5/342) LOSO with settings chosen without the test
-session** (Track F, `ml/results/dtw-knn/sweep/nested-real.json`): per held out session s1 67.1% (70.5/105), s2 96.6% (113/117), s3 98.3% (118/120).
-94.2% when tuned on all three sessions is about 6 points optimistic. Rows marked *fixed before this data* had no tuning on these recordings.
+session** (Track F, `ml/results/dtw-knn/sweep/nested-real.json`): per held out session s1 67.1% (70.5/105), s2 96.6% (113/117), s3 98.3% (118/120) (.5 = tied settings averaged).
+94.2% when tuned on all three sessions is about 6 points optimistic.
+
+*Fixed before this data*: L, band, k, norm and threshold were set before these recordings existed. Bud mirroring
+(PROTOCOL §5 step 0) and the exclusion list did come from looking at them: corrections, not accuracy tuning.
 
 Accuracy is the first seed (0), fixed before the run. MiniRocket and the CNN are random (kernels, weights), so the
 seed column shows the same LOSO with other seeds: differences of a few points between models are within that spread.
