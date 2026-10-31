@@ -1,9 +1,9 @@
 {
-  "text_mom": { "kind": "imessage", "to": "+15555550100", "text": "On my way!" },
+  "text_mom": { "kind": "imessage", "to": "", "text": "On my way!" },
+  "call_back": { "kind": "imessage", "to": "", "text": "Can't talk now, call me back later" },
+  "help": { "kind": "imessage", "to": "", "text": "I need help right now" },
   "volume_up": { "kind": "volume", "step": 15 },
-  "call_back": { "kind": "imessage", "to": "+15555550101", "text": "Can't talk now, call me back later" },
+  "focus_music": { "kind": "applemusic", "url": "https://music.apple.com/us/playlist/pure-focus/pl.f54198ad42404535be13eabf3835fb22" },
   "demo_48h": { "kind": "say", "text": "I created this demo in 48 hours" },
-  "help": { "kind": "imessage", "to": "+15555550102", "text": "I need help right now" },
-  "calendar": { "kind": "calendar" },
-  "focus_music": { "kind": "music", "playlist": "Focus" }
+  "calendar": { "kind": "calendar" }
 }

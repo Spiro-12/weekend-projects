@@ -295,11 +295,25 @@ test('finding 2: a quick re-press (finger slip) throws both takes away and keeps
 test('round 2, finding 1: a press right as the next sentence appears is thrown away, not labeled with it', async ({ page }) => {
   test.setTimeout(60_000);
   await setup(page, 3, PICK);
+  // Press from inside the page the instant the next sentence appears. Doing it with Playwright round trips
+  // missed the 400 ms "not readable yet" window on a busy machine (flaky), so the timing is deterministic now.
+  await page.evaluate(() => {
+    const el = document.querySelector('[data-testid=enroll-prompt]')!;
+    const first = el.getAttribute('data-label');
+    const w = window as unknown as { __early: Promise<string> };
+    w.__early = new Promise<string>((res) => {
+      const mo = new MutationObserver(() => {
+        const label = el.getAttribute('data-label');
+        if (el.getAttribute('data-ready') !== '0' || !label || label === first) return;
+        mo.disconnect();
+        dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ' }));
+        setTimeout(() => { dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', key: ' ' })); res(label); }, 1200);
+      });
+      mo.observe(el, { attributes: true, attributeFilter: ['data-ready', 'data-label'] });
+    });
+  });
   await record(page, 1);
-  // the next sentence just appeared (the take landed): press at once, before it has been readable
-  await expect(prompt(page)).toHaveAttribute('data-ready', '0');
-  const next = await prompt(page).getAttribute('data-label');
-  await hold(page);
+  const next = await page.evaluate(() => (window as unknown as { __early: Promise<string> }).__early);
   await expect(msg(page)).toContainText('Wait until the sentence turns solid white', { timeout: 5000 });
   await page.waitForTimeout(1200);
   expect(await stored(page)).toBe(1);
