@@ -3,10 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from silent import DEFAULT_DATA, PROJECT_DIR
+from silent import DEFAULT_DATA, EXCLUDE_FILE, PROJECT_DIR, RAW_DIR
 from silent.data import load_corpus
 
 TINY = PROJECT_DIR / "shared" / "fixtures" / "dataset.tiny.json"
+REAL_FILES = sorted(RAW_DIR.glob("ss-dataset-*.json"))
 
 
 @pytest.fixture(scope="session")
@@ -17,6 +18,18 @@ def synthetic():
 @pytest.fixture(scope="session")
 def tiny():
     return load_corpus([TINY])
+
+
+@pytest.fixture(scope="session")
+def real():
+    """Spiro's 3 real sessions with the exclusion list. Loading only: real data runs are not part of pytest."""
+    return load_corpus(REAL_FILES, exclude=EXCLUDE_FILE)
+
+
+@pytest.fixture(scope="session")
+def real_smoke(real):
+    """Small real data smoke set: 2 sessions (right bud s1, left bud s2) x 2 classes = 60 clips."""
+    return real.select(sessions=["s1", "s2"], labels=["text_mom", "volume_up"])
 
 
 # GitHub Actions: turn failures into annotations (raw CI logs aren't reachable from Claude's sandbox,

@@ -13,6 +13,8 @@ from silent.preprocess import (
     butter_highpass,
     fit_norm,
     highpass,
+    mirror_samples,
+    mirror_signs,
     preprocess_clip,
     preprocess_clips,
     resample,
@@ -203,3 +205,46 @@ def test_preprocess_clips_shape(synthetic):
     X = preprocess_clips(synthetic.clips[:5], PreOpts(L=48))
     assert X.shape == (5, 6, 48)
     assert np.isfinite(X).all()
+
+
+# ---------- step 0: bud normalization ----------
+
+def test_mirror_samples_hand_values():
+    s = [{"t": 0.0, "rr": [1.0, 2.0, 3.0], "ua": [4.0, 5.0, 6.0], "g": [7.0, 8.0, 9.0], "q": [1, 0, 0, 0]}]
+    m = mirror_samples(s)[0]
+    assert m["rr"] == [1.0, -2.0, -3.0] and m["ua"] == [-4.0, 5.0, 6.0] and m["g"] == [-7.0, 8.0, 9.0]
+    assert m["q"] == [1, 0, 0, 0] and s[0]["rr"] == [1.0, 2.0, 3.0]  # copies, input untouched
+    assert mirror_samples(mirror_samples(s)) == s
+
+
+def test_mirror_signs():
+    np.testing.assert_array_equal(mirror_signs(["rr.x", "rr.y", "rr.z", "ua.x", "ua.y", "ua.z"]), [1, -1, -1, -1, 1, 1])
+    np.testing.assert_array_equal(mirror_signs(["ua.z", "rr.y"]), [1, -1])
+
+
+def test_right_bud_is_bit_for_bit_the_mirrored_samples(real_smoke):
+    clip = next(c for c in real_smoke.clips if c.loc == "right")
+    a = preprocess_clip(clip.samples, PreOpts(), "right")
+    np.testing.assert_array_equal(a, preprocess_clip(mirror_samples(clip.samples), PreOpts(), "left"))
+    assert not np.allclose(a, preprocess_clip(clip.samples, PreOpts(), "left"))
+
+
+@pytest.mark.parametrize("loc", ["left", "default", "unknown", None])
+def test_only_right_bud_is_mirrored(synthetic, loc):
+    s = synthetic.clips[0].samples
+    np.testing.assert_array_equal(preprocess_clip(s, PreOpts(), loc), preprocess_clip(s))
+
+
+def test_bud_norm_none_is_a_no_op(synthetic):
+    s = synthetic.clips[0].samples
+    np.testing.assert_array_equal(preprocess_clip(s, PreOpts(bud_norm="none"), "right"), preprocess_clip(s))
+    assert PreOpts().bud_norm == "mirror" and PreOpts().as_params()["budNorm"] == "mirror"  # PROTOCOL §5 default
+    with pytest.raises(ValueError):
+        preprocess_clip(s, PreOpts(bud_norm="flip"), "right")  # type: ignore[arg-type]
+
+
+def test_preprocess_clips_uses_each_clips_bud(real_smoke):
+    clips = [c for c in real_smoke.clips if c.loc == "right"][:2] + [c for c in real_smoke.clips if c.loc == "left"][:2]
+    X = preprocess_clips(clips)
+    for x, c in zip(X, clips):
+        np.testing.assert_array_equal(x, preprocess_clip(c.samples, PreOpts(), c.loc))
