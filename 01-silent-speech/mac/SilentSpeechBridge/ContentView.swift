@@ -1,18 +1,22 @@
-// The one window: AirPods state, live rate, dashboard connection, toggles and the last log lines.
+// The one window: AirPods state, live rate, dashboard connection, toggles, the help notice and the last log lines.
 import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var motion: MotionStreamer
     @ObservedObject var server: WebSocketServer
+    @ObservedObject var runner: ActionRunner
+    let pairing: Pairing
     @ObservedObject var log: LogStore
-
-    private let dashboardURL = URL(string: "https://spiro-12.github.io/weekend-projects/01-silent-speech/?mode=live")!
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Silent Speech Bridge")
                 .font(.title2)
                 .bold()
+
+            if let notice = runner.helpNotice {
+                HelpBanner(notice: notice) { runner.dismissHelp() }
+            }
 
             GroupBox("AirPods") {
                 VStack(alignment: .leading, spacing: 6) {
@@ -30,8 +34,10 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     InfoRow(label: "Server", value: server.portStatus, good: server.listening)
                     InfoRow(label: "Dashboards open", value: "\(server.clientCount)", good: server.clientCount > 0)
+                    InfoRow(label: "Pairing", value: pairingText, good: pairing.token != nil)
                     HStack(spacing: 16) {
-                        Link("Open dashboard", destination: dashboardURL)
+                        // The link carries #pair=<token>: the dashboard it opens is the paired one.
+                        Link("Open dashboard", destination: pairing.dashboardURL)
                         if !server.listening {
                             Button("Retry") { server.restart() }
                         }
@@ -68,6 +74,10 @@ struct ContentView: View {
         .frame(minWidth: 480, minHeight: 640)
     }
 
+    private var pairingText: String {
+        pairing.token != nil ? "Ready (Open dashboard pairs it)" : "No token: every action is refused"
+    }
+
     private var headphonesText: String {
         switch motion.headphones {
         case .connected: return "Connected"
@@ -83,6 +93,40 @@ struct ContentView: View {
         case .notDetermined: return "Not asked yet"
         case .restricted: return "Restricted"
         }
+    }
+}
+
+/// Red notice for the `help` action, until Dismiss.
+private struct HelpBanner: View {
+    let notice: HelpNotice
+    let dismiss: () -> Void
+
+    private static let timeFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .none
+        f.timeStyle = .medium
+        return f
+    }()
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.title)
+                .foregroundStyle(Color.red)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Help was asked for at \(HelpBanner.timeFormat.string(from: notice.time))")
+                    .font(.headline)
+                if !notice.detail.isEmpty {
+                    Text(notice.detail)
+                }
+            }
+            Spacer(minLength: 0)
+            Button("Dismiss", action: dismiss)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.red.opacity(0.18))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 

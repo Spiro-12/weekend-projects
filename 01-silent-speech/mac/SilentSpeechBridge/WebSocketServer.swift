@@ -1,6 +1,7 @@
 // WebSocket server on ws://127.0.0.1:8765, PROTOCOL.md §2.
 // Bound to 127.0.0.1 only, Origin allowlist, hello + status on connect, status every 1 s, motion per sample,
-// action requests answered within 1 s. All Network.framework callbacks run on the main queue.
+// actions need the pairing token (checked first) and are answered within 1 s. All Network.framework callbacks
+// run on the main queue.
 import Foundation
 import Network
 
@@ -13,7 +14,7 @@ final class WebSocketServer: ObservableObject {
     @Published var armed = false {
         didSet {
             guard armed != oldValue else { return }
-            log.add(armed ? "Armed: actions will really run (Phase 1: still dry runs)" : "Not armed: actions are dry runs")
+            log.add(armed ? "Armed: actions from the paired dashboard will really run" : "Not armed: actions are dry runs")
             broadcastStatus()
         }
     }
@@ -52,6 +53,7 @@ final class WebSocketServer: ObservableObject {
 
     private let motion: MotionStreamer
     private let runner: ActionRunner
+    private let pairing: Pairing
     private let log: LogStore
     private let appVersion: String
     private var listener: NWListener?
@@ -67,9 +69,10 @@ final class WebSocketServer: ObservableObject {
     private static let loopbackV6 = IPv6Address("::1")?.rawValue
     private static let mappedLoopbackV4 = Data([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1])
 
-    init(motion: MotionStreamer, runner: ActionRunner, log: LogStore) {
+    init(motion: MotionStreamer, runner: ActionRunner, pairing: Pairing, log: LogStore) {
         self.motion = motion
         self.runner = runner
+        self.pairing = pairing
         self.log = log
         self.appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
     }
@@ -352,6 +355,12 @@ final class WebSocketServer: ObservableObject {
         guard let text = String(data: data, encoding: .utf8),
               let request = ProtocolCoding.decodeRequest(text) else {
             sendError(.bad_json, "could not parse message", id: nil, to: client)
+            return
+        }
+        // Pairing comes before anything else about the action (PROTOCOL §2). The token itself is never logged.
+        guard pairing.matches(request.token) else {
+            sendError(.unpaired, "wrong or missing pairing token: open the dashboard with the Mac app's link", id: request.id, to: client)
+            log.add("Refused an unpaired action (\(String(request.action.prefix(64)))): open the dashboard with this app's link")
             return
         }
         let action = request.action

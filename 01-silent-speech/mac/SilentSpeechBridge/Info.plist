@@ -27,6 +27,8 @@
 	<key>NSMotionUsageDescription</key>
 	<string>Reads your AirPods head motion to recognize silent speech.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Sends texts, changes volume and plays music when you silently say a command.</string>
+	<string>Sends your texts with Messages and plays your focus music in Spotify when you silently say a command.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Reads today's events out loud when you silently ask what is on your calendar.</string>
 </dict>
 </plist>
