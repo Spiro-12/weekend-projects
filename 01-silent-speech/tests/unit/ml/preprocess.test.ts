@@ -88,8 +88,14 @@ describe('preprocess', () => {
     expect(out.every((r) => Array.from(r).every(Number.isFinite))).toBe(true);
   });
 
+  it('rejects a clip that spans more than 60 s (before building the grid)', () => {
+    const long = [...makeSamples(25, 1, () => 0.1), ...makeSamples(25, 1, () => 0.1, 160.5)]; // 100 .. 161.46 s
+    expect(() => preprocess(long, {})).toThrow(/max is 60 s/);
+    expect(preprocess(makeSamples(2, 59, () => 0.1), {})[0].length).toBe(64);
+  });
+
   it('resolves defaults and rejects bad options', () => {
-    expect(resolveOpts()).toEqual({ channels: DEFAULT_CHANNELS, L: 64, hpHz: 1, band: 0.1, k: 3, norm: 'global', threshold: 0.5 });
+    expect(resolveOpts()).toEqual({ channels: DEFAULT_CHANNELS, L: 64, hpHz: 1, band: 0.1, k: 1, norm: 'global', threshold: 0.5 });
     expect(() => resolveOpts({ L: 1 })).toThrow();
     expect(() => resolveOpts({ k: 0 })).toThrow();
     expect(() => resolveOpts({ channels: [] })).toThrow();

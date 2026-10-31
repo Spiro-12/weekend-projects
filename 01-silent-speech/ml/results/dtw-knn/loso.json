@@ -3,17 +3,17 @@
   "protocol": "loso",
   "nClips": 120,
   "labels": ["calendar", "call_back", "demo_48h", "focus_music", "help", "none", "text_mom", "volume_up"],
-  "accuracy": 0.9666666666666667,
-  "macroF1": 0.9677448565633151,
+  "accuracy": 0.9833333333333333,
+  "macroF1": 0.9835668103448276,
   "confusion": [
     [15, 0, 0, 0, 0, 0, 0, 0],
     [0, 15, 0, 0, 0, 0, 0, 0],
     [0, 0, 15, 0, 0, 0, 0, 0],
-    [0, 0, 0, 14, 0, 1, 0, 0],
+    [0, 0, 0, 15, 0, 0, 0, 0],
     [0, 0, 0, 0, 14, 1, 0, 0],
     [0, 0, 0, 0, 0, 15, 0, 0],
     [0, 0, 0, 0, 0, 0, 15, 0],
-    [0, 0, 0, 0, 0, 2, 0, 13]
+    [0, 0, 0, 0, 0, 1, 0, 14]
   ],
   "noneFalseAcceptRate": 0,
   "params": {
@@ -21,13 +21,13 @@
     "L": 64,
     "hpHz": 1,
     "band": 0.1,
-    "k": 3,
+    "k": 1,
     "norm": "global",
     "threshold": 0.5,
     "radius": 6,
     "nSessions": 3,
     "datasets": ["dataset.synthetic.json"]
   },
-  "inferMsPerClip": 1.25245420833333,
-  "generatedAt": "2026-10-31T02:03:17.534Z"
+  "inferMsPerClip": 1.3994872916666623,
+  "generatedAt": "2026-10-31T02:26:20.205Z"
 }

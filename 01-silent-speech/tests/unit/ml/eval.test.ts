@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Clip, Metrics } from '../../../web/src/core/contracts';
 import { NONE } from '../../../web/src/core/contracts';
 import { evaluate, train } from '../../../web/src/ml/index';
-import { crossValidate, metricsFrom } from '../../../web/src/ml/eval';
+import { crossValidate, metricsFrom, type FoldResult } from '../../../web/src/ml/eval';
 import { syntheticDataset } from './helpers';
 
 const clips = (): Clip[] => syntheticDataset().clips;
@@ -21,23 +21,32 @@ function checkShape(m: Metrics, protocol: 'loo' | 'loso') {
   expect(m.macroF1).toBeGreaterThan(0);
   expect(m.macroF1).toBeLessThanOrEqual(1);
   expect(m.noneFalseAcceptRate).toBeGreaterThanOrEqual(0);
-  expect(m.params).toMatchObject({ L: 64, band: 0.1, k: 3, norm: 'global', radius: 6 });
+  expect(m.params).toMatchObject({ L: 64, band: 0.1, k: 1, norm: 'global', radius: 6 });
   expect(m.inferMsPerClip).toBeGreaterThan(0);
   expect(Number.isNaN(Date.parse(m.generatedAt))).toBe(false);
 }
 
 describe('evaluate on the synthetic fixture', () => {
-  it('LOSO accuracy >= 0.95', () => {
+  /** Share of correct, non none held out predictions that were accepted at the default threshold 0.5. */
+  const correctAccepted = (res: FoldResult[]) => {
+    const ok = res.filter((r) => r.label === r.predicted && r.label !== NONE);
+    return ok.filter((r) => r.accepted).length / ok.length;
+  };
+
+  it('(d) LOSO accuracy >= 0.95, and >= 90% of correct predictions accepted', () => {
     const m = evaluate(clips(), {}, 'loso');
     checkShape(m, 'loso');
     expect(m.accuracy).toBeGreaterThanOrEqual(0.95);
-  });
+    expect(correctAccepted(crossValidate(clips(), {}, 'loso'))).toBeGreaterThanOrEqual(0.9);
+  }, 60_000);
 
-  it('LOO accuracy >= 0.95', () => {
-    const m = evaluate(clips(), {}, 'loo');
+  it('(d) LOO accuracy >= 0.95, and >= 90% of correct predictions accepted', () => {
+    const res = crossValidate(clips(), {}, 'loo');
+    const m = metricsFrom(res, 'loo', { L: 64, band: 0.1, k: 1, norm: 'global', radius: 6 });
     checkShape(m, 'loo');
     expect(m.accuracy).toBeGreaterThanOrEqual(0.95);
-  });
+    expect(correctAccepted(res)).toBeGreaterThanOrEqual(0.9);
+  }, 60_000);
 
   it('predict < 20 ms with 120 templates', () => {
     const model = train(clips());

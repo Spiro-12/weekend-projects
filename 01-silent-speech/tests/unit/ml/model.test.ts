@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { Clip, DtwKnnModelJSON } from '../../../web/src/core/contracts';
+import type { Clip, DatasetClip, DtwKnnModelJSON } from '../../../web/src/core/contracts';
 import { NONE } from '../../../web/src/core/contracts';
-import { dtw, loadModel, preprocess, train } from '../../../web/src/ml/index';
+import { dtw, loadModel, preprocess, train, type DtwKnnModel } from '../../../web/src/ml/index';
 import { syntheticDataset } from './helpers';
 
-const clips = (): Clip[] => syntheticDataset().clips;
+const clips = (): DatasetClip[] => syntheticDataset().clips;
 const bySession = (s: string) => clips().filter((c) => c.session === s);
 
 describe('train / predict', () => {
@@ -34,28 +34,51 @@ describe('train / predict', () => {
     }
   });
 
-  it('matches a brute force kNN + the documented confidence formula (public dtw, no early abandon)', () => {
-    const json = model.toJSON();
+  /** The header's formula, recomputed from scratch with the public dtw() (no early abandon, no caching). */
+  function bruteForce(json: DtwKnnModelJSON, samples: Clip['samples']) {
     const tpl = json.templates.map((t) => ({ label: t.label, x: t.x.map((r) => Float32Array.from(r)) }));
-    for (const c of test.slice(0, 16)) {
-      const q = preprocess(c.samples, json.opts, json.norm);
-      const d = tpl.map((t) => ({ label: t.label, d: dtw(q, t.x, 6) }));
-      const nearest = new Map<string, number>();
-      for (const x of d) nearest.set(x.label, Math.min(nearest.get(x.label) ?? Infinity, x.d));
-      const knn = [...d].sort((a, b) => a.d - b.d).slice(0, 3);
-      const w = new Map<string, number>();
-      for (const x of knn) w.set(x.label, (w.get(x.label) ?? 0) + 1 / (x.d + 1e-9));
-      const wSum = [...w.values()].reduce((a, b) => a + b, 0);
-      const label = [...w.entries()].sort((a, b) => b[1] - a[1])[0][0];
-      const dBest = Math.min(...nearest.values());
-      const T = 0.1 * dBest + 1e-12;
-      const z = [...nearest.values()].reduce((a, v) => a + Math.exp(-(v - dBest) / T), 0);
-      const conf = (w.get(label)! / wSum) * (Math.exp(-(nearest.get(label)! - dBest) / T) / z);
-      const p = model.predict(c.samples);
-      expect(p.label).toBe(label);
-      expect(p.confidence).toBeCloseTo(conf, 9);
-      expect(p.top.map((t) => t.label).sort()).toEqual([...w.keys()].sort());
+    const nnSame = tpl.map((t, i) => Math.min(...tpl.filter((u, j) => j !== i && u.label === t.label).map((u) => dtw(t.x, u.x, 6))));
+    const finite = nnSame.filter(Number.isFinite).sort((a, b) => a - b);
+    const h = finite.length >> 1;
+    const dRef = finite.length % 2 ? finite[h] : (finite[h - 1] + finite[h]) / 2;
+    const q = preprocess(samples, json.opts, json.norm);
+    const d = tpl.map((t) => ({ label: t.label, d: dtw(q, t.x, 6) }));
+    const nearest = new Map<string, number>();
+    for (const x of d) nearest.set(x.label, Math.min(nearest.get(x.label) ?? Infinity, x.d));
+    const knn = [...d].sort((a, b) => a.d - b.d).slice(0, json.opts.k);
+    const w = new Map<string, number>();
+    for (const x of knn) w.set(x.label, (w.get(x.label) ?? 0) + 1 / (x.d + 1e-9));
+    const wSum = [...w.values()].reduce((a, b) => a + b, 0);
+    const label = [...w.entries()].sort((a, b) => b[1] - a[1] || nearest.get(a[0])! - nearest.get(b[0])!)[0][0];
+    const T = 0.1 * dRef;
+    const still = 1.25 * q.reduce((a, r) => a + r.reduce((b, v) => b + v * v, 0), 0);
+    const logits = [...[...nearest.values()].map((v) => -v / T), -1.7 * dRef / T, -still / T];
+    const mx = Math.max(...logits);
+    const z = logits.reduce((a, l) => a + Math.exp(l - mx), 0);
+    const sep = (l: string) => Math.exp(-nearest.get(l)! / T - mx) / z;
+    const confidence = (w.get(label)! / wSum) * (sep(label) + (label === NONE ? Math.exp(-still / T - mx) / z : 0));
+    const rest = [...nearest.keys()].filter((l) => l !== label).sort((a, b) => nearest.get(a)! - nearest.get(b)!).slice(0, 2);
+    return { dRef, label, confidence, top: [{ label, score: confidence }, ...rest.map((l) => ({ label: l, score: Math.min(sep(l), confidence) }))] };
+  }
+
+  it('matches a brute force kNN + the documented confidence formula (public dtw, no early abandon)', () => {
+    const m3 = train([...bySession('s1'), ...bySession('s2')], { k: 3 });
+    for (const m of [model, m3]) {
+      const json = m.toJSON();
+      for (const c of test.filter((_, i) => i % 3 === 0)) { // 14 clips, every class
+        const want = bruteForce(json, c.samples);
+        expect((m as unknown as { referenceDistance(): number }).referenceDistance()).toBeCloseTo(want.dRef, 9);
+        const p = m.predict(c.samples);
+        expect(p.label).toBe(want.label);
+        expect(p.confidence).toBeCloseTo(want.confidence, 9);
+        expect(p.top.map((t) => t.label)).toEqual(want.top.map((t) => t.label));
+        p.top.forEach((t, i) => expect(t.score).toBeCloseTo(want.top[i].score, 9));
+      }
     }
+  });
+
+  it('top has 3 entries (one per class, best first) when the model has 3+ classes', () => {
+    for (const c of test) expect(model.predict(c.samples).top.length).toBe(3);
   });
 
   it('a training clip predicts itself with full confidence', () => {
@@ -96,7 +119,7 @@ describe('train / predict', () => {
     const json = model.toJSON();
     expect(json.kind).toBe('dtw-knn');
     expect(json.v).toBe(1);
-    expect(json.opts).toEqual({ channels: ['rr.x', 'rr.y', 'rr.z', 'ua.x', 'ua.y', 'ua.z'], L: 64, hpHz: 1, band: 0.1, k: 3, norm: 'global', threshold: 0.5 });
+    expect(json.opts).toEqual({ channels: ['rr.x', 'rr.y', 'rr.z', 'ua.x', 'ua.y', 'ua.z'], L: 64, hpHz: 1, band: 0.1, k: 1, norm: 'global', threshold: 0.5 });
     expect(json.norm.mean.length).toBe(6);
     expect(json.templates.length).toBe(80);
     expect(json.templates[0].x.length).toBe(6);
@@ -109,6 +132,17 @@ describe('train / predict', () => {
     const m = train([...s1, ...s1, { ...s1[0], label: 'calendar' }]);
     expect(m.toJSON().templates.length).toBe(s1.length);
     expect(m.toJSON().templates[0].label).toBe(s1[0].label);
+  });
+
+  it('add() keeps dRef exact: an unsafe one take per class model becomes safe', () => {
+    const one = bySession('s1').filter((c) => c.rep === 0);
+    const m = train(one) as unknown as DtwKnnModel & { referenceDistance(): number | null };
+    expect(m.referenceDistance()).toBeNull();
+    expect(m.predict(test[1].samples).confidence).toBeLessThanOrEqual(m.threshold / 2);
+    for (const c of bySession('s1').filter((x) => x.rep === 1 || x.rep === 2)) m.add(c);
+    const want = bruteForce(m.toJSON(), test[1].samples);
+    expect(m.referenceDistance()).toBeCloseTo(want.dRef, 9);
+    expect(m.predict(test[1].samples).confidence).toBeCloseTo(want.confidence, 9);
   });
 
   it('add() appends a template using the existing norm stats', () => {
@@ -128,7 +162,7 @@ describe('train / predict', () => {
     const ok = test.filter((c) => m.predict(c.samples).label === c.label).length;
     expect(ok / test.length).toBeGreaterThan(0.8);
     const p = m.predict(test[0].samples);
-    expect(p.top.length).toBe(1);
+    expect(p.top.length).toBe(3);
     const back = loadModel(JSON.parse(JSON.stringify(m.toJSON())) as DtwKnnModelJSON);
     expect({ ...back.predict(test[0].samples), ms: 0 }).toEqual({ ...p, ms: 0 });
   });

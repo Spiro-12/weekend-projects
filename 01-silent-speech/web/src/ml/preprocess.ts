@@ -9,7 +9,7 @@ export const DEFAULT_OPTS: Readonly<Required<DtwKnnOptions>> = Object.freeze({
   L: 64,
   hpHz: 1.0,
   band: 0.1,
-  k: 3,
+  k: 1, // 1 beats 3 with few takes per class (first real AirPods data: LOO 94% vs 71%)
   norm: 'global',
   threshold: 0.5,
 });
@@ -48,6 +48,9 @@ export function resolveOpts(o: DtwKnnOptions = {}): Required<DtwKnnOptions> {
  * k = 0..floor((t_last - t_0)*50 + 1e-9), linear interpolation per channel (same as np.interp).
  * Returns [channel][n].
  */
+/** Longest clip span preprocessing accepts (a push to talk clip is a few seconds; this stops a runaway grid). */
+export const MAX_CLIP_SEC = 60;
+
 export function toGrid(samples: MotionSample[], channels: Channel[]): Float64Array[] {
   if (samples.length === 0) throw new Error('ml.preprocess: clip has no samples');
   const order = samples.map((_, i) => i).sort((i, j) => samples[i].t - samples[j].t || i - j);
@@ -59,6 +62,8 @@ export function toGrid(samples: MotionSample[], channels: Channel[]): Float64Arr
   const t = new Float64Array(m);
   for (let q = 0; q < m; q++) t[q] = samples[keep[q]].t;
   if (!Number.isFinite(t[0]) || !Number.isFinite(t[m - 1])) throw new Error('ml.preprocess: bad sample time');
+  const span = t[m - 1] - t[0];
+  if (span > MAX_CLIP_SEC) throw new Error(`ml.preprocess: clip spans ${span.toFixed(1)} s, max is ${MAX_CLIP_SEC} s`);
   const n = Math.floor((t[m - 1] - t[0]) * GRID_HZ + 1e-9) + 1;
   const out: Float64Array[] = [];
   for (const ch of channels) {

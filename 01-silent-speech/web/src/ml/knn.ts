@@ -2,27 +2,42 @@
 //
 // Prediction:
 //   1. Preprocess the clip (spec v1, the model's norm stats) and DTW it against every template.
-//   2. Label = distance weighted vote of the k nearest templates, weight 1 / (d + 1e-9)
+//   2. Label = distance weighted vote of the k nearest templates (default k = 1), weight 1 / (d + 1e-9)
 //      (same as the Python `dtw-py` cross check). Ties: the class with the nearer template wins.
-//   3. Confidence = vote x separation, both in [0, 1]:
-//      - vote       = the label's share of the k neighbour weights (1 when all k agree).
-//      - separation = softmax over every class's nearest DTW distance d_c, evaluated at the label:
-//                     exp(-(d_c - d_best) / T) / sum over classes, with T = 0.1 x d_best.
-//                     The temperature comes from the data (this query's best match), so it is scale free:
-//                     a class 10% farther than the best match gets e^-1 the weight, 30% farther e^-3.
-//                     It drops toward 1/(#classes) when several classes are about as close, including
-//                     when a clip is far from everything (all distances big and similar).
-//   4. top = the classes that got neighbour votes (at most k, capped at 3), ordered by vote,
-//      score = vote share x separation. So top[0] is always the label and top[0].score === confidence.
-//   5. accepted = label !== 'none' && confidence >= threshold.
+//   3. Reference distance dRef (a property of the model, kept up to date as templates are added): the
+//      median, over templates, of the DTW distance to the nearest OTHER template of the same class, i.e.
+//      "how far apart two takes of the same sentence usually are". Undefined when no class has 2 templates.
+//   4. Confidence = vote x separation, both in [0, 1]:
+//      - vote       = the label's share of the k neighbour weights (always 1 for k = 1).
+//      - separation = softmax with temperature T = 0.1 x dRef over every class's nearest distance d_c plus
+//                     two virtual templates, read at the label:
+//                     * "unknown" at 1.7 x dRef. A clip whose best match is well inside 1.7 x dRef (and well
+//                       ahead of the other classes) scores high; at 1.7 x dRef it is at most 0.5; farther out
+//                       it falls fast toward 0 (far from every template = not a sentence we know).
+//                     * "stillness" at 1.25 x sum(q^2) = 1.25 x the DTW distance to the all zeros clip (the
+//                       training mean: nothing moved). It backs a 'none' answer and counts against all other
+//                       labels, so a quiet clip is not accepted even by a model with no 'none' takes.
+//      Limits: distance is the only cue. A different sentence that lands within ~1.7 x dRef of a template is
+//      still accepted (synthetic fixture: a text_mom + none model accepts about 7% of the 6 other sentences), and a
+//      model trained on one sitting is stricter on other sittings (their takes sit farther than dRef).
+//      Unsafe models (fewer than 2 classes, or dRef undefined / 0) get the old scale free softmax
+//      (T = 0.1 x best distance, no virtual templates) capped at threshold / 2, so they never accept at a
+//      positive threshold.
+//   5. top (up to 3, score desc): top[0] = { label, confidence }. top[1..2] = the next classes by their own
+//      separation score (same softmax, read at that class), never above top[0].score.
+//   6. accepted = label !== 'none' && confidence >= threshold.
 import type { Clip, DtwKnnModelJSON, DtwKnnOptions, MotionSample, NormStats, Prediction } from '../core/contracts';
 import { NONE } from '../core/contracts';
 import { bandRadius, dtwFlat, interleave } from './dtw';
 import { applyNorm, computeNorm, preprocessRaw, resolveOpts, toF32 } from './preprocess';
 import type { DtwKnnModel } from './index';
 
-/** Separation temperature as a fraction of the best match distance (see the header). */
+/** Softmax temperature as a fraction of dRef (see the header). */
 export const SEPARATION_TAU = 0.1;
+/** The virtual "unknown" template sits at this multiple of dRef (see the header). */
+export const UNKNOWN_AT = 1.7;
+/** The virtual "stillness" template sits at this multiple of the clip's energy sum(q^2) (see the header). */
+export const SILENCE_AT = 1.25;
 const VOTE_EPS = 1e-9;
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -55,6 +70,8 @@ export class DtwKnn implements DtwKnnModel {
   private readonly radius: number;
   private tpl: Template[] = [];
   private labelIdx = new Map<string, number>();
+  private nnSame: number[] = []; // per template: DTW to the nearest other template of its class (Infinity if alone)
+  private dRef: number | null | undefined; // median of the finite nnSame; undefined = stale
 
   /** templates: already normalized, [channel][L]. */
   constructor(opts: Required<DtwKnnOptions>, norm: NormStats, templates: { label: string; x: ArrayLike<number>[] }[]) {
@@ -76,7 +93,22 @@ export class DtwKnn implements DtwKnnModel {
       if (row.length !== this.opts.L) throw new Error(`ml: template length ${row.length}, model L is ${this.opts.L}`);
       for (let i = 0; i < row.length; i++) if (!Number.isFinite(row[i])) throw new Error('ml: template has a non finite value');
     }
-    this.tpl.push({ label, x: interleave(x) });
+    const t: Template = { label, x: interleave(x) };
+    // Keep nnSame exact as templates arrive: each same class pair is computed once (DTW is symmetric),
+    // with an exact early abandon (a pair farther than both current nearests changes nothing).
+    const { C, radius: r } = this;
+    const L = this.opts.L;
+    let mine = Infinity;
+    for (let u = 0; u < this.tpl.length; u++) {
+      if (this.tpl[u].label !== label) continue;
+      const cutoff = mine > this.nnSame[u] ? mine : this.nnSame[u];
+      const d = dtwFlat(t.x, L, this.tpl[u].x, L, C, r, cutoff);
+      if (d < mine) mine = d;
+      if (d < this.nnSame[u]) this.nnSame[u] = d;
+    }
+    this.tpl.push(t);
+    this.nnSame.push(mine);
+    this.dRef = undefined;
     if (!this.labelIdx.has(label)) {
       this.labels = sortLabels([...this.labels, label]);
       this.labelIdx = new Map(this.labels.map((l, i) => [l, i]));
@@ -88,6 +120,18 @@ export class DtwKnn implements DtwKnnModel {
   /** Spec v1 preprocessing with this model's options and norm stats. Returns [channel][L]. */
   prep(samples: MotionSample[]): Float32Array[] {
     return toF32(applyNorm(preprocessRaw(samples, this.opts), this.opts.norm, this.norm));
+  }
+
+  /**
+   * dRef: median over templates of the DTW distance to the nearest other template of the same class
+   * (leave one out inside the templates). null when no class has 2 templates. Kept up to date by add().
+   */
+  referenceDistance(): number | null {
+    if (this.dRef !== undefined) return this.dRef;
+    const nn = this.nnSame.filter(Number.isFinite).sort((p, q) => p - q);
+    const h = nn.length >> 1;
+    this.dRef = nn.length === 0 ? null : nn.length % 2 ? nn[h] : (nn[h - 1] + nn[h]) / 2;
+    return this.dRef;
   }
 
   /** Adds one clip as a template, normalized with the model's current stats (stats are not recomputed). */
@@ -135,13 +179,27 @@ export class DtwKnn implements DtwKnnModel {
     const best = voted[0];
     let dBest = Infinity;
     for (let i = 0; i < nL; i++) if (nearest[i] < dBest) dBest = nearest[i];
-    const T = SEPARATION_TAU * dBest + 1e-12;
-    let z = 0;
-    for (let i = 0; i < nL; i++) z += Math.exp(-(nearest[i] - dBest) / T);
-    const sep = Math.exp(-(nearest[best] - dBest) / T) / z;
-    const top = voted.slice(0, 3).map((i) => ({ label: this.labels[i], score: (w[i] / wSum) * sep }));
+    // Separation: stable softmax of -d / T over every class's nearest distance plus, for safe models,
+    // the virtual "unknown" (UNKNOWN_AT x dRef) and "stillness" (SILENCE_AT x sum(q^2)) templates.
+    const ref = this.referenceDistance();
+    const safe = nL >= 2 && ref !== null && ref > 0 && Number.isFinite(ref);
+    const T = safe ? SEPARATION_TAU * ref : SEPARATION_TAU * dBest + 1e-12; // unsafe: scale free, then capped
+    const dUnknown = safe ? UNKNOWN_AT * ref : Infinity;
+    let energy = 0; // DTW to the all zeros clip (the training mean: nothing moved) is exactly sum(q^2)
+    for (let i = 0; i < q.length; i++) energy += q[i] * q[i];
+    const dStill = safe ? SILENCE_AT * energy : Infinity;
+    const m = -Math.min(dBest, dUnknown, dStill) / T; // largest logit
+    const share = (d: number) => Math.exp(-d / T - m);
+    let z = share(dUnknown) + share(dStill);
+    for (let i = 0; i < nL; i++) z += share(nearest[i]);
+    const sepOf = (i: number) => share(nearest[i]) / z;
     const label = this.labels[best];
-    const confidence = top[0].score;
+    // Stillness is a virtual 'none' take: it backs a 'none' answer and counts against every other label.
+    let confidence = (w[best] / wSum) * (sepOf(best) + (label === NONE ? share(dStill) / z : 0));
+    if (!safe) confidence = Math.min(confidence, Math.max(0, this.threshold / 2));
+    const rest = this.labels.map((_, i) => i).filter((i) => i !== best)
+      .sort((x, y) => nearest[x] - nearest[y] || x - y).slice(0, 2);
+    const top = [{ label, score: confidence }, ...rest.map((i) => ({ label: this.labels[i], score: Math.min(sepOf(i), confidence) }))];
     return { label, confidence, accepted: label !== NONE && confidence >= this.threshold, top };
   }
 
