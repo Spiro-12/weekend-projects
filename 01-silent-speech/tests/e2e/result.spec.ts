@@ -230,7 +230,9 @@ test('no public model yet: says so calmly, with no page errors', async ({ page }
 });
 
 test('no public model file at all (dev server answers with the page): also "No public model yet"', async ({ page }) => {
-  await page.goto(liveDefault); // vite preview serves index.html for the missing file
+  // The site ships a public model now, so fake the missing file the way a dev server answers it: with the page.
+  await page.route('**/models/templates.json', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><html><body></body></html>' }));
+  await page.goto(liveDefault);
   await recognize(page);
   await expect(page.getByTestId('result-model')).toHaveText(/No public model yet/);
 });
