@@ -33,10 +33,10 @@ const EVAL_DEBOUNCE_MS = 600;
 const NO_CLIP_MS = 2200; // the shell gives up waiting for the release pad after 1.5 s
 const SIGNAL_STALE_MS = 1500;
 const SLIP_MS = 1000; // a new press this soon after letting go = finger slip (takes are held this long)
-const PROMPT_READY_MS = 600; // a new sentence must be on screen this long before a press counts
+const PROMPT_READY_MS = 400; // a new sentence must be on screen this long before a press counts
 const SLOW_LOAD_MS = 5000;
 
-const WAIT_MSG = 'Wait for the sentence to show, then hold Space.';
+const WAIT_MSG = "Wait until the sentence turns solid white, then hold Space.";
 const SLIP_MSG = 'Finger slipped, say it again.';
 const SAVE_FAILED = 'Recorded but NOT saved in this browser. Press Export now.';
 const NO_AUTOSAVE = 'Autosave is off in this browser. Press Export before you close the page.';

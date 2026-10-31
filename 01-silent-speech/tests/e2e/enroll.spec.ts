@@ -299,7 +299,7 @@ test('round 2, finding 1: a press right as the next sentence appears is thrown a
   await expect(prompt(page)).toHaveAttribute('data-ready', '0');
   const next = await prompt(page).getAttribute('data-label');
   await hold(page);
-  await expect(msg(page)).toContainText('Wait for the sentence to show', { timeout: 5000 });
+  await expect(msg(page)).toContainText('Wait until the sentence turns solid white', { timeout: 5000 });
   await page.waitForTimeout(1200);
   expect(await stored(page)).toBe(1);
   await expect(prompt(page)).toHaveAttribute('data-label', next!); // same sentence, now readable
@@ -384,7 +384,7 @@ test('finding 4: a press while loading is thrown away, recording starts once sav
   await expect(prompt(page)).toHaveText('Loading your recordings…');
   await page.waitForTimeout(500);
   await hold(page, 1400); // the restore lands while Space is held
-  await expect(msg(page)).toContainText('Wait for the sentence to show', { timeout: 5000 });
+  await expect(msg(page)).toContainText('Wait until the sentence turns solid white', { timeout: 5000 });
   await expect(prompt(page)).toHaveAttribute('data-state', 'prompt');
   await page.waitForTimeout(800);
   expect(await stored(page)).toBe(0);
