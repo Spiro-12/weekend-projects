@@ -1,6 +1,6 @@
 // JS preprocessing + DTW vs real scipy / numpy (tests/unit/ml/golden.json, made by scripts/golden-ml.py).
 import { describe, expect, it } from 'vitest';
-import type { Channel, Clip, MotionSample } from '../../../web/src/core/contracts';
+import type { BudLocation, Channel, Clip, MotionSample } from '../../../web/src/core/contracts';
 import { dtw, preprocess } from '../../../web/src/ml/index';
 import {
   applyNorm, butterHighpass2, computeNorm, filtfilt, lfilterZi, preprocessRaw, toGrid,
@@ -18,6 +18,7 @@ interface Golden {
     clip: { floor: number[]; x0: number[][] };
   };
   dtw: { a: number[][]; b: number[][]; r: number; d: number }[];
+  budnorm: { name: string; loc: BudLocation; L: number; hpHz: number; channels: Channel[]; x: number[][] }[];
 }
 const g = readJson<Golden>('tests/unit/ml/golden.json');
 const TOL = 1e-6;
@@ -62,6 +63,16 @@ describe('golden: steps 1-4 (grid, high pass, resample)', () => {
     expect(out.length).toBe(channels.length);
     expect(out.every((r) => r instanceof Float32Array && r.length === L)).toBe(true);
     expect(maxAbsDiff(out, x)).toBeLessThan(TOL);
+  });
+});
+
+describe('golden: step 0 bud normalization (right bud mirrored), then steps 1-4', () => {
+  it.each(g.budnorm.map((c) => ({ ...c, ch: c.channels.join(',') })))('$name $loc L=$L [$ch]', ({ name, loc, L, hpHz, channels, x }) => {
+    const opts = { L, hpHz, channels };
+    const s = samplesOf(name);
+    expect(maxAbsDiff(preprocessRaw(s, opts, loc), x)).toBeLessThan(1e-9);
+    expect(maxAbsDiff(preprocess(s, opts, undefined, loc), x)).toBeLessThan(TOL);
+    expect(maxAbsDiff(preprocessRaw(s, { ...opts, budNorm: 'none' }, loc), x)).toBeGreaterThan(1e-3); // 'none': not mirrored
   });
 });
 

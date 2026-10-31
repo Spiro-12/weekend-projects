@@ -1,7 +1,9 @@
 // DTW + kNN classifier (PROTOCOL.md §6).
 //
 // Prediction:
-//   1. Preprocess the clip (spec v1, the model's norm stats) and DTW it against every template.
+//   1. Preprocess the clip (spec v1, the model's norm stats; step 0 mirrors it when ctx.loc is 'right' and the
+//      model's budNorm is 'mirror', so it lands in the left bud frame the templates are stored in) and DTW it
+//      against every template.
 //   2. Label = distance weighted vote of the k nearest templates (default k = 1), weight 1 / (d + 1e-9)
 //      (same as the Python `dtw-py` cross check). Ties: the class with the nearer template wins.
 //   3. Reference distance dRef (a property of the model, kept up to date as templates are added): the
@@ -30,7 +32,9 @@
 //   5. top (up to 3, score desc): top[0] = { label, confidence }. top[1..2] = the next classes by their own
 //      separation score (same softmax, read at that class), never above top[0].score.
 //   6. accepted = label !== 'none' && confidence >= threshold.
-import type { Clip, DtwKnnModelJSON, DtwKnnOptions, MotionSample, NormStats, Prediction } from '../core/contracts';
+import type {
+  BudLocation, Clip, DtwKnnModelJSON, DtwKnnOptions, MotionSample, NormStats, PredictContext, Prediction,
+} from '../core/contracts';
 import { NONE } from '../core/contracts';
 import { bandRadius, dtwFlat, interleave } from './dtw';
 import { applyNorm, applyNormInterleaved, computeNorm, preprocessRaw, resolveOpts, toF32 } from './preprocess';
@@ -130,14 +134,14 @@ export class DtwKnn implements DtwKnnModel {
 
   get size(): number { return this.tpl.length; }
 
-  /** Spec v1 preprocessing with this model's options and norm stats. Returns [channel][L]. */
-  prep(samples: MotionSample[]): Float32Array[] {
-    return toF32(applyNorm(preprocessRaw(samples, this.opts), this.opts.norm, this.norm));
+  /** Spec v1 preprocessing with this model's options and norm stats (`loc`: the clip's bud, step 0). Returns [channel][L]. */
+  prep(samples: MotionSample[], loc?: BudLocation): Float32Array[] {
+    return toF32(applyNorm(preprocessRaw(samples, this.opts, loc), this.opts.norm, this.norm));
   }
 
   /** Same as prep, interleaved [L][channel] (what classify takes). */
-  prepFlat(samples: MotionSample[]): Float32Array {
-    return applyNormInterleaved(preprocessRaw(samples, this.opts), this.opts.norm, this.norm);
+  prepFlat(samples: MotionSample[], loc?: BudLocation): Float32Array {
+    return applyNormInterleaved(preprocessRaw(samples, this.opts, loc), this.opts.norm, this.norm);
   }
 
   /**
@@ -172,14 +176,15 @@ export class DtwKnn implements DtwKnnModel {
     return this.dRef;
   }
 
-  /** Adds one clip as a template, normalized with the model's current stats (stats are not recomputed). */
+  /** Adds one clip as a template (bud normalized by `c.loc`), normalized with the model's current stats (not recomputed). */
   add(c: Clip): void {
-    this.push(c.label, this.prep(c.samples));
+    this.push(c.label, this.prep(c.samples, c.loc));
   }
 
-  predict(samples: MotionSample[]): Prediction {
+  /** `ctx.loc`: the bud that is streaming (the shell passes status.loc); step 0 mirrors `right`. */
+  predict(samples: MotionSample[], ctx?: PredictContext): Prediction {
     const t0 = now();
-    const p = this.classify(this.prepFlat(samples));
+    const p = this.classify(this.prepFlat(samples, ctx?.loc));
     return { ...p, ms: now() - t0 };
   }
 
@@ -258,11 +263,11 @@ export class DtwKnn implements DtwKnnModel {
   }
 }
 
-/** Fits norm stats on `clips` (deduped by id) and stores every clip as a template. */
+/** Fits norm stats on `clips` (deduped by id, each bud normalized by its `loc`) and stores every clip as a template. */
 export function trainModel(clips: Clip[], opts?: DtwKnnOptions): DtwKnn {
   const o = resolveOpts(opts);
   const cs = dedupeById(clips);
-  const raws = cs.map((c) => preprocessRaw(c.samples, o));
+  const raws = cs.map((c) => preprocessRaw(c.samples, o, c.loc));
   return fromRaw(cs.map((c) => c.label), raws, o);
 }
 

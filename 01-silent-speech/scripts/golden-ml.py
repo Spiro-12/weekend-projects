@@ -1,7 +1,7 @@
-"""Golden values for the JS preprocessing + DTW (PROTOCOL.md §5, §6), made with real scipy.
+"""Golden values for the JS preprocessing + DTW (PROTOCOL.md §5 incl. step 0 bud normalization, §6), made with real scipy.
 
 Run from 01-silent-speech/:
-    uv run --with scipy --with numpy python scripts/golden-ml.py
+    uv run --no-project --with scipy==1.18.1 --with numpy==2.5.4 python -I scripts/golden-ml.py
 Writes tests/unit/ml/golden.json. tests/unit/ml/golden.test.ts checks the JS against it to 1e-6.
 
 This is an independent reference written straight from the spec text, using scipy.signal.butter,
@@ -46,6 +46,11 @@ def resample(x, L):
 
 def raw(samples, channels=DEFAULT_CH, L=64, hp=1.0):
     return resample(highpass(to_grid(samples, channels), hp), L)
+
+
+def mirror(samples):
+    """Step 0 for a right bud clip (budNorm 'mirror'): rr -> [x, -y, -z], ua -> [-x, y, z]."""
+    return [{**s, 'rr': [s['rr'][0], -s['rr'][1], -s['rr'][2]], 'ua': [-s['ua'][0], s['ua'][1], s['ua'][2]]} for s in samples]
 
 
 def norm_global(raws):
@@ -149,6 +154,12 @@ def main():
         B = rng.normal(0, 1, (C, m))
         A32, B32 = A.astype(np.float32).astype(float), B.astype(np.float32).astype(float)  # JS passes Float32Array
         g['dtw'].append({'a': A32.tolist(), 'b': B32.tolist(), 'r': r, 'd': dtw_ref(A32, B32, max(r, abs(n - m)))})
+
+    # Step 0 (bud normalization): a right bud clip, mirrored then steps 1-4. Added last so the values above don't move.
+    g['budnorm'] = []
+    for name, s in cases[1:3]:
+        for L, hp, chans in [(64, 1.0, DEFAULT_CH), (48, 1.0, ['ua.x', 'rr.y', 'ua.z'])]:
+            g['budnorm'].append({'name': name, 'loc': 'right', 'L': L, 'hpHz': hp, 'channels': chans, 'x': raw(mirror(s), chans, L, hp).tolist()})
 
     out = ROOT / 'tests/unit/ml/golden.json'
     out.parent.mkdir(parents=True, exist_ok=True)

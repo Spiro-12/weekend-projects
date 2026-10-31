@@ -15,7 +15,7 @@
 import type { Clip, DtwKnnOptions, Metrics, NormStats } from '../core/contracts';
 import { NONE } from '../core/contracts';
 import { bandRadius, dtwFlat, interleave } from './dtw';
-import { dedupeById, finiteMedian, fromRaw, sortLabels } from './knn';
+import { dedupeById, finiteMedian, fromRaw, sortLabels, trainModel } from './knn';
 import { applyNorm, computeNorm, preprocessRaw, resolveOpts, toF32 } from './preprocess';
 
 export interface FoldResult { id: string; label: string; predicted: string; confidence: number; accepted: boolean; ms: number }
@@ -60,8 +60,8 @@ export function crossValidate(clips: Clip[], opts: DtwKnnOptions, protocol: 'loo
   const groups = cs.map((c, i) => (protocol === 'loo' ? String(i) : (c.session ?? '')));
   const folds = [...new Set(groups)];
   if (protocol === 'loso' && folds.length < 2) throw new Error('ml.evaluate: loso needs clips from at least 2 sessions');
-  // Steps 1..4 don't depend on the fold, so run them once. Step 5 (norm) is refit per fold.
-  const raws = cs.map((c) => preprocessRaw(c.samples, o));
+  // Steps 0..4 don't depend on the fold, so run them once (step 0 by each clip's own loc). Step 5 (norm) is refit per fold.
+  const raws = cs.map((c) => preprocessRaw(c.samples, o, c.loc));
   const labels = cs.map((c) => c.label);
   const near = protocol === 'loo' && !exactLoo && cs.length > EXACT_LOO_MAX ? twoNearestSameClass(labels, raws, o) : null;
   const out: FoldResult[] = new Array(cs.length);
@@ -84,11 +84,26 @@ export function crossValidate(clips: Clip[], opts: DtwKnnOptions, protocol: 'loo
     }
     const model = fromRaw(trainIdx.map((i) => labels[i]), trainRaws, o, { dRef, norm });
     for (const i of testIdx) {
-      const p = model.predict(cs[i].samples); // full path (preprocess + DTW), timed
+      const p = model.predict(cs[i].samples, { loc: cs[i].loc }); // full path (preprocess + DTW), timed
       out[i] = { id: cs[i].id, label: cs[i].label, predicted: p.label, confidence: p.confidence, accepted: p.accepted, ms: p.ms };
     }
   }
   return out;
+}
+
+/**
+ * One fixed split: train on `train`, predict every clip of `test` (each with its own `loc`), in test order.
+ * Both are deduped by id; a clip in both is an error (it would be tested on itself). Used for the cross bud score.
+ */
+export function holdOut(train: Clip[], test: Clip[], opts: DtwKnnOptions): FoldResult[] {
+  const tr = dedupeById(train), te = dedupeById(test);
+  const ids = new Set(tr.map((c) => c.id));
+  if (te.some((c) => ids.has(c.id))) throw new Error('ml.holdOut: a test clip is also a training clip');
+  const model = trainModel(tr, opts);
+  return te.map((c) => {
+    const p = model.predict(c.samples, { loc: c.loc });
+    return { id: c.id, label: c.label, predicted: p.label, confidence: p.confidence, accepted: p.accepted, ms: p.ms };
+  });
 }
 
 /** Metrics from held out predictions. Labels = every true or predicted label, sorted. */

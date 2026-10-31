@@ -1,7 +1,7 @@
 // Preprocessing spec v1 (PROTOCOL.md §5). JS and Python must match exactly; tests/unit/ml/golden.json
 // holds values made with real scipy by scripts/golden-ml.py and this file must match them to 1e-6.
 // All math runs in float64; only the final output is rounded to Float32Array.
-import type { Channel, DtwKnnOptions, MotionSample, NormStats } from '../core/contracts';
+import type { BudLocation, Channel, DtwKnnOptions, MotionSample, NormStats } from '../core/contracts';
 import { DEFAULT_CHANNELS, GRID_HZ } from '../core/contracts';
 
 export const DEFAULT_OPTS: Readonly<Required<DtwKnnOptions>> = Object.freeze({
@@ -12,7 +12,7 @@ export const DEFAULT_OPTS: Readonly<Required<DtwKnnOptions>> = Object.freeze({
   k: 1, // 1 beats 3 with few takes per class (first real AirPods data: LOO 94% vs 71%)
   norm: 'global',
   threshold: 0.5,
-  budNorm: 'mirror', // PROTOCOL §5 step 0 (Track F implements the effect)
+  budNorm: 'mirror', // PROTOCOL §5 step 0: right bud clips are mirrored into the left bud frame
 });
 
 const CHANNEL_INDEX: Record<Channel, ['rr' | 'ua', number]> = {
@@ -44,17 +44,37 @@ export function resolveOpts(o: DtwKnnOptions = {}): Required<DtwKnnOptions> {
   return r;
 }
 
+// ---------- Step 0: bud normalization ----------
+
+/**
+ * Channels that change sign when a right bud sample is mirrored into the left bud frame (PROTOCOL §5 step 0):
+ * rr -> [rr.x, -rr.y, -rr.z], ua -> [-ua.x, ua.y, ua.z] (a sagittal reflection: ua is a vector, rr a pseudo vector).
+ */
+export const MIRROR_FLIPS: Readonly<Record<Channel, boolean>> = Object.freeze({
+  'rr.x': false, 'rr.y': true, 'rr.z': true, 'ua.x': true, 'ua.y': false, 'ua.z': false,
+});
+
+/** True when step 0 mirrors a clip from this bud: only `right`, and only with budNorm 'mirror'. */
+export const mirrors = (loc: BudLocation | undefined, budNorm: Required<DtwKnnOptions>['budNorm']): boolean =>
+  budNorm === 'mirror' && loc === 'right';
+
+/** Step 0 spelled out on one sample (reference form; the pipeline flips the same signs inside toGrid). */
+export function mirrorSample(s: MotionSample): MotionSample {
+  return { ...s, rr: [s.rr[0], -s.rr[1], -s.rr[2]], ua: [-s.ua[0], s.ua[1], s.ua[2]] };
+}
+
 // ---------- Step 1 + 2: uniform 50 Hz grid, pick channels ----------
+
+/** Longest clip span preprocessing accepts (a push to talk clip is a few seconds; this stops a runaway grid). */
+export const MAX_CLIP_SEC = 60;
 
 /**
  * Sort by t (stable), drop duplicate t (keeps the first), grid t_k = t_0 + k/50 for
  * k = 0..floor((t_last - t_0)*50 + 1e-9), linear interpolation per channel (same as np.interp).
- * Returns [channel][n].
+ * `mirror`: step 0 for a right bud clip (flip the MIRROR_FLIPS channels; negation is exact, so this is bit for
+ * bit the same as gridding mirrorSample()d samples). Returns [channel][n].
  */
-/** Longest clip span preprocessing accepts (a push to talk clip is a few seconds; this stops a runaway grid). */
-export const MAX_CLIP_SEC = 60;
-
-export function toGrid(samples: MotionSample[], channels: Channel[]): Float64Array[] {
+export function toGrid(samples: MotionSample[], channels: Channel[], mirror = false): Float64Array[] {
   if (samples.length === 0) throw new Error('ml.preprocess: clip has no samples');
   const order = samples.map((_, i) => i).sort((i, j) => samples[i].t - samples[j].t || i - j);
   const keep: number[] = [order[0]];
@@ -71,8 +91,9 @@ export function toGrid(samples: MotionSample[], channels: Channel[]): Float64Arr
   const out: Float64Array[] = [];
   for (const ch of channels) {
     const [key, idx] = CHANNEL_INDEX[ch];
+    const sign = mirror && MIRROR_FLIPS[ch] ? -1 : 1;
     const v = new Float64Array(m);
-    for (let q = 0; q < m; q++) v[q] = samples[keep[q]][key][idx];
+    for (let q = 0; q < m; q++) v[q] = sign * samples[keep[q]][key][idx];
     const g = new Float64Array(n);
     let p = 0;
     for (let k = 0; k < n; k++) {
@@ -202,10 +223,13 @@ export function resampleLinear(x: Float64Array, L: number): Float64Array {
   return out;
 }
 
-/** Steps 1 to 4 (no normalization). Returns [channel][L] in float64. */
-export function preprocessRaw(samples: MotionSample[], opts?: DtwKnnOptions): Float64Array[] {
+/**
+ * Steps 0 to 4 (no normalization). Returns [channel][L] in float64.
+ * `loc`: which bud recorded the clip (clip.loc, or ctx.loc at predict time); step 0 mirrors `right` clips.
+ */
+export function preprocessRaw(samples: MotionSample[], opts?: DtwKnnOptions, loc?: BudLocation): Float64Array[] {
   const o = resolveOpts(opts);
-  return toGrid(samples, o.channels).map((g) => resampleLinear(highpass(g, o.hpHz), o.L));
+  return toGrid(samples, o.channels, mirrors(loc, o.budNorm)).map((g) => resampleLinear(highpass(g, o.hpHz), o.L));
 }
 
 // ---------- Step 5: normalization ----------
@@ -292,11 +316,12 @@ export const toF32 = (x: Float64Array[]): Float32Array[] => x.map((r) => Float32
 
 /**
  * Full spec v1 pipeline. Returns [channel][L].
+ * `loc`: the clip's bud for step 0 (only `right` with budNorm 'mirror' changes anything).
  * With `norm`, step 5 runs in `opts.norm` mode (see computeNorm for what the stats hold).
  * Without `norm`, it stops after step 4 (raw, unnormalized), which is what training uses to compute stats.
  */
-export function preprocess(samples: MotionSample[], opts?: DtwKnnOptions, norm?: NormStats): Float32Array[] {
+export function preprocess(samples: MotionSample[], opts?: DtwKnnOptions, norm?: NormStats, loc?: BudLocation): Float32Array[] {
   const o = resolveOpts(opts);
-  const raw = preprocessRaw(samples, o);
+  const raw = preprocessRaw(samples, o, loc);
   return toF32(norm ? applyNorm(raw, o.norm, norm) : raw);
 }
