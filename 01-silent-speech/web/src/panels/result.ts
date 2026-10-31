@@ -11,7 +11,7 @@ import type { ActionResultMsg, Classifier, HelloMsg, Prediction, StatusMsg } fro
 import { NONE } from '../core/contracts';
 import * as ml from '../ml/index';
 import { confetti } from './result/confetti';
-import { demoClips } from './result/demo-model';
+import { buildDemoModelJSON, type DemoBuilt } from './result/demo-build';
 import {
   MIN_REAL_CLASSES, classCount, fetchPublicModel, fingerprint, planModel, realClips,
   type Provenance, type PublicModel,
@@ -94,6 +94,8 @@ class ResultPanel {
   private trainError: string | null = null;
   private publicLoad: Promise<PublicModel> | null = null;
   private demo: Classifier | null = null; // built once, on first use in fake mode
+  private demoLoad: Promise<DemoBuilt> | null = null;
+  private demoWhere: DemoBuilt['where'] | null = null;
   private realNow: { n: number; classes: number; fp: string } = { n: 0, classes: 0, fp: '' };
   private conn = 'connecting';
   private hello: HelloMsg | null = null; // from the current connection only
@@ -210,21 +212,25 @@ class ResultPanel {
     if (plan === 'demo') {
       if (!this.demo) {
         this.setLoading('Building the demo model…');
-        await nextFrame();
+        const t0 = performance.now();
+        this.demoLoad ??= buildDemoModelJSON(app.classes); // shared by overlapping calls
+        const built = await this.demoLoad;
         if (gen !== this.gen) return;
-        try {
-          const t0 = performance.now();
-          const clips = demoClips(app.classes);
-          this.demo = ml.train(clips);
-          this.tags.set(this.demo, { kind: 'demo', n: clips.length });
-          console.info(`[result] demo model: ${clips.length} made-up takes in ${Math.round(performance.now() - t0)} ms`);
-        } catch (e) {
-          console.error('[result] building the demo model failed', e);
+        let model: Classifier | null = null;
+        if (built.ok) {
+          try { model = ml.loadModel(built.json); } catch (e) { console.error('[result] demo model is broken', e); }
+        } else console.error('[result] building the demo model failed:', built.error);
+        if (!model) {
+          this.demoLoad = null; // try again next time
           this.loading = null;
           this.failure = { why: 'error', message: 'The demo model didn’t build' };
-          if (this.provenance() !== 'other') app.setModel(null); else this.renderModel();
+          if (this.provenance() !== 'other') app.setModel(null); else { this.renderModel(); this.renderIdle(); }
           return;
         }
+        this.demo = model;
+        this.demoWhere = built.where;
+        this.tags.set(model, { kind: 'demo', n: built.ok ? built.n : 0 });
+        console.info(`[result] demo model: ${built.ok ? built.n : 0} made-up takes, ready in ${Math.round(performance.now() - t0)} ms (${built.where})`);
       }
       this.failure = null;
       this.loading = null;
@@ -465,6 +471,7 @@ class ResultPanel {
     } else { kind = 'none'; main = 'No model yet'; }
     if (this.trainError && kind !== 'loading') sub = this.trainError;
     r.model.dataset.kind = kind;
+    if (this.demoWhere) r.model.dataset.demoBuilt = this.demoWhere; // worker or main (tests check the worker works)
     if (r.modelMain.textContent !== main) r.modelMain.textContent = main;
     if (r.modelSub.textContent !== sub) r.modelSub.textContent = sub;
     const b = r.retrain as HTMLButtonElement;

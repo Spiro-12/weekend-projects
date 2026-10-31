@@ -6,7 +6,8 @@ import type { ActionResultMsg, ClassDef, Dataset, DatasetClip, HelloMsg, MotionS
 import { fakeStatus } from '../../web/src/core/synth';
 import { MotionSynth } from '../../web/src/core/synth';
 import * as ml from '../../web/src/ml/index';
-import { DEMO_REPS, FAKE_SPEAK_DELAY, demoClips } from '../../web/src/panels/result/demo-model';
+import { buildDemoModelJSON } from '../../web/src/panels/result/demo-build';
+import { DEMO_REPS, FAKE_SPEAK_DELAY, buildDemoJSON, demoClips } from '../../web/src/panels/result/demo-model';
 import {
   EXCLUDED, classCount, fetchPublicModel, fingerprint, planModel, realClips, type Provenance,
 } from '../../web/src/panels/result/model-source';
@@ -374,6 +375,47 @@ describe('model source', () => {
     expect(a.every((c) => c.samples.length >= 10 && c.id.startsWith('demo-'))).toBe(true);
     expect(demoClips(classes)[5].samples).toEqual(a[5].samples); // same seed, same data
     expect(realClips(a.map((c) => ({ ...syn.clips[0], ...c })), () => undefined, classes.map((c) => c.id))).toEqual([]);
+  });
+
+  describe('building the demo model off the main thread', () => {
+    type Fake = { onmessage: ((e: MessageEvent) => void) | null; onerror: ((e: Event) => void) | null; postMessage(m: unknown): void; terminate(): void; terminated: boolean };
+    const fakeWorker = (behave: 'answer' | 'error' | 'silent'): Fake => {
+      const w: Fake = {
+        onmessage: null, onerror: null, terminated: false,
+        postMessage(m) {
+          const { classes: cs } = m as { classes: ClassDef[] };
+          setTimeout(() => {
+            if (behave === 'answer') w.onmessage?.({ data: buildDemoJSON(cs) } as MessageEvent);
+            if (behave === 'error') w.onerror?.(new Event('error'));
+          }, 5);
+        },
+        terminate() { w.terminated = true; },
+      };
+      return w;
+    };
+    const asWorker = (f: Fake) => () => f as unknown as Worker;
+
+    it('pure build: a loadable model with every class', () => {
+      const r = buildDemoJSON(classes);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.n).toBe(classes.length * DEMO_REPS);
+      expect(ml.loadModel(r.json).labels.sort()).toEqual(classes.map((c) => c.id).sort());
+    });
+    it('uses the worker when it answers, then shuts it down', async () => {
+      const f = fakeWorker('answer');
+      const r = await buildDemoModelJSON(classes, { makeWorker: asWorker(f) });
+      expect(r).toMatchObject({ ok: true, where: 'worker' });
+      expect(f.terminated).toBe(true);
+    });
+    it('falls back to the main thread if the worker fails, does not answer, or cannot start', async () => {
+      expect(await buildDemoModelJSON(classes, { makeWorker: asWorker(fakeWorker('error')) })).toMatchObject({ ok: true, where: 'main' });
+      const silent = fakeWorker('silent');
+      expect(await buildDemoModelJSON(classes, { makeWorker: asWorker(silent), timeoutMs: 30 })).toMatchObject({ ok: true, where: 'main' });
+      expect(silent.terminated).toBe(true);
+      expect(await buildDemoModelJSON(classes, { makeWorker: () => { throw new Error('blocked'); } })).toMatchObject({ ok: true, where: 'main' });
+      expect(await buildDemoModelJSON(classes)).toMatchObject({ ok: true, where: 'main' }); // node: no Worker at all
+    });
   });
 
   it('demo model recognizes fake source motion for any reasonable hold, and never accepts a wrong sentence', () => {

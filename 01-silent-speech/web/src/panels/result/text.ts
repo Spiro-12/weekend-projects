@@ -27,7 +27,7 @@ export function ghostReason(reason: BlockReason, source: SourceKind | null): str
     case 'not-armed': return 'Safe mode: turn on Armed in the Mac app';
     case 'not-own-model': return 'Only your own model can run actions';
     case 'not-offered': return 'The Mac app can’t do this one yet';
-    case 'unpaired': return 'Not paired with your Mac app';
+    case 'unpaired': return 'Not paired. Open this page from the Mac app’s link';
     case 'busy': return 'Waiting for the Mac to answer';
     case 'too-soon': return 'Just did one. Wait 3 seconds';
     case 'not-recognize': return 'Recognize mode is off';

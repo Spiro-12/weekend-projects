@@ -1,15 +1,16 @@
 // Demo model for fake mode: trained in the browser on made-up motion from the same generator the fake
 // source uses (core/synth), cut the way the shell cuts a push to talk. Spiro's public model is trained on
 // real AirPods data and doesn't know fake motion at all (offline: 0 of 160 fake clips accepted).
-// Never "your model": it can never run actions. No DOM here.
+// Never "your model": it can never run actions. No DOM here (also runs in demo-worker.ts).
 import { PAD_SEC } from '../../core/app';
-import type { ClassDef, Clip } from '../../core/contracts';
+import type { ClassDef, Clip, DtwKnnModelJSON } from '../../core/contracts';
 import { mulberry32, range } from '../../core/rng';
 import { MotionSynth } from '../../core/synth';
+import * as ml from '../../ml/index';
 
 /** The fake source starts the sentence this long after Space goes down (sources/fake.ts). */
 export const FAKE_SPEAK_DELAY = 0.15;
-/** Takes per sentence. With the slack below: about 95% right on fake holds, no wrong accepts, ~90 ms to train. */
+/** Takes per sentence. With the slack below: about 95% right on fake holds, no wrong accepts. */
 export const DEMO_REPS = 14;
 /** People let go 0 to 1.4 s after the sentence ends; templates spread evenly over that, so any hold works. */
 export const DEMO_SLACK: [number, number] = [0, 1.4];
@@ -31,4 +32,16 @@ export function demoClips(classes: ClassDef[], reps = DEMO_REPS, seed = DEMO_SEE
     }
   }
   return out;
+}
+
+export type DemoResponse = { ok: true; json: DtwKnnModelJSON; n: number } | { ok: false; error: string };
+
+/** Makes the demo clips and trains on them. Pure and synchronous (~200 ms cold): demo-build.ts runs it in a worker. */
+export function buildDemoJSON(classes: ClassDef[]): DemoResponse {
+  try {
+    const clips = demoClips(classes);
+    return { ok: true, json: ml.train(clips).toJSON(), n: clips.length };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }

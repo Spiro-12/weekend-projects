@@ -107,6 +107,7 @@ test('fake mode: Recognize + pick a sentence + hold Space shows that sentence, a
   await expect(page.locator('.card[data-panel=result]')).toHaveClass(/wide/);
   await expect(page.getByTestId('result-model')).toContainText('Demo model (fake data)');
   await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'demo');
+  await expect(page.getByTestId('result-model')).toHaveAttribute('data-demo-built', 'worker'); // built off the main thread
   await expect(page.getByTestId('result-armed')).toHaveAttribute('data-live', '0');
   await expect(page.getByTestId('result-label')).toContainText('mouth a sentence');
 
