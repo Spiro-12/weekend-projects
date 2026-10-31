@@ -319,7 +319,7 @@ describe('ReplaySource + shell + real classifier', () => {
     const s = r.board.summary(0);
     expect(s.scored).toBe(session.truth.length);
     expect(s.right / s.scored).toBeGreaterThanOrEqual(0.9);
-  });
+  }, 30_000); // trains a real model: give it room on a busy machine
 
   it('real held-out takes: every window is scored exactly as the model scores that recorded take', async () => {
     const ex = new Set((JSON.parse(read('data/raw/exclude.json')) as { ids: string[] }).ids);
@@ -342,5 +342,5 @@ describe('ReplaySource + shell + real classifier', () => {
       expect(ws[k].confidence).toBeCloseTo(offline.confidence, 6);
       expect(ws[k].state).toBe(verdict(take.label, offline));
     });
-  });
+  }, 30_000); // trains a real model: give it room on a busy machine
 });

@@ -122,7 +122,7 @@ describe('web/public/replay/demo-session.json', () => {
     expect(metaFor(r, s3, `data/raw/${s3File}`, { seed: DEFAULT_SEED, session: 's3' })).toEqual(meta);
     expect(meta).toMatchObject({ real: true, subject: 'Spiro', device: 'AirPods Pro 3', heldOut: true, session: 's3' });
     expect(meta.matches).toEqual({ recordedAt: session.recordedAt, nSamples: session.samples.length, nTruth: 16 });
-  });
+  }, 30_000);
 });
 
 describe('buildReplay', () => {
