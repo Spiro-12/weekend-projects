@@ -1,0 +1,228 @@
+{
+  "model": "dtw-knn",
+  "protocol": "nested-loso",
+  "summary": "88.2% leave one session out with the options chosen without the test session (94.2% when tuned on all 3); s1 (right bud) 67.1%, s2 (left bud) 96.6%, s3 (left bud) 98.3%; at threshold 0.85: 55.1% of sentences acted on, 0/315 wrong (95% upper bound 1.2%), 0/27 none takes fired (95% upper bound 12.8%)",
+  "datasets": ["ss-dataset-s1-20261031-1621.json", "ss-dataset-s2-20261031-1637.json", "ss-dataset-s3-20261031-1654.json"],
+  "sources": ["airpods"],
+  "exclude": "exclude.json",
+  "nExcluded": 18,
+  "how": "For each session T: pick the options by LOSO accuracy over the other sessions only (the eval-dtw --sweep grid with budNorm mirror; configs tied at the top are all kept and averaged), train on the other sessions, test T. budNorm is not picked: it is a fixed correction (PROTOCOL §5 step 0) and s1, the only right bud session, would be picked on left bud sessions alone.",
+  "nConfigs": 384,
+  "folds": [
+    {
+      "test": "s1",
+      "bud": "right",
+      "pickedOn": ["s2", "s3"],
+      "bestInnerAccuracy": 0.9915611814345991,
+      "picked": [
+        {
+          "chans": "rr",
+          "L": 96,
+          "band": 0.2,
+          "norm": "clip",
+          "k": 3,
+          "budNorm": "mirror"
+        },
+        {
+          "chans": "rr",
+          "L": 128,
+          "band": 0.2,
+          "norm": "clip",
+          "k": 3,
+          "budNorm": "mirror"
+        }
+      ],
+      "nClips": 105,
+      "correct": 70.5,
+      "accuracy": 0.6714285714285714,
+      "atThreshold": {
+        "threshold": 0.85,
+        "sentences": 105,
+        "acceptedRight": 13.5,
+        "acceptedWrong": 0,
+        "noneTakes": 0,
+        "noneFired": 0
+      }
+    },
+    {
+      "test": "s2",
+      "bud": "left",
+      "pickedOn": ["s1", "s3"],
+      "bestInnerAccuracy": 0.7688888888888888,
+      "picked": [
+        {
+          "chans": "all",
+          "L": 128,
+          "band": 0.1,
+          "norm": "clip",
+          "k": 3,
+          "budNorm": "mirror"
+        }
+      ],
+      "nClips": 117,
+      "correct": 113,
+      "accuracy": 0.9658119658119658,
+      "atThreshold": {
+        "threshold": 0.85,
+        "sentences": 105,
+        "acceptedRight": 83,
+        "acceptedWrong": 0,
+        "noneTakes": 12,
+        "noneFired": 0
+      }
+    },
+    {
+      "test": "s3",
+      "bud": "left",
+      "pickedOn": ["s1", "s2"],
+      "bestInnerAccuracy": 0.8648648648648649,
+      "picked": [
+        {
+          "chans": "rr.yz+ua.yz",
+          "L": 96,
+          "band": 0.05,
+          "norm": "clip",
+          "k": 3,
+          "budNorm": "mirror"
+        }
+      ],
+      "nClips": 120,
+      "correct": 118,
+      "accuracy": 0.9833333333333333,
+      "atThreshold": {
+        "threshold": 0.85,
+        "sentences": 105,
+        "acceptedRight": 77,
+        "acceptedWrong": 0,
+        "noneTakes": 15,
+        "noneFired": 0
+      }
+    }
+  ],
+  "pooled": {
+    "nClips": 342,
+    "correct": 301.5,
+    "accuracy": 0.881578947368421,
+    "threshold": 0.85,
+    "sentences": 315,
+    "acceptedRight": 173.5,
+    "correctAccepted": 0.5507936507936508,
+    "acceptedWrong": 0,
+    "wrongAccepted": 0,
+    "wrongAcceptedUpper95": 0.011642424734286009,
+    "noneTakes": 27,
+    "noneFired": 0,
+    "noneFalseAccept": 0,
+    "noneFalseAcceptUpper95": 0.12770286761543237,
+    "upperBounds": "two sided 95% Clopper-Pearson (0 of n: 1 - 0.025^(1/n))"
+  },
+  "tunedOnAll": {
+    "opts": {
+      "channels": ["rr.x", "rr.y", "rr.z", "ua.x", "ua.y", "ua.z"],
+      "L": 96,
+      "hpHz": 1,
+      "band": 0.05,
+      "k": 3,
+      "norm": "clip",
+      "threshold": 0.85,
+      "budNorm": "mirror"
+    },
+    "accuracy": 0.9415204678362573,
+    "perSession": {
+      "s1": 0.8380952380952381,
+      "s2": 0.9743589743589743,
+      "s3": 1
+    }
+  },
+  "budNormAlsoPicked": {
+    "pooled": {
+      "nClips": 342,
+      "correct": 275.25,
+      "accuracy": 0.8048245614035088,
+      "threshold": 0.85,
+      "sentences": 315,
+      "acceptedRight": 169.25,
+      "correctAccepted": 0.5373015873015873,
+      "acceptedWrong": 0,
+      "wrongAccepted": 0,
+      "wrongAcceptedUpper95": 0.011642424734286009,
+      "noneTakes": 27,
+      "noneFired": 0,
+      "noneFalseAccept": 0,
+      "noneFalseAcceptUpper95": 0.12770286761543237,
+      "upperBounds": "two sided 95% Clopper-Pearson (0 of n: 1 - 0.025^(1/n))"
+    },
+    "folds": [
+      {
+        "test": "s1",
+        "accuracy": 0.42142857142857143,
+        "correct": 44.25,
+        "picked": [
+          {
+            "chans": "rr",
+            "L": 96,
+            "band": 0.2,
+            "norm": "clip",
+            "k": 3,
+            "budNorm": "mirror"
+          },
+          {
+            "chans": "rr",
+            "L": 96,
+            "band": 0.2,
+            "norm": "clip",
+            "k": 3,
+            "budNorm": "none"
+          },
+          {
+            "chans": "rr",
+            "L": 128,
+            "band": 0.2,
+            "norm": "clip",
+            "k": 3,
+            "budNorm": "mirror"
+          },
+          {
+            "chans": "rr",
+            "L": 128,
+            "band": 0.2,
+            "norm": "clip",
+            "k": 3,
+            "budNorm": "none"
+          }
+        ]
+      },
+      {
+        "test": "s2",
+        "accuracy": 0.9658119658119658,
+        "correct": 113,
+        "picked": [
+          {
+            "chans": "all",
+            "L": 128,
+            "band": 0.1,
+            "norm": "clip",
+            "k": 3,
+            "budNorm": "mirror"
+          }
+        ]
+      },
+      {
+        "test": "s3",
+        "accuracy": 0.9833333333333333,
+        "correct": 118,
+        "picked": [
+          {
+            "chans": "rr.yz+ua.yz",
+            "L": 96,
+            "band": 0.05,
+            "norm": "clip",
+            "k": 3,
+            "budNorm": "mirror"
+          }
+        ]
+      }
+    ]
+  },
+  "generatedAt": "2026-10-31T13:17:25.175Z"
+}

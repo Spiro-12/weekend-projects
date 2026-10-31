@@ -8,21 +8,27 @@ import { DEFAULT_CHANNELS, GRID_HZ } from '../core/contracts';
  * Defaults picked on Spiro's real recordings (Phase 2, Track F; data/raw s1..s3, exclude list applied, 342 clips):
  * `eval-dtw --sweep` over 768 configs (8 channel sets x L 48/64/96/128 x band 0.05/0.1/0.2 x norm x k 1/3 x budNorm),
  * ranked by LOSO over all 3 sessions (tie break: cross bud = train s2 + s3, test s1). Table:
- * ml/results/dtw-knn/sweep/sweep-real.json. LOSO all 3 / LOSO s2 + s3 / cross bud:
- *   these defaults (rank 1)                           94.2% / 98.7% / 83.8%
- *   Phase 1 defaults (L 64, band 0.1, global, k 1)    81.9% / 89.5% / 64.8% (rank 274)
- * - norm 'clip' is the big win (+10 points): the sessions differ a lot in loudness per channel (head against the
- *   chair, bud seated differently: s1 rr.z RMS is twice s2's), and per clip z scoring cancels that.
- * - k 3 beats k 1 now that a class has ~30 takes over 2 training sessions (93.6% -> 94.2% at L 96; Phase 1's
- *   "k 1 wins" was with 5 to 15 takes from one sitting).
- * - L 96 with a narrow band (0.05, r = 5) beat L 64 / band 0.1 (93.3%); all 6 channels tie the best subset.
- * - budNorm 'mirror': cross bud 83.8% vs 40% or less unmirrored (PROTOCOL §5 step 0).
- * - threshold 0.85, from `eval-dtw --thresholds` at these options: the lowest value in 0.05 steps where
- *   (1) <= 3% of sentences fire the wrong action (LOSO all 3, LOSO s2 + s3 and cross bud: all 0%), (2) no none take
- *   fires, and (3) small real models (2 to 4 classes) accept <= 10% of the sentences they were not trained on
- *   (7.7%; 11.1% at 0.80). Costs: 61.6% of sentences are accepted (vs 85.4% at 0.5); the rest say "not sure".
+ * ml/results/dtw-knn/sweep/sweep-real.json.
+ * Honest accuracy (`eval-dtw --nested`, ml/results/dtw-knn/sweep/nested-real.json): options picked on 2 sessions
+ * only, then tested on the third: s1 (right bud, mirrored) 67.1%, s2 96.6%, s3 98.3%, pooled 88.2% (301.5 / 342). The sweep's
+ * own score picks on all 3 sessions and is optimistic: 94.2% (s1 83.8%, s2 97.4%, s3 100%); Phase 1 defaults scored
+ * 81.9% there (rank 274 of 768). So: a new session on the same bud ~97 to 98%, the other bud mirrored 67 to 84%.
+ * - norm 'clip' is the big win: +8.7 points at the Phase 1 options (81.9% -> 90.6%), +5.6 at these (88.6% -> 94.2%).
+ *   The sessions differ a lot in loudness per channel (head against the chair, bud seated differently: s1 rr.z RMS is
+ *   twice s2's), and per clip z scoring cancels that.
+ * - k 3 beats k 1 now that a class has ~30 takes over 2 training sessions (93.6% -> 94.2% at L 96, band 0.05;
+ *   Phase 1's "k 1 wins" was with 5 to 15 takes from one sitting).
+ * - L 96 with a narrow band (0.05, r = 5) beat L 64 / band 0.1 (92.7%) and L 96 / band 0.1 (93.3%); all 6 channels
+ *   tie the best subset (rr + ua.y/z).
+ * - budNorm 'mirror': cross bud 83.8%; unmirrored 26.7% at these options, 41.0% at best (PROTOCOL §5 step 0).
+ * - threshold 0.85, from `eval-dtw --thresholds` (ml/results/dtw-knn/sweep/thresholds-real.json): the lowest value in
+ *   0.05 steps where (1) <= 3% of sentences fire the wrong action (LOSO all 3, LOSO s2 + s3 and cross bud: all 0%),
+ *   (2) no none take fires, and (3) small real models (2 to 4 classes) accept <= 10% of the sentences they were not
+ *   trained on (7.7%; 11.1% at 0.80). At 0.85: 61.6% of sentences are acted on (55.1% with the options picked
+ *   without the test session), 0 / 315 wrong (95% upper bound 1.2%), 0 / 27 none takes (upper bound 12.8%).
+ *   Small models are only safe on average: one sound alike sentence can fire a lot ("call back" fires focus_music
+ *   on 73% of takes for a focus_music + demo_48h model), so actions need a full model (Track J gates them).
  *   tests/unit/ml/safety-real.test.ts holds these lines.
- * Selection bias: the best of 768 configs on 342 clips is a little optimistic; the top 10 are within 1 point.
  */
 export const DEFAULT_OPTS: Readonly<Required<DtwKnnOptions>> = Object.freeze({
   channels: [...DEFAULT_CHANNELS],

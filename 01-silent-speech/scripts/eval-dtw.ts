@@ -413,6 +413,7 @@ function nestedReport(clips: Clip[], rows: NestedRow[]) {
       sentences: S, acceptedRight: sum((x) => x.atThreshold.acceptedRight), correctAccepted: sum((x) => x.atThreshold.acceptedRight) / S,
       acceptedWrong: wrong, wrongAccepted: wrong / S, wrongAcceptedUpper95: upper95(wrong, S),
       noneTakes: N, noneFired: none, noneFalseAccept: N ? none / N : 0, noneFalseAcceptUpper95: N ? upper95(none, N) : null,
+      upperBounds: 'two sided 95% Clopper-Pearson (0 of n: 1 - 0.025^(1/n))',
     },
   };
 }
@@ -472,13 +473,16 @@ async function main() {
     const rows = args.jobs > 1 ? await gridParallel<NestedRow>(argv, args.jobs, total, args.workDir)
       : gridShard(args.opts, [0, 1], args.workDir ? join(args.workDir, '0of1.jsonl') : null, () => process.stderr.write(`\r${++done}/${total} configs x 2 budNorm   `), (g) => nestedGroup(clips, sessions, g));
     if (args.jobs === 1) process.stderr.write('\n');
-    const rep = nestedReport(clips, rows);
+    // budNorm stays 'mirror' (PROTOCOL §5 step 0): a fixed physical correction, not a tuning knob, and when every
+    // session it would be picked on uses the same bud (s2 + s3 for a right bud s1) the data can't tell it from 'none'.
+    const rep = nestedReport(clips, rows.filter((r) => r.opts.budNorm === 'mirror'));
+    const alt = nestedReport(clips, rows); // budNorm picked by the data too (ties with 'none' averaged), for comparison
     // the same options tuned on all sessions (DEFAULT_OPTS + --opts), for comparison
     const o = resolveOpts(args.opts);
     const tuned = crossValidate(clips, o, 'loso');
     const tunedOnAll = { opts: o, accuracy: tuned.filter((r) => r.label === r.predicted).length / tuned.length,
       perSession: Object.fromEntries(sessions.map((T) => { const r = tuned.filter((_, i) => clips[i].session === T); return [T, r.filter((x) => x.label === x.predicted).length / r.length]; })) };
-    console.log(`\nNested LOSO: options picked on the other sessions (${rows.length} configs, ties averaged), then tested on the held out one`);
+    console.log(`\nNested LOSO: options picked on the other sessions (${rows.length / 2} configs, budNorm mirror, ties averaged), then tested on the held out one`);
     for (const f of rep.folds) {
       console.log(`  ${f.test} (${f.bud} bud): ${pct(f.accuracy)} (${f.correct}/${f.nClips}), picked on ${f.pickedOn.join(' + ')} (inner ${pct(f.bestInnerAccuracy)}): ` +
         f.picked.map((x) => `${x.chans} L${x.L} b${x.band} ${x.norm} k${x.k} ${x.budNorm}`).join(' | '));
@@ -486,11 +490,20 @@ async function main() {
     }
     const p = rep.pooled;
     console.log(`  pooled: ${pct(p.accuracy)} (${p.correct}/${p.nClips}); at ${p.threshold}: ${pct(p.correctAccepted)} acted on right, wrong ${p.acceptedWrong}/${p.sentences} (95% upper ${pct(p.wrongAcceptedUpper95)}), none ${p.noneFired}/${p.noneTakes} (95% upper ${p.noneFalseAcceptUpper95 === null ? 'n/a' : pct(p.noneFalseAcceptUpper95)})`);
+    console.log(`  budNorm also picked by the data: ${pct(alt.pooled.accuracy)} (` + alt.folds.map((f) => `${f.test} ${pct(f.accuracy)}`).join(', ') + ')');
     console.log(`  tuned on all sessions (${JSON.stringify({ L: o.L, band: o.band, norm: o.norm, k: o.k })}): ${pct(tunedOnAll.accuracy)} ` + sessions.map((T) => `${T} ${pct(tunedOnAll.perSession[T])}`).join(', '));
+    const f1 = (x: number) => `${(100 * x).toFixed(1)}%`;
+    const summary = `${f1(p.accuracy)} leave one session out with the options chosen without the test session (${f1(tunedOnAll.accuracy)} when tuned on all ${sessions.length}); ` +
+      rep.folds.map((f) => `${f.test} (${f.bud} bud) ${f1(f.accuracy)}`).join(', ') +
+      `; at threshold ${p.threshold}: ${f1(p.correctAccepted)} of sentences acted on, ${p.acceptedWrong}/${p.sentences} wrong (95% upper bound ${f1(p.wrongAcceptedUpper95)}), ` +
+      `${p.noneFired}/${p.noneTakes} none takes fired (95% upper bound ${p.noneFalseAcceptUpper95 === null ? 'n/a' : f1(p.noneFalseAcceptUpper95)})`;
+    console.log(`  summary: ${summary}`);
     if (args.json) {
-      const out = { model: 'dtw-knn', protocol: 'nested-loso', datasets, sources, exclude: args.exclude ? basename(args.exclude) : null, nExcluded: excluded,
-        how: 'For each session T: pick the options by LOSO accuracy over the other sessions only (the eval-dtw --sweep grid; configs tied at the top are all kept and averaged), train on the other sessions, test T.',
-        nConfigs: rows.length, ...rep, tunedOnAll, generatedAt: new Date().toISOString() };
+      const out = { model: 'dtw-knn', protocol: 'nested-loso', summary, datasets, sources, exclude: args.exclude ? basename(args.exclude) : null, nExcluded: excluded,
+        how: 'For each session T: pick the options by LOSO accuracy over the other sessions only (the eval-dtw --sweep grid with budNorm mirror; configs tied at the top are all kept and averaged), train on the other sessions, test T. budNorm is not picked: it is a fixed correction (PROTOCOL §5 step 0) and s1, the only right bud session, would be picked on left bud sessions alone.',
+        nConfigs: rows.length / 2, ...rep, tunedOnAll,
+        budNormAlsoPicked: { pooled: alt.pooled, folds: alt.folds.map((f) => ({ test: f.test, accuracy: f.accuracy, correct: f.correct, picked: f.picked })) },
+        generatedAt: new Date().toISOString() };
       writeFileSync(args.json, prettyJson(out) + '\n');
       console.log(`wrote ${args.json}`);
     }

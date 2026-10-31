@@ -53,5 +53,6 @@
     ],
     "threshold": 0.85
   },
-  "createdAt": "2026-10-31T11:44:53.701Z"
+  "note": "s3 is held out of training, but it helped pick these options and the threshold (they were tuned by leave one session out over s1, s2 and s3), so the 100% on s3 is a little optimistic. With the options picked on s1 + s2 only (eval-dtw --nested, ml/results/dtw-knn/sweep/nested-real.json) s3 scores 98.3% (118/120): the honest replay score is about 98%, not 100%.",
+  "createdAt": "2026-10-31T13:18:41.205Z"
 }
