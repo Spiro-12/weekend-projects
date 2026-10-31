@@ -2,7 +2,7 @@
 // bridges (never the real Mac app on 8765: every test that can send checks hello.app === 'MockBridge').
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
-import { BASE } from '../../playwright.config';
+import { BASE, MOCK_WS } from '../../playwright.config';
 import type { ClassDef, Dataset, Prediction } from '../../web/src/core/contracts';
 import * as ml from '../../web/src/ml/index';
 import { startMockBridge, type MockBridge, type MockBridgeOpts } from '../mock-bridge';
@@ -10,7 +10,7 @@ import { startMockBridge, type MockBridge, type MockBridgeOpts } from '../mock-b
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 const classes = JSON.parse(read('../../shared/classes.json')) as ClassDef[];
 const synthetic = JSON.parse(read('../../shared/fixtures/dataset.synthetic.json')) as Dataset;
-/** Stand in for Track F's public model: trained on the synthetic fixture (matches the fake source). */
+/** Stand in for Track F's public model (live / replay without your recordings): trained on the synthetic fixture. */
 const PUBLIC_MODEL = JSON.stringify(ml.train(synthetic.clips).toJSON());
 /** The same clips, as if recorded with real AirPods (store meta source 'airpods'). */
 const REAL: Dataset = { ...synthetic, source: 'airpods', session: 'real' };
@@ -67,12 +67,35 @@ async function livePage(page: Page, o: MockBridgeOpts, opts: { pair?: string | n
   return bridge;
 }
 
-// ---------- visitors: fake mode ----------
+// ---------- visitors: fake mode (demo model) ----------
 
-test('fake mode: hold Space with a picked sentence and it shows up big, with a ghost chip only', async ({ page }) => {
-  test.setTimeout(60_000);
+/** How long the fake source takes to "say" a sentence, plus a natural pause before letting go (ms). */
+const UTTER_SEC: Record<string, number> = { text_mom: 1.63, volume_up: 1.2, calendar: 2.11 }; // core/synth timing
+const holdMs = (id: string) => Math.round(1000 * (0.15 + UTTER_SEC[id] * 1.15 + 0.35));
+
+/** Picks a sentence in the header, holds Space like a person would; up to 3 tries in case it's unsure. */
+async function sayFake(page: Page, id: string): Promise<Prediction> {
+  await page.getByTestId('fake-label').selectOption(id);
+  await page.waitForTimeout(500);
+  let pred: Prediction | null = null;
+  for (let i = 0; i < 3 && !(pred?.accepted && pred.label === id); i++) {
+    const next = page.evaluate(() => new Promise<Prediction>((res) => {
+      const off = window.__ss.app.bus.on('prediction', (p) => { off(); res(p); });
+    }));
+    await page.keyboard.down('Space');
+    await expect(page.getByTestId('result-state')).toHaveAttribute('data-state', 'listening');
+    await page.waitForTimeout(holdMs(id));
+    await page.keyboard.up('Space');
+    pred = await next;
+  }
+  return pred!;
+}
+
+test('fake mode: Recognize + pick a sentence + hold Space shows that sentence, accepted (demo model, ghost chip only)', async ({ page }) => {
+  test.setTimeout(90_000);
   const errors = pageErrors(page);
-  await servePublicModel(page);
+  const modelRequests: string[] = [];
+  page.on('request', (r) => { if (r.url().includes('/models/')) modelRequests.push(r.url()); });
   await page.goto('./?mode=fake');
   await expect(page.getByTestId('source-pill')).toHaveText(/fake · open/);
   await expect(page.locator('.card[data-panel=result]')).toBeVisible();
@@ -82,44 +105,47 @@ test('fake mode: hold Space with a picked sentence and it shows up big, with a g
   await recognize(page);
   for (const id of ['enroll', 'status', 'charts', 'about']) expect(await top('result')).toBeLessThan(await top(id)); // Recognize: this first
   await expect(page.locator('.card[data-panel=result]')).toHaveClass(/wide/);
-  await expect(page.getByTestId('result-model')).toContainText("Spiro's model (public)");
+  await expect(page.getByTestId('result-model')).toContainText('Demo model (fake data)');
+  await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'demo');
   await expect(page.getByTestId('result-armed')).toHaveAttribute('data-live', '0');
   await expect(page.getByTestId('result-label')).toContainText('mouth a sentence');
 
-  await page.getByTestId('fake-label').selectOption('text_mom');
-  await page.waitForTimeout(600);
-  // The fake source "says" the picked sentence. A tiny chance the classifier is unsure: up to 3 tries.
-  let pred: Prediction | null = null;
-  for (let i = 0; i < 3 && !(pred?.accepted && pred.label === 'text_mom'); i++) {
-    const next = page.evaluate(() => new Promise<Prediction>((res) => {
-      const off = window.__ss.app.bus.on('prediction', (p) => { off(); res(p); });
-    }));
-    await page.keyboard.down('Space');
-    await expect(page.getByTestId('result-state')).toHaveAttribute('data-state', 'listening');
-    await page.waitForTimeout(1800);
-    await page.keyboard.up('Space');
-    pred = await next;
+  for (const id of ['text_mom', 'volume_up', 'calendar']) {
+    const pred = await sayFake(page, id);
+    expect(pred).toMatchObject({ label: id, accepted: true });
+    await expect(page.getByTestId('result-label')).toHaveText(sentence(id));
+    await expect(page.getByTestId('result-label')).toHaveAttribute('data-label', id);
+    await expect(page.getByTestId('result-label')).toHaveAttribute('data-accepted', '1');
+    await expect(page.getByTestId('result-state')).toHaveAttribute('data-state', 'accepted');
+    expect(Number(await page.getByTestId('result-confidence').getAttribute('data-value'))).toBeGreaterThanOrEqual(0.5);
+    await expect(page.getByTestId('result-top').locator('.rs-row').first()).toHaveAttribute('data-label', id);
+    await expect(page.getByTestId('result-history').locator('.rs-hchip').first()).toHaveAttribute('data-label', id);
   }
-  expect(pred).toMatchObject({ label: 'text_mom', accepted: true });
-  await expect(page.getByTestId('result-label')).toHaveText(sentence('text_mom'));
-  await expect(page.getByTestId('result-label')).toHaveAttribute('data-label', 'text_mom');
-  await expect(page.getByTestId('result-state')).toHaveAttribute('data-state', 'accepted');
-  expect(Number(await page.getByTestId('result-confidence').getAttribute('data-value'))).toBeGreaterThanOrEqual(0.5);
-  await expect(page.getByTestId('result-top').locator('.rs-row').first()).toHaveAttribute('data-label', 'text_mom');
   const chip = page.getByTestId('result-action');
   await expect(chip).toHaveAttribute('data-state', 'ghost');
   await expect(chip).toHaveAttribute('data-reason', 'not-live');
-  await expect(chip).toContainText('Would: Text Mom');
-  await expect(page.getByTestId('result-history').locator('.rs-hchip').first()).toHaveAttribute('data-label', 'text_mom');
+  await expect(chip).toContainText('Would: Read out today’s calendar');
   expect(await actionResults(page)).toBe(0);
+  expect(modelRequests).toEqual([]); // fake mode never needs Spiro's public model
   expect(errors).toEqual([]);
 });
 
-test('results: ring, top 3, calm "not sure" state, and the last 5 in the history', async ({ page }) => {
+test('switching sources swaps the model: fake → demo, live → public, back to fake → demo', async ({ page }) => {
   await servePublicModel(page);
   await page.goto('./?mode=fake');
   await recognize(page);
+  await expect(page.getByTestId('result-model')).toContainText('Demo model (fake data)');
+  await page.evaluate((ws) => window.__ss.app.setSource('live', { ws }), MOCK_WS);
+  await expect(page.getByTestId('source-pill')).toHaveText('live · open');
   await expect(page.getByTestId('result-model')).toContainText("Spiro's model (public)");
+  await page.evaluate(() => window.__ss.app.setSource('fake'));
+  await expect(page.getByTestId('result-model')).toContainText('Demo model (fake data)');
+});
+
+test('results: ring, top 3, calm "not sure" state, and the last 5 in the history', async ({ page }) => {
+  await page.goto('./?mode=fake');
+  await recognize(page);
+  await expect(page.getByTestId('result-model')).toContainText('Demo model (fake data)');
 
   await inject(page, { label: 'calendar', confidence: 0.31, accepted: false,
     top: [{ label: 'calendar', score: 0.31 }, { label: 'focus_music', score: 0.2 }, { label: 'none', score: 0.1 }] });
@@ -143,10 +169,15 @@ test('results: ring, top 3, calm "not sure" state, and the last 5 in the history
   await expect(page.getByTestId('result-stage')).toContainText('Looked like nothing was said.');
 });
 
+// ---------- live / replay without your recordings: Spiro's public model ----------
+
+const liveDefault = `./?mode=live&ws=${encodeURIComponent(MOCK_WS)}`; // playwright's mock: simulated, not armed
+
 test('no public model yet: says so calmly, with no page errors', async ({ page }) => {
   const errors = pageErrors(page);
   await page.route('**/models/templates.json', (r) => r.fulfill({ status: 404, body: 'Not found' }));
-  await page.goto('./?mode=fake');
+  await page.goto(liveDefault);
+  await expect(page.getByTestId('source-pill')).toHaveText('live · open');
   await recognize(page);
   await expect(page.getByTestId('result-model')).toHaveText(/No public model yet/);
   await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'missing');
@@ -160,14 +191,15 @@ test('no public model yet: says so calmly, with no page errors', async ({ page }
 });
 
 test('no public model file at all (dev server answers with the page): also "No public model yet"', async ({ page }) => {
-  await page.goto('./?mode=fake'); // vite preview serves index.html for the missing file
+  await page.goto(liveDefault); // vite preview serves index.html for the missing file
   await recognize(page);
   await expect(page.getByTestId('result-model')).toHaveText(/No public model yet/);
 });
 
 test('practice clips never train your model; a practice model from Record is kept but is not yours', async ({ page }) => {
   await servePublicModel(page);
-  await page.goto('./?mode=fake');
+  await page.goto(liveDefault);
+  await expect(page.getByTestId('source-pill')).toHaveText('live · open');
   await page.evaluate(async (ds) => { await window.__ss.app.store.ready; window.__ss.app.store.load(ds); }, PRACTICE);
   await recognize(page);
   await expect(page.getByTestId('result-model')).toContainText("Spiro's model (public)");
@@ -392,10 +424,9 @@ test('Re-train picks up new real recordings', async ({ page }) => {
 // ---------- moments ----------
 
 test('help: full screen red alert with a big Dismiss (Escape works too)', async ({ page }) => {
-  await servePublicModel(page);
   await page.goto('./?mode=fake');
   await recognize(page);
-  await expect(page.getByTestId('result-model')).toContainText("Spiro's model (public)");
+  await expect(page.getByTestId('result-model')).toContainText('Demo model (fake data)');
   const alert = page.getByTestId('result-alert');
   await inject(page, { label: 'help', confidence: 0.4, accepted: false });
   await expect(alert).toBeHidden(); // only when it's sure
@@ -426,10 +457,9 @@ test('demo_48h throws confetti; "Say it out loud" (off by default) speaks the se
     (window as unknown as { __said: string[] }).__said = said;
     speechSynthesis.speak = (u: SpeechSynthesisUtterance) => { said.push(u.text); };
   });
-  await servePublicModel(page);
   await page.goto('./?mode=fake');
   await recognize(page);
-  await expect(page.getByTestId('result-model')).toContainText("Spiro's model (public)");
+  await expect(page.getByTestId('result-model')).toContainText('Demo model (fake data)');
   await inject(page, accepted('demo_48h'));
   await expect(page.getByTestId('result-confetti')).toBeAttached();
   await expect(page.getByTestId('result-confetti')).not.toBeAttached({ timeout: 6000 }); // cleans up
