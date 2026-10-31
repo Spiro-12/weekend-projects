@@ -49,6 +49,9 @@
 .rs-stage[data-state=thinking] { border-color: #7c9cff66; }
 .rs-stage[data-state=unsure] { border-color: #ffb5472e; }
 .rs-stage[data-state=probable] { border-color: #7c9cff33; border-style: dashed; }
+/* replay: the help moment as a red flash on the stage instead of the full screen alert */
+.rs-stage[data-moment=help] { border-color: var(--bad); box-shadow: 0 0 0 4px #ff5d6c33; background: linear-gradient(180deg, #2a1017 0%, #160b10 100%); }
+.rs-stage[data-moment=help] .rs-state { color: var(--bad); }
 .rs-say { min-width: 0; }
 
 .rs-state { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 1.4px;
@@ -166,7 +169,8 @@
 .rs-alert { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; color: #fff;
   background: radial-gradient(85% 75% at 50% 40%, #e3263dfa 0%, #a8101ff8 55%, #5c0611fc 100%);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; animation: rs-fade .25s ease both; }
-.rs-alert::before { content: ""; position: absolute; inset: 0; pointer-events: none; animation: rs-alarm 1.5s ease-in-out infinite; }
+.rs-alert::before { content: ""; position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 180px 30px #ffb3bc55;
+  opacity: 0; animation: rs-alarm 1.5s ease-in-out infinite; } /* opacity only: cheap to animate */
 .rs-alert-in { position: relative; display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 1180px; text-align: center; }
 .rs-alert-ico { display: grid; place-items: center; width: 88px; height: 88px; border-radius: 50%; background: #fff; color: #c8162a;
   box-shadow: 0 0 0 0 #ffffff88; animation: rs-ping 1.5s ease-out infinite; }
@@ -199,7 +203,7 @@ body.rs-alert-open { overflow: hidden; }
 @keyframes rs-glow { 0% { opacity: 0; transform: scale(.9); } 35% { opacity: 1; } 100% { opacity: 1; transform: none; } }
 @keyframes rs-toast-in { from { opacity: 0; transform: translate(-50%, 16px) scale(.98); } to { opacity: 1; transform: translate(-50%, 0); } }
 @keyframes rs-ping { 0% { box-shadow: 0 0 0 0 #ffffffaa; } 100% { box-shadow: 0 0 0 34px #ffffff00; } }
-@keyframes rs-alarm { 0%, 100% { box-shadow: inset 0 0 120px 0 #ff9aa600; } 50% { box-shadow: inset 0 0 180px 30px #ffb3bc55; } }
+@keyframes rs-alarm { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .rs *, .rs-toast, .rs-alert, .rs-alert *, .rs-alert::before { animation: none !important; transition: none !important; }
 }

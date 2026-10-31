@@ -26,6 +26,7 @@ import {
 const HISTORY = 5;
 const THINK_TIMEOUT_MS = 2600; // the shell cuts the clip at most 1.5 s after release
 const SPEAK_KEY = 'ss.result.speak';
+const HELP_FLASH_MS = 3000; // a replay shows the help moment as a red flash on the stage, this long
 const RING_C = 2 * Math.PI * 52; // ring circumference (r = 52 in a 120 viewBox)
 
 type Tag = { kind: 'own' | 'preview'; n: number; fp: string } | { kind: 'public' | 'demo'; n: number };
@@ -116,6 +117,7 @@ class ResultPanel {
   private dismiss!: HTMLButtonElement;
   private inerted: HTMLElement[] = [];
   private spaceDownInAlert = false;
+  private alertTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private el: HTMLElement, private app: App) {
     el.classList.add('rs');
@@ -624,6 +626,7 @@ class ResultPanel {
     const sub = d.send ? 'Asking your Mac to send the text…'
       : action ? `Would: ${describeAction(action)}. ${this.why(d.reason, action)}.` : '';
     a.querySelector('.rs-alert-sub')!.textContent = sub;
+    if (this.app.source?.kind === 'replay') { this.flashHelp(); return; } // a replay plays on: no modal over it
     if (!a.hidden) { this.dismiss.focus(); return; }
     // End a take that is still held, so its key up can't get stuck behind the alert.
     if (this.app.pttDown) this.app.ptt(false);
@@ -672,6 +675,14 @@ class ResultPanel {
   private updateAlert(text: string) {
     if (this.alert.hidden) return;
     this.alert.querySelector('.rs-alert-sub')!.textContent = text;
+  }
+
+  /** Replay: the help moment as a red flash on the stage (visitors are watching, nobody needs help). */
+  private flashHelp() {
+    const st = this.r.stage;
+    if (this.alertTimer) clearTimeout(this.alertTimer);
+    st.dataset.moment = 'help';
+    this.alertTimer = setTimeout(() => { delete st.dataset.moment; this.alertTimer = null; }, HELP_FLASH_MS);
   }
 
   private closeAlert() {

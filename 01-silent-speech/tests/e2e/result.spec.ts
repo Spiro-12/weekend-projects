@@ -562,6 +562,11 @@ test('replay always uses Spiro\'s public model, never your recordings', async ({
   await page.evaluate(() => window.__ss.app.setSource('replay'));
   await expect(page.getByTestId('result-model')).toContainText("Spiro's model (public)");
   await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'public');
+  // The help moment in a replay: a red flash on the stage, not a full screen modal over the demo.
+  await inject(page, accepted('help'));
+  await expect(page.getByTestId('result-stage')).toHaveAttribute('data-moment', 'help');
+  await expect(page.getByTestId('result-alert')).toBeHidden();
+  await expect(page.getByTestId('result-stage')).not.toHaveAttribute('data-moment', 'help', { timeout: 6000 });
 });
 
 test('unpaired: a wrong token gets the Mac\'s "unpaired" and the unpaired toast', async ({ page }) => {
