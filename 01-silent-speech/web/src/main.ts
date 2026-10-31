@@ -77,7 +77,7 @@ pttBtn.addEventListener('pointerup', () => app.ptt(false));
 pttBtn.addEventListener('pointercancel', () => app.ptt(false));
 app.bus.on('ptt', ({ down }) => {
   pttBtn.classList.toggle('down', down);
-  document.body.classList.toggle('ptt', down);
+  document.body.classList.toggle('ptt-down', down);
 });
 
 // ---------- panels ----------
