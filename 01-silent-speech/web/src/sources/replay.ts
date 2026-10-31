@@ -263,7 +263,10 @@ export class ReplaySource implements MotionSource {
       let head = this.playhead();
       const padEnd = !this.ownDown ? this.lastUpT + PAD_HOLD_SEC : -Infinity;
       const until = Math.max(head, this.holdUntil ?? -Infinity, padEnd);
-      if (until > head) { this.advance(until); head = until; this.lastTarget = until; }
+      // Always send: samples up to the clock target may not have gone out yet (the last tick was earlier).
+      this.advance(until);
+      head = until;
+      this.lastTarget = Math.max(this.lastTarget, until);
       if (this.holdUntil !== null && head >= this.holdUntil) this.freeze(this.holdUntil);
       else this.anchorT = head;
     }

@@ -256,6 +256,20 @@ describe('ReplaySource playback', () => {
     expect(r.motion.length).toBeGreaterThan(n);
   });
 
+  it('hiding the tab between ticks, after the clock passed the pad end, still sends the unsent pad samples (2×)', async () => {
+    let hide!: (h: boolean) => void;
+    const r = await rig(demo, { speed: '2' }, { onHidden: (fn) => { hide = fn; return () => {}; } });
+    const up = demo.truth[0].t1;
+    const take = demo.samples.filter((x) => x.t >= demo.truth[0].t0 - PAD_SEC && x.t <= up + PAD_SEC);
+    while (r.src.headT < up + 0.29) r.run(10);
+    expect(r.clips).toHaveLength(0);
+    r.setClock(r.clock() + 40); // the clock moves on (80 ms of stream at 2×) but no tick runs before the tab hides
+    hide(true);
+    expect(r.clips).toHaveLength(1);
+    expect(r.clips[0].samples).toHaveLength(take.length); // every sample, none cut off the end
+    expect(r.clips[0].samples.at(-1)!.t).toBe(take.at(-1)!.t);
+  });
+
   it('hiding the tab while a pause waits for the pad finishes the pad and pauses', async () => {
     let hide!: (h: boolean) => void;
     const r = await rig(demo, {}, { onHidden: (fn) => { hide = fn; return () => {}; } });
