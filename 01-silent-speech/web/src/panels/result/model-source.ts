@@ -2,7 +2,8 @@
 //
 // - Fake source: the demo model (demo-model.ts), trained in the browser on made-up motion like the fake
 //   source's. Spiro's public model is trained on real AirPods data and doesn't know fake motion.
-// - Replay: always Spiro's public model (never your clips), so the replay's held out score stays honest.
+// - Replay: Spiro's public model, never your clips, so the replay's held out score stays honest (a model
+//   another panel or a test set on purpose is kept).
 // - Live:
 //   * "Your model" (the ONLY kind that may run actions): clips recorded in this browser (origin
 //     'recorded') with real AirPods, covering EVERY sentence in classes.json, 'none' included, at least
@@ -86,7 +87,9 @@ export function planModel(o: {
 }): Plan {
   const { current: cur, force } = o;
   if (o.source === 'fake') return !force && (cur === 'demo' || cur === 'other') ? 'keep' : 'demo';
-  if (o.source === 'replay') return !force && cur === 'public' ? 'keep' : 'public';
+  // Replay: never your clips (Spiro's browser holds s3, the held out replay session). A model someone set
+  // on purpose ('other': a test, or Record's "Train & use it") stays unless Re-train is pressed.
+  if (o.source === 'replay') return !force && (cur === 'public' || cur === 'other') ? 'keep' : 'public';
   if (o.ownReady) return cur === 'own' && o.fresh && !force ? 'keep' : 'own';
   if (o.realClasses >= MIN_REAL_CLASSES) return cur === 'preview' && o.fresh && !force ? 'keep' : 'preview';
   if (!force && (cur === 'other' || cur === 'public')) return 'keep';

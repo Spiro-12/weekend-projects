@@ -454,12 +454,14 @@ describe('model source', () => {
     expect(plan('other', true)).toBe('demo');
   });
 
-  it('plan, replay: always Spiro\'s public model, never your clips (the held out score stays honest)', () => {
+  it('plan, replay: Spiro\'s public model, never your clips (the held out score stays honest)', () => {
     const plan = (current: Provenance | null, force = false) =>
       planModel({ source: 'replay', ownReady: true, realClasses: 8, current, fresh: true, force });
-    for (const cur of [null, 'own', 'preview', 'demo', 'other'] as const) expect(plan(cur)).toBe('public');
+    for (const cur of [null, 'own', 'preview', 'demo'] as const) expect(plan(cur)).toBe('public');
     expect(plan('public')).toBe('keep');
+    expect(plan('other')).toBe('keep'); // set on purpose (a test, Record's "Train & use it")
     expect(plan('public', true)).toBe('public');
+    expect(plan('other', true)).toBe('public');
   });
 
   it('plan, live: your model only when ready, a preview model from 2+ real sentences, else public', () => {

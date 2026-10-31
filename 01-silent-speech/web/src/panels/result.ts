@@ -295,7 +295,7 @@ class ResultPanel {
     if (model) { this.failure = null; app.setModel(model); return; }
     // No public model. Your model (its recordings are gone, or this is a replay), or the fake data demo, shouldn't linger.
     const prov = this.provenance();
-    if (prov === 'own' || prov === 'preview' || prov === 'demo' || (prov === 'other' && app.source?.kind === 'replay')) app.setModel(null);
+    if (prov === 'own' || prov === 'preview' || prov === 'demo') app.setModel(null);
     else { this.renderModel(); this.renderIdle(); }
   }
 
