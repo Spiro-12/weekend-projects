@@ -1,6 +1,6 @@
 // JS preprocessing + DTW vs real scipy / numpy (tests/unit/ml/golden.json, made by scripts/golden-ml.py).
 import { describe, expect, it } from 'vitest';
-import type { BudLocation, Channel, Clip, MotionSample } from '../../../web/src/core/contracts';
+import type { BudLocation, Channel, Clip, Dataset, MotionSample } from '../../../web/src/core/contracts';
 import { DEFAULT_CHANNELS } from '../../../web/src/core/contracts';
 import { dtw, preprocess } from '../../../web/src/ml/index';
 import {
@@ -52,6 +52,24 @@ describe('golden: 50 Hz grid (np.interp)', () => {
   it('includes the last point when it lands on the grid', () => {
     const s = samplesOf('on-grid'); // 26 samples, 0.04 s apart -> 1.0 s -> 51 grid points
     expect(toGrid(s, ['rr.x'])[0].length).toBe(51);
+  });
+
+  it('includes it on real boot clock timestamps too (t ~ 1.3e6 s, where 1e-9 was off by one)', () => {
+    const s = samplesOf('boot-clock-s3'); // a real s3 take, 50 Hz, 180 samples
+    const span = (s[s.length - 1].t - s[0].t) * 50;
+    expect(s[0].t).toBeGreaterThan(1.3e6);
+    expect(Math.floor(span + 1e-9)).toBe(178); // the old epsilon: 179 points, last sample dropped
+    expect(toGrid(s, ['rr.x'])[0].length).toBe(180);
+    // every real s3 take: the grid never runs past the last sample, and 47 of 120 takes get the point 1e-9 dropped
+    const s3 = readJson<Dataset>('data/raw/ss-dataset-s3-20261031-1654.json');
+    let gained = 0;
+    for (const c of s3.clips) {
+      const t = [...new Set(c.samples.map((x) => x.t))].sort((a, b) => a - b);
+      const n = toGrid(c.samples, ['rr.x'])[0].length;
+      expect(t[0] + (n - 1) / 50).toBeLessThan(t[t.length - 1] + 1e-6);
+      if (Math.floor((t[t.length - 1] - t[0]) * 50 + 1e-9) + 2 === n) gained++;
+    }
+    expect(gained).toBe(47);
   });
 });
 

@@ -65,12 +65,18 @@ export function mirrorSample(s: MotionSample): MotionSample {
 
 // ---------- Step 1 + 2: uniform 50 Hz grid, pick channels ----------
 
+/**
+ * Grid length epsilon (PROTOCOL §5 step 1): the last point is kept when it lands on the grid. 1e-6, not 1e-9: real
+ * Mac timestamps are ~1.3e6 s (seconds since boot), where t_last - t_0 carries ~1e-8 of float error.
+ */
+export const GRID_EPS = 1e-6;
+
 /** Longest clip span preprocessing accepts (a push to talk clip is a few seconds; this stops a runaway grid). */
 export const MAX_CLIP_SEC = 60;
 
 /**
  * Sort by t (stable), drop duplicate t (keeps the first), grid t_k = t_0 + k/50 for
- * k = 0..floor((t_last - t_0)*50 + 1e-9), linear interpolation per channel (same as np.interp).
+ * k = 0..floor((t_last - t_0)*50 + GRID_EPS), linear interpolation per channel (same as np.interp).
  * `mirror`: step 0 for a right bud clip (flip the MIRROR_FLIPS channels; negation is exact, so this is bit for
  * bit the same as gridding mirrorSample()d samples). Returns [channel][n].
  */
@@ -87,7 +93,7 @@ export function toGrid(samples: MotionSample[], channels: Channel[], mirror = fa
   if (!Number.isFinite(t[0]) || !Number.isFinite(t[m - 1])) throw new Error('ml.preprocess: bad sample time');
   const span = t[m - 1] - t[0];
   if (span > MAX_CLIP_SEC) throw new Error(`ml.preprocess: clip spans ${span.toFixed(1)} s, max is ${MAX_CLIP_SEC} s`);
-  const n = Math.floor((t[m - 1] - t[0]) * GRID_HZ + 1e-9) + 1;
+  const n = Math.floor((t[m - 1] - t[0]) * GRID_HZ + GRID_EPS) + 1;
   const out: Float64Array[] = [];
   for (const ch of channels) {
     const [key, idx] = CHANNEL_INDEX[ch];

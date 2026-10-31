@@ -16,6 +16,7 @@ from scipy import signal
 
 ROOT = Path(__file__).resolve().parent.parent
 GRID_HZ = 50
+GRID_EPS = 1e-6  # PROTOCOL §5 step 1 (1e-9 was off by one on real boot clock timestamps ~1.3e6 s)
 CH = {'rr.x': ('rr', 0), 'rr.y': ('rr', 1), 'rr.z': ('rr', 2), 'ua.x': ('ua', 0), 'ua.y': ('ua', 1), 'ua.z': ('ua', 2)}
 DEFAULT_CH = list(CH)
 
@@ -27,7 +28,7 @@ def to_grid(samples, channels):
     keep = np.ones(len(ts), bool)
     keep[1:] = np.diff(ts) > 0  # drop duplicate t, keep the first
     idx, ts = order[keep], ts[keep]
-    n = int(np.floor((ts[-1] - ts[0]) * GRID_HZ + 1e-9)) + 1
+    n = int(np.floor((ts[-1] - ts[0]) * GRID_HZ + GRID_EPS)) + 1
     tg = ts[0] + np.arange(n) / GRID_HZ
     return np.array([np.interp(tg, ts, [samples[j][CH[c][0]][CH[c][1]] for j in idx]) for c in channels])
 
@@ -122,9 +123,13 @@ def main():
         ('25hz-drops', fake_samples(rng, 80, 25, 0.002, drop=0.15)),
         ('short-10', fake_samples(rng, 10, 25, 0.0)),
     ]
-    # exactly on the grid: the last point must be included (the 1e-9 in the formula)
+    # exactly on the grid: the last point must be included (the epsilon in the formula)
     on = [{'seq': i, 't': r5(10 + i * 0.04), 'q': [1, 0, 0, 0], 'rr': [r5(np.sin(i)), r5(np.cos(i)), r5(i * 0.01)], 'ua': [r5(0.1 * np.sin(2 * i)), 0.0, r5(0.01 * i)]} for i in range(26)]
     cases.append(('on-grid', on))
+    # a real s3 take (boot clock t ~ 1.32e6 s): (t_last - t_0) * 50 = 178.99999999..., so 1e-9 would drop the last point
+    s3 = json.loads((ROOT / 'data/raw/ss-dataset-s3-20261031-1654.json').read_text())
+    real = next(c for c in s3['clips'] if c['id'] == 's3-mvw5hqc0-e0')
+    cases.append(('boot-clock-s3', [{k: s[k] for k in ('seq', 't', 'q', 'rr', 'ua')} for s in real['samples']]))
     g['grid'] = []
     for name, s in cases:
         g['grid'].append({'name': name, 'samples': s, 'grid': to_grid(s, DEFAULT_CH).tolist()})
