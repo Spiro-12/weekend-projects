@@ -28,6 +28,6 @@
     "nSessions": 3,
     "datasets": ["dataset.synthetic.json"]
   },
-  "inferMsPerClip": 1.3994872916666623,
-  "generatedAt": "2026-10-31T02:26:20.205Z"
+  "inferMsPerClip": 1.1150057250000023,
+  "generatedAt": "2026-10-31T02:47:04.996Z"
 }

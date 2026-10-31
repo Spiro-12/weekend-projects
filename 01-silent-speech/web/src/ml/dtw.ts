@@ -38,16 +38,27 @@ export function dtwFlat(a: Float32Array, n: number, b: Float32Array, m: number, 
     cur[jlo] = Infinity; // D(i, jlo - 1)
     const ai = i * C;
     let rowMin = Infinity;
+    let diag = prev[jlo]; // D(i-1, j-1), carried along the row
+    let left = Infinity; // D(i, j-1)
     for (let j = jlo; j <= jhi; j++) {
       const bj = j * C;
-      let cost = 0;
-      for (let c = 0; c < C; c++) { const d = a[ai + c] - b[bj + c]; cost += d * d; }
-      const diag = prev[j], up = prev[j + 1], left = cur[j];
+      let cost: number;
+      if (C === 6) { // the default channel set, unrolled (same summation order as the loop below)
+        const d0 = a[ai] - b[bj], d1 = a[ai + 1] - b[bj + 1], d2 = a[ai + 2] - b[bj + 2];
+        const d3 = a[ai + 3] - b[bj + 3], d4 = a[ai + 4] - b[bj + 4], d5 = a[ai + 5] - b[bj + 5];
+        cost = d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3 + d4 * d4 + d5 * d5;
+      } else {
+        cost = 0;
+        for (let c = 0; c < C; c++) { const d = a[ai + c] - b[bj + c]; cost += d * d; }
+      }
+      const up = prev[j + 1];
       let best = diag < up ? diag : up;
       if (left < best) best = left;
       const v = cost + best;
       cur[j + 1] = v;
       if (v < rowMin) rowMin = v;
+      diag = up;
+      left = v;
     }
     if (jhi + 2 <= m) cur[jhi + 2] = Infinity; // next row reads D(i, jhi + 1): outside this row's band
     if (rowMin > cutoff) return Infinity;

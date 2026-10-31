@@ -7,6 +7,7 @@
 //   3. Reference distance dRef (a property of the model, kept up to date as templates are added): the
 //      median, over templates, of the DTW distance to the nearest OTHER template of the same class, i.e.
 //      "how far apart two takes of the same sentence usually are". Undefined when no class has 2 templates.
+//      (LOO cross validation hands each fold a dRef from all clip norm stats instead, see eval.ts.)
 //   4. Confidence = vote x separation, both in [0, 1]:
 //      - vote       = the label's share of the k neighbour weights (always 1 for k = 1).
 //      - separation = softmax with temperature T = 0.1 x dRef over every class's nearest distance d_c plus
@@ -14,9 +15,12 @@
 //                     * "unknown" at 1.7 x dRef. A clip whose best match is well inside 1.7 x dRef (and well
 //                       ahead of the other classes) scores high; at 1.7 x dRef it is at most 0.5; farther out
 //                       it falls fast toward 0 (far from every template = not a sentence we know).
-//                     * "stillness" at 1.25 x sum(q^2) = 1.25 x the DTW distance to the all zeros clip (the
-//                       training mean: nothing moved). It backs a 'none' answer and counts against all other
-//                       labels, so a quiet clip is not accepted even by a model with no 'none' takes.
+//                     * "stillness" at 1.25 x sum(q^2) = 1.25 x the DTW distance to the all zeros clip.
+//                       It backs a 'none' answer and counts against all other labels. With norm 'global'
+//                       (default) all zeros is the training mean, i.e. nothing moved, so a quiet clip is not
+//                       accepted even by a model with no 'none' takes. With norm 'clip' every clip is z scored
+//                       on its own, so sum(q^2) is about channels x L for any clip louder than the std floor:
+//                       there it only catches clips quieter than the floor and is otherwise inert.
 //      Limits: distance is the only cue. A different sentence that lands within ~1.7 x dRef of a template is
 //      still accepted (synthetic fixture: a text_mom + none model accepts about 7% of the 6 other sentences), and a
 //      model trained on one sitting is stricter on other sittings (their takes sit farther than dRef).
@@ -29,7 +33,7 @@
 import type { Clip, DtwKnnModelJSON, DtwKnnOptions, MotionSample, NormStats, Prediction } from '../core/contracts';
 import { NONE } from '../core/contracts';
 import { bandRadius, dtwFlat, interleave } from './dtw';
-import { applyNorm, computeNorm, preprocessRaw, resolveOpts, toF32 } from './preprocess';
+import { applyNorm, applyNormInterleaved, computeNorm, preprocessRaw, resolveOpts, toF32 } from './preprocess';
 import type { DtwKnnModel } from './index';
 
 /** Softmax temperature as a fraction of dRef (see the header). */
@@ -71,10 +75,21 @@ export class DtwKnn implements DtwKnnModel {
   private tpl: Template[] = [];
   private labelIdx = new Map<string, number>();
   private nnSame: number[] = []; // per template: DTW to the nearest other template of its class (Infinity if alone)
+  private nnKnown = true; // false when dRef was handed in (nnSame not computed); referenceDistance() fills it on demand
   private dRef: number | null | undefined; // median of the finite nnSame; undefined = stale
 
-  /** templates: already normalized, [channel][L]. */
-  constructor(opts: Required<DtwKnnOptions>, norm: NormStats, templates: { label: string; x: ArrayLike<number>[] }[]) {
+  /**
+   * templates: already normalized, [channel][L].
+   * internal (used by fromRaw / cross validation):
+   * - flat: more templates, already normalized and interleaved [L][channel] (trusted, not copied or checked).
+   * - dRef: skip the same class pair distances and use this reference distance instead.
+   *   A later add() drops it and recomputes everything exactly.
+   */
+  constructor(
+    opts: Required<DtwKnnOptions>, norm: NormStats, templates: { label: string; x: ArrayLike<number>[] }[],
+    internal: { flat?: { label: string; x: Float32Array }[]; dRef?: number | null } = {},
+  ) {
+    const { dRef } = internal;
     this.opts = { ...opts, channels: [...opts.channels] };
     this.threshold = opts.threshold;
     this.norm = { mean: [...norm.mean], std: [...norm.std] };
@@ -83,7 +98,10 @@ export class DtwKnn implements DtwKnnModel {
     if (this.norm.mean.length !== this.C || this.norm.std.length !== this.C) {
       throw new Error(`ml: norm stats need ${this.C} channels`);
     }
+    if (dRef !== undefined) this.nnKnown = false;
     for (const t of templates) this.push(t.label, t.x);
+    for (const t of internal.flat ?? []) this.pushFlat(t.label, t.x);
+    if (dRef !== undefined) this.dRef = dRef;
   }
 
   private push(label: string, x: ArrayLike<number>[]): void {
@@ -93,21 +111,15 @@ export class DtwKnn implements DtwKnnModel {
       if (row.length !== this.opts.L) throw new Error(`ml: template length ${row.length}, model L is ${this.opts.L}`);
       for (let i = 0; i < row.length; i++) if (!Number.isFinite(row[i])) throw new Error('ml: template has a non finite value');
     }
-    const t: Template = { label, x: interleave(x) };
-    // Keep nnSame exact as templates arrive: each same class pair is computed once (DTW is symmetric),
-    // with an exact early abandon (a pair farther than both current nearests changes nothing).
-    const { C, radius: r } = this;
-    const L = this.opts.L;
-    let mine = Infinity;
-    for (let u = 0; u < this.tpl.length; u++) {
-      if (this.tpl[u].label !== label) continue;
-      const cutoff = mine > this.nnSame[u] ? mine : this.nnSame[u];
-      const d = dtwFlat(t.x, L, this.tpl[u].x, L, C, r, cutoff);
-      if (d < mine) mine = d;
-      if (d < this.nnSame[u]) this.nnSame[u] = d;
-    }
-    this.tpl.push(t);
-    this.nnSame.push(mine);
+    this.pushFlat(label, interleave(x));
+  }
+
+  private pushFlat(label: string, x: Float32Array): void {
+    if (typeof label !== 'string' || !label) throw new Error('ml: template without a label');
+    if (x.length !== this.opts.L * this.C) throw new Error('ml: template has the wrong shape');
+    this.tpl.push({ label, x });
+    this.nnSame.push(Infinity);
+    if (this.nnKnown) this.linkNearest(this.tpl.length - 1);
     this.dRef = undefined;
     if (!this.labelIdx.has(label)) {
       this.labels = sortLabels([...this.labels, label]);
@@ -122,15 +134,40 @@ export class DtwKnn implements DtwKnnModel {
     return toF32(applyNorm(preprocessRaw(samples, this.opts), this.opts.norm, this.norm));
   }
 
+  /** Same as prep, interleaved [L][channel] (what classify takes). */
+  prepFlat(samples: MotionSample[]): Float32Array {
+    return applyNormInterleaved(preprocessRaw(samples, this.opts), this.opts.norm, this.norm);
+  }
+
+  /**
+   * Updates nnSame for template t against the templates before it. Each same class pair is computed once
+   * (DTW is symmetric), with an exact early abandon (a pair farther than both current nearests changes nothing).
+   */
+  private linkNearest(t: number): void {
+    const { C, radius: r } = this;
+    const L = this.opts.L;
+    const me = this.tpl[t];
+    for (let u = 0; u < t; u++) {
+      if (this.tpl[u].label !== me.label) continue;
+      const cutoff = this.nnSame[t] > this.nnSame[u] ? this.nnSame[t] : this.nnSame[u];
+      const d = dtwFlat(me.x, L, this.tpl[u].x, L, C, r, cutoff);
+      if (d < this.nnSame[t]) this.nnSame[t] = d;
+      if (d < this.nnSame[u]) this.nnSame[u] = d;
+    }
+  }
+
   /**
    * dRef: median over templates of the DTW distance to the nearest other template of the same class
    * (leave one out inside the templates). null when no class has 2 templates. Kept up to date by add().
    */
   referenceDistance(): number | null {
     if (this.dRef !== undefined) return this.dRef;
-    const nn = this.nnSame.filter(Number.isFinite).sort((p, q) => p - q);
-    const h = nn.length >> 1;
-    this.dRef = nn.length === 0 ? null : nn.length % 2 ? nn[h] : (nn[h - 1] + nn[h]) / 2;
+    if (!this.nnKnown) {
+      this.nnSame.fill(Infinity);
+      for (let t = 0; t < this.tpl.length; t++) this.linkNearest(t);
+      this.nnKnown = true;
+    }
+    this.dRef = finiteMedian(this.nnSame);
     return this.dRef;
   }
 
@@ -141,7 +178,7 @@ export class DtwKnn implements DtwKnnModel {
 
   predict(samples: MotionSample[]): Prediction {
     const t0 = now();
-    const p = this.classify(interleave(this.prep(samples)));
+    const p = this.classify(this.prepFlat(samples));
     return { ...p, ms: now() - t0 };
   }
 
@@ -228,10 +265,24 @@ export function trainModel(clips: Clip[], opts?: DtwKnnOptions): DtwKnn {
   return fromRaw(cs.map((c) => c.label), raws, o);
 }
 
-/** Builds a model from step 1..4 outputs (lets evaluate reuse preprocessing across folds). */
-export function fromRaw(labels: string[], raws: Float64Array[][], o: Required<DtwKnnOptions>): DtwKnn {
-  const norm = computeNorm(raws, o.norm, o.channels.length);
-  return new DtwKnn(o, norm, raws.map((r, i) => ({ label: labels[i], x: toF32(applyNorm(r, o.norm, norm)) })));
+/**
+ * Builds a model from step 1..4 outputs (lets evaluate reuse preprocessing across folds).
+ * internal.norm: norm stats already computed from exactly these raws. internal.dRef: see the constructor.
+ */
+export function fromRaw(
+  labels: string[], raws: Float64Array[][], o: Required<DtwKnnOptions>,
+  internal: { dRef?: number | null; norm?: NormStats } = {},
+): DtwKnn {
+  const norm = internal.norm ?? computeNorm(raws, o.norm, o.channels.length);
+  const flat = raws.map((r, i) => ({ label: labels[i], x: applyNormInterleaved(r, o.norm, norm) }));
+  return new DtwKnn(o, norm, [], { flat, dRef: internal.dRef });
+}
+
+/** Median of the finite values (null if none). Shared by the model and LOO cross validation. */
+export function finiteMedian(v: ArrayLike<number>): number | null {
+  const s = Float64Array.from(v).filter(Number.isFinite).sort();
+  const h = s.length >> 1;
+  return s.length === 0 ? null : s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2;
 }
 
 export function loadModelJSON(json: DtwKnnModelJSON): DtwKnn {

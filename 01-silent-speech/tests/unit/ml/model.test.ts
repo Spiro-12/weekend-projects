@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Clip, DatasetClip, DtwKnnModelJSON } from '../../../web/src/core/contracts';
 import { NONE } from '../../../web/src/core/contracts';
 import { dtw, loadModel, preprocess, train, type DtwKnnModel } from '../../../web/src/ml/index';
+import { fromRaw, trainModel } from '../../../web/src/ml/knn';
+import { preprocessRaw, resolveOpts } from '../../../web/src/ml/preprocess';
 import { syntheticDataset } from './helpers';
 
 const clips = (): DatasetClip[] => syntheticDataset().clips;
@@ -143,6 +145,17 @@ describe('train / predict', () => {
     const want = bruteForce(m.toJSON(), test[1].samples);
     expect(m.referenceDistance()).toBeCloseTo(want.dRef, 9);
     expect(m.predict(test[1].samples).confidence).toBeCloseTo(want.confidence, 9);
+  });
+
+  it('a model handed a dRef (LOO shortcut) uses it, and add() goes back to the exact one', () => {
+    const cs = bySession('s1');
+    const o = resolveOpts();
+    const m = fromRaw(cs.map((c) => c.label), cs.map((c) => preprocessRaw(c.samples, o)), o, { dRef: 123.5 });
+    expect(m.referenceDistance()).toBe(123.5);
+    m.add(bySession('s2')[0]);
+    expect(m.referenceDistance()).toBeCloseTo(bruteForce(m.toJSON(), test[0].samples).dRef, 9);
+    expect(fromRaw(cs.map((c) => c.label), cs.map((c) => preprocessRaw(c.samples, o)), o).referenceDistance())
+      .toBeCloseTo(trainModel(cs).referenceDistance()!, 12);
   });
 
   it('add() appends a template using the existing norm stats', () => {

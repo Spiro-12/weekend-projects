@@ -257,19 +257,32 @@ export function applyNorm(raw: Float64Array[], mode: 'global' | 'clip', norm: No
     throw new Error(`ml: norm stats have ${norm.std.length} channels, clip has ${raw.length}`);
   }
   return raw.map((x, c) => {
-    let mean: number, sd: number;
-    if (mode === 'global') {
-      mean = norm.mean[c];
-      sd = Math.max(norm.std[c], STD_FLOOR);
-    } else {
-      const [m, s] = meanStd(x);
-      mean = m;
-      sd = Math.max(s, norm.std[c], STD_FLOOR);
-    }
+    const [mean, sd] = channelScale(x, c, mode, norm);
     const y = new Float64Array(x.length);
     for (let i = 0; i < x.length; i++) y[i] = (x[i] - mean) / sd;
     return y;
   });
+}
+
+function channelScale(x: Float64Array, c: number, mode: 'global' | 'clip', norm: NormStats): [number, number] {
+  if (mode === 'global') return [norm.mean[c], Math.max(norm.std[c], STD_FLOOR)];
+  const [m, s] = meanStd(x);
+  return [m, Math.max(s, norm.std[c], STD_FLOOR)];
+}
+
+/** Step 5 straight into interleaved [L][channel] float32: bit for bit interleave(toF32(applyNorm(...))). */
+export function applyNormInterleaved(raw: Float64Array[], mode: 'global' | 'clip', norm: NormStats): Float32Array {
+  if (norm.mean.length !== raw.length || norm.std.length !== raw.length) {
+    throw new Error(`ml: norm stats have ${norm.std.length} channels, clip has ${raw.length}`);
+  }
+  const C = raw.length, n = C ? raw[0].length : 0;
+  const out = new Float32Array(n * C);
+  for (let c = 0; c < C; c++) {
+    const x = raw[c];
+    const [mean, sd] = channelScale(x, c, mode, norm);
+    for (let i = 0; i < n; i++) out[i * C + c] = (x[i] - mean) / sd;
+  }
+  return out;
 }
 
 export const toF32 = (x: Float64Array[]): Float32Array[] => x.map((r) => Float32Array.from(r));
