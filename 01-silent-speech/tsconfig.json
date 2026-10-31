@@ -13,5 +13,5 @@
     "skipLibCheck": true,
     "isolatedModules": true
   },
-  "include": ["web/src", "tests", "scripts", "*.config.ts"]
+  "include": ["web/src", "tests", "scripts", "mac/*.ts", "*.config.ts"]
 }

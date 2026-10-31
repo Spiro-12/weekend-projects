@@ -7,7 +7,8 @@ Source of truth for types: `web/src/core/contracts.ts`. Validators: `web/src/cor
 ## 1. Classes
 `shared/classes.json`: `[{ id, sentence, action }]`. Ids are fixed; sentence wording can change. `none` has `action: null`.
 
-## 2. WebSocket (`ws://localhost:8765`, JSON text frames)
+## 2. WebSocket (`ws://127.0.0.1:8765`, JSON text frames)
+The Mac app binds **IPv4 loopback only** (127.0.0.1:8765), so the dashboard defaults to `ws://127.0.0.1:8765` (not `localhost`, which may resolve to ::1 first).
 
 Mac → browser:
 | type | when | fields |
@@ -66,7 +67,7 @@ Input clips have at least 10 samples (shorter ones are rejected at recording).
 
 ## 6. Classifier (`web/src/ml/index.ts`)
 - DTW: dependent multivariate (one warp path for all channels), squared Euclidean local cost summed over channels, Sakoe-Chiba band radius `r = max(1, floor(band × L + 0.5))` (default band 0.1 → r = 6 at L = 64). Returns the total accumulated cost (no normalization).
-- kNN k = 3, distance weighted. `confidence` in [0, 1], `top` = up to 3 labels by score. `accepted = label !== 'none' && confidence >= threshold` (default 0.5, tuned in Phase 2).
+- kNN, default **k = 1** (with only 5 to 15 reps per class, voting over 3 neighbours hurt: first real AirPods data 71% → 94% with k = 1; synthetic LOSO 96.7% → 98.3%). Distance weighted when k > 1. `confidence` in [0, 1] and must drop when a clip is far from every template (not only relative to other classes), so small or partial models don't accept random motion. `top` = up to 3 labels by score. `accepted = label !== 'none' && confidence >= threshold` (default 0.5, tuned in Phase 2).
 - API: `train(clips, opts) → DtwKnnModel`, `loadModel(json)`, `evaluate(clips, opts, 'loo'|'loso') → Metrics`, `preprocess`, `dtw`. Any other winning model implements the same `Classifier` interface.
 - Datasets are merged and **deduplicated by clip `id`** before training or evaluation (JS and Python).
 - `Metrics` (also written by Python) → `ml/results/<model>/<protocol>.json`: `model, protocol, nClips, labels, accuracy, macroF1, confusion (rows true, cols predicted), noneFalseAcceptRate, params, inferMsPerClip, generatedAt`.
