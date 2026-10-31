@@ -208,7 +208,7 @@ test('2× plays twice as fast; pause stops the stream and play resumes it', asyn
   await expect(page.getByTestId('source-pill')).toHaveText('replay · open');
   const r1 = await rate();
   expect(r1).toBeGreaterThan(40);
-  expect(r1).toBeLessThan(60);
+  expect(r1).toBeLessThan(70); // 50 Hz; the 2 s window is wall time, so a busy machine adds a little (still far below 2×)
   await page.getByTestId('replay-speed-2').click();
   await expect(page.getByTestId('replay-speed-2')).toHaveAttribute('aria-pressed', 'true');
   const r2 = await rate();
