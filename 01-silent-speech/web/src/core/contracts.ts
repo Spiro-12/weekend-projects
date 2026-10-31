@@ -150,6 +150,9 @@ export interface Classifier {
   predict(samples: MotionSample[]): Prediction;
 }
 
+/** Preprocessing resamples every clip onto this uniform grid (PROTOCOL §5). */
+export const GRID_HZ = 50;
+
 export interface DtwKnnOptions {
   channels?: Channel[]; // default DEFAULT_CHANNELS
   L?: number; // resampled length, default 64

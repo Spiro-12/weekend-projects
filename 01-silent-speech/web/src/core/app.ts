@@ -137,11 +137,12 @@ export class App {
 
   /** Clears the ring and any half finished push to talk (source switch, clock jump). */
   private resetCapture() {
+    const t = this.lastT;
     this.ring = [];
     if (this.pending) clearTimeout(this.pending.timer);
     this.pending = null;
     this.pressT = null;
-    if (this.pttDown) { this.pttDown = false; this.bus.emit('ptt', { down: false, t: 0 }); }
+    if (this.pttDown) { this.pttDown = false; this.bus.emit('ptt', { down: false, t }); }
   }
 
   private onMotion(s: MotionSample) {

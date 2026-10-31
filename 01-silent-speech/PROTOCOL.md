@@ -14,7 +14,7 @@ Mac → browser:
 |---|---|---|
 | `hello` | once on connect | `v:1, app, version, actions[], armed` |
 | `status` | every 1 s + on change | `headphones (connected/disconnected/unavailable), auth (authorized/denied/notDetermined/restricted), loc (left/right/default/unknown), hz, gapPct, clients, armed, simulated` |
-| `motion` | every sample (~25 Hz, not batched) | `seq, t, q[w,x,y,z], rr[3] rad/s, ua[3] g, g?[3]` |
+| `motion` | every sample (~25 to 50 Hz, whatever the AirPods give; not batched) | `seq, t, q[w,x,y,z], rr[3] rad/s, ua[3] g, g?[3]` |
 | `actionResult` | reply to `action` | `id, action, ok, dryRun, message, error?, ms` |
 | `error` | bad request | `code (bad_json/unknown_action/cooldown), message, id?` |
 
@@ -55,9 +55,10 @@ Continuous recording for visitor replay: `hello, status, samples[], events[] (pt
 
 ## 5. Preprocessing spec v1 (JS and Python must match exactly)
 Input clips have at least 10 samples (shorter ones are rejected at recording).
-1. **Uniform grid:** sort by `t`, drop duplicate `t`. Grid `t_k = t_0 + k/25` for `k = 0 .. floor((t_last - t_0) * 25 + 1e-9)` (includes the last point when it lands on the grid). Linear interpolation per channel.
+`hz` in datasets/status is the measured input rate (25 or 50). Preprocessing doesn't depend on it.
+1. **Uniform grid at `GRID_HZ = 50`:** sort by `t`, drop duplicate `t`. Grid `t_k = t_0 + k/50` for `k = 0 .. floor((t_last - t_0) * 50 + 1e-9)` (includes the last point when it lands on the grid). Linear interpolation per channel. (50 Hz because the first real test showed AirPods Pro 3 stream at ~50 Hz; 25 Hz input just gets upsampled, which is harmless.)
 2. **Channels** `rr.x rr.y rr.z ua.x ua.y ua.z` (configurable, in that order).
-3. **High pass:** 2nd order Butterworth, 1.0 Hz, zero phase, per channel. Coefficients = `scipy.signal.butter(2, 1.0, 'highpass', fs=25)`. Filtering = `scipy.signal.filtfilt(b, a, x, padtype='odd', padlen=min(9, n-1))` including scipy's initial conditions (`lfilter_zi`). JS must reproduce this.
+3. **High pass:** 2nd order Butterworth, 1.0 Hz, zero phase, per channel. Coefficients = `scipy.signal.butter(2, 1.0, 'highpass', fs=50)`. Filtering = `scipy.signal.filtfilt(b, a, x, padtype='odd', padlen=min(9, n-1))` including scipy's initial conditions (`lfilter_zi`). JS must reproduce this.
 4. **Resample to L** (default 64): value at position `j*(n-1)/(L-1)`, `j = 0..L-1`, linear interpolation.
 5. **Normalize:**
    - `global` (default): per channel `mean` and population `std` (ddof 0, floor 1e-8) over every value of every training clip after step 4. Apply to train and test.

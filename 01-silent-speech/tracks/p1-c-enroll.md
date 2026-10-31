@@ -14,7 +14,7 @@ Uses: `ml.train`, `ml.evaluate` from `web/src/ml/index.ts` (Track D implements i
   - Session name (default `s1`, s2, …), reps per class (default 15), class list from `app.classes`.
   - Prompt: shows the current sentence BIG. Order = shuffled blocks (each block has every class once). For `none`: "stay still, maybe swallow or nod".
   - **In fake mode, set `app.fakeLabel` to the current prompt's id** so fake data matches labels.
-  - On bus `clip`: label it with the current prompt → `DatasetClip` (globally unique `id` via `newId(session)`, rep, startedAt, pressT, releaseT, padSec, quality from clip.gapPct + nSamples, session) → store → next prompt. Auto reject (with a visible message) if gapPct > 20 or fewer than 10 samples.
+  - On bus `clip`: label it with the current prompt → `DatasetClip` (globally unique `id` via `newId(session)`, rep, startedAt, pressT, releaseT, padSec, quality from clip.gapPct + nSamples, session) → store → next prompt. Auto reject (with a visible message) if gapPct > 20, fewer than 10 samples, **any interval between samples > 0.5 s** (a stall), or the clip is longer than 10 s.
   - Buttons: Redo last, Skip, Clear session (confirm), Export JSON (**current session only**, download `ss-dataset-<session>-<yyyymmdd-hhmm>.json`; `source` = `airpods` if `app.source.kind === 'live' && app.lastStatus?.simulated === false` else `fake`; device `AirPods Pro 3`, `loc` from `app.lastStatus`), Import JSON (validate with `validateDataset`).
   - Progress: per class count / target, total.
   - **Live accuracy**: after each clip (debounced), if ≥ 2 clips per class for ≥ 2 classes, run `ml.evaluate(clips, {}, 'loo')` and show accuracy + mini confusion matrix (labels short). Show LOSO too if ≥ 2 sessions.

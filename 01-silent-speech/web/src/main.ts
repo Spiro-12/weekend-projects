@@ -100,12 +100,16 @@ for (const p of panels) {
 // (remembered flag) get a 1.5 s live probe; public visitors go straight to replay (or fake).
 // This avoids a "local network access" prompt for every visitor.
 const LIVE_FLAG = 'ss.liveSeen';
-app.bus.on('hello', () => { if (app.source?.kind === 'live') localStorage.setItem(LIVE_FLAG, '1'); });
+const store = { // localStorage throws for visitors who block site data
+  get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } },
+};
+app.bus.on('hello', () => { if (app.source?.kind === 'live') store.set(LIVE_FLAG, '1'); });
 
 async function pickSource() {
   const forced = params.mode as SourceKind | undefined;
   if (forced && app.sources.has(forced)) return app.setSource(forced, params);
-  if (app.sources.has('live') && localStorage.getItem(LIVE_FLAG) === '1') {
+  if (app.sources.has('live') && store.get(LIVE_FLAG) === '1') {
     const gotHello = new Promise<boolean>((res) => {
       const off = app.bus.on('hello', () => { off(); res(true); });
       setTimeout(() => { off(); res(false); }, 1500);

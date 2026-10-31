@@ -14,6 +14,7 @@ _Work in progress. Full write up, demo GIF and real accuracy numbers land in Pha
 ```
 npm ci
 npm run dev            # dashboard on localhost:5173 (add ?mode=fake for fake data)
-npm run bridge         # mock Mac app on ws://127.0.0.1:8765
+npm run bridge -- --allow-origin http://localhost:5173   # mock Mac app on ws://127.0.0.1:18765
+                       # then open localhost:5173/weekend-projects/01-silent-speech/?mode=live&ws=ws://127.0.0.1:18765
 npm run typecheck && npm test && npx playwright test
 ```

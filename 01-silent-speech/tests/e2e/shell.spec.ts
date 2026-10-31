@@ -37,7 +37,10 @@ test('public visitor (no mode, never used the Mac app) gets a working page fast'
 
 test('Space still works right after picking a fake sentence', async ({ page }) => {
   await page.goto('./?mode=fake');
-  await page.getByTestId('fake-label').selectOption('help');
+  const sel = page.getByTestId('fake-label');
+  await sel.focus();
+  await page.keyboard.press('ArrowDown'); // keyboard change keeps focus on the select unless we blur it
+  await expect(sel).not.toHaveValue('');
   await page.waitForTimeout(500);
   await page.keyboard.down('Space');
   await page.waitForTimeout(1200);

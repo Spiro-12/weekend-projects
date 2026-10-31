@@ -9,7 +9,7 @@ A small `uv` Python project that loads our datasets, applies **the same preproce
 ## Build
 - `ml/pyproject.toml` (Python 3.12 via `uv python install 3.12` if 3.13 gives trouble), deps: numpy, scipy, scikit-learn, aeon, matplotlib, pytest. **torch as an optional extra** (`[cnn]`): try `uv pip install torch` for at most 10 minutes (the PyTorch CPU index is blocked here; PyPI's Linux wheel is big but works on CPU). If it fails, implement the CNN with Keras 3 on JAX CPU, or skip CNN and say so.
 - `silent/data.py`: load one or many `ss-dataset` files, validate basic shape, merge, **dedupe by clip `id`**, session = `clip.session or dataset.session`.
-- `silent/preprocess.py`: `PROTOCOL.md` §5 **to the letter** (grid formula, `filtfilt(b, a, x, padtype='odd', padlen=min(9, n-1))`, resample positions, norm stats definitions). Returns `(n, ch, L)` arrays.
+- `silent/preprocess.py`: `PROTOCOL.md` §5 **to the letter** (50 Hz grid formula (`GRID_HZ`), `filtfilt(b, a, x, padtype='odd', padlen=min(9, n-1))`, resample positions, norm stats definitions). Returns `(n, ch, L)` arrays.
 - `silent/cv.py`: LOO and LOSO splitters.
 - `silent/models/dtw.py`: own numpy DTW identical to the JS spec (dependent, squared Euclidean summed over channels, Sakoe-Chiba radius `max(1, floor(band·L + 0.5))`, total cost), kNN k=3 distance weighted (`1/(d+1e-9)`). Name it `dtw-py`. This is the cross check against the JS version.
 - `silent/models/minirocket.py`: aeon `MiniRocketMultivariate` (or `MultiRocketMultivariate`) + `RidgeClassifierCV`.

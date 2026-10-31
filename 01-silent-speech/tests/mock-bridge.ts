@@ -64,9 +64,10 @@ export async function startMockBridge(o: MockBridgeOpts = {}): Promise<MockBridg
     send(ws, status());
     ws.on('message', (data) => {
       const text = data.toString();
-      let type: unknown;
-      try { type = JSON.parse(text)?.type; } catch { /* bad json */ }
-      if (typeof type === 'string' && type !== 'action') return; // unknown message type: ignore
+      let obj: unknown;
+      try { obj = JSON.parse(text); } catch { /* bad json */ }
+      const isObj = typeof obj === 'object' && obj !== null && !Array.isArray(obj);
+      if (isObj && (obj as { type?: unknown }).type !== 'action') return; // not an action: ignore
       const req = parseClientMsg(text);
       if (!req) return send(ws, { type: 'error', code: 'bad_json', message: 'could not parse message' } satisfies ErrorMsg);
       if (!actions.includes(req.action))
