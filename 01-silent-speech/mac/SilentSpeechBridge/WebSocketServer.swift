@@ -280,7 +280,8 @@ final class WebSocketServer: ObservableObject {
             broadcastStatus()
             receive(on: client)
         case .failed(let error):
-            if client.ready { log.add("Dashboard connection failed: \(error)") }
+            // ENOTCONN after the dashboard went away is a normal disconnect (remove() logs that), not a failure.
+            if client.ready && !WebSocketServer.isGoneError(error) { log.add("Dashboard connection failed: \(error)") }
             client.connection.cancel()
             remove(client)
         case .waiting:
@@ -290,6 +291,12 @@ final class WebSocketServer: ObservableObject {
         default:
             break
         }
+    }
+
+    /// "Socket is not connected": the dashboard closed first. Normal, not worth a "failed" line.
+    static func isGoneError(_ error: NWError) -> Bool {
+        if case .posix(let code) = error, code == .ENOTCONN { return true }
+        return false
     }
 
     private func remove(_ client: Client) {
@@ -312,7 +319,7 @@ final class WebSocketServer: ObservableObject {
         client.connection.receiveMessage { [weak self, weak client] data, context, _, error in
             guard let self = self, let client = client else { return }
             if let error = error {
-                if client.ready { self.log.add("Dashboard connection error: \(error)") }
+                if client.ready && !WebSocketServer.isGoneError(error) { self.log.add("Dashboard connection error: \(error)") }
                 client.connection.cancel()
                 return
             }
