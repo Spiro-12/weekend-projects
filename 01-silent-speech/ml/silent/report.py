@@ -216,10 +216,10 @@ def _cross_check(results: Sequence[dict[str, Any]]) -> list[str]:
     ]
 
 
-def _confusions(results: Sequence[dict[str, Any]], out_path: Path) -> list[str]:
+def _confusions(results: Sequence[dict[str, Any]], out_path: Path, level: int = 4) -> list[str]:
     lines = ["Rows = true label, columns = predicted.", ""]
     for model in dict.fromkeys(m["model"] for m in results):
-        lines += [f"#### {model}", ""]
+        lines += [f"{'#' * level} {model}", ""]
         for m in [r for r in results if r["model"] == model]:
             img = m["_path"].parent / f"confusion_{m['protocol']}.png"
             if img.exists():
@@ -319,8 +319,28 @@ def _luck_table(rows: Sequence[dict[str, Any]], out_path: Path) -> list[str]:
     return lines + [""] + imgs
 
 
+def _settings(m: dict[str, Any]) -> str:
+    p = m["params"]
+    pre = f"L {p.get('L')}, {len(p.get('channels') or [])} channels, high pass {p.get('hpHz')} Hz, {p.get('norm')} norm, budNorm {p.get('budNorm')}"
+    extra = {
+        "dtw-knn": f"band {p.get('band')}, k {p.get('k')}",
+        "dtw-py": f"band {p.get('band')}, k {p.get('k')}",
+        "minirocket": f"{p.get('nKernels')} kernels, seed {p.get('seed')}",
+        "cnn": f"max {p.get('maxEpochs')} epochs, seed {p.get('seed')}",
+    }.get(m["model"], "")
+    return f"{pre}; {extra}" if extra else pre
+
+
+def _settings_lines(group: Sequence[dict[str, Any]]) -> list[str]:
+    seen: dict[str, str] = {}
+    for m in group:
+        if m["protocol"] == "loso":
+            seen.setdefault(m["model"], _settings(m))
+    return ["Settings (LOSO runs): " + "; ".join(f"**{k}**: {v}" for k, v in seen.items()) + ".", ""] if seen else []
+
+
 def _real_section(group: Sequence[dict[str, Any]], out_path: Path, ids: Sequence[str] | None) -> list[str]:
-    lines = [f"### Data: {_names(group[0])}", "", *_sessions_table(group)]
+    lines = [f"### Data: {_names(group[0])}", "", *_sessions_table(group), *_settings_lines(group)]
     for m in group:
         why = exclusion_problem(m, ids)
         if why:
@@ -350,7 +370,7 @@ def _real_section(group: Sequence[dict[str, Any]], out_path: Path, ids: Sequence
             *_loo_table(by["loo"]),
         ]
     lines += ["#### JS vs Python DTW cross check", "", *_cross_check(group)]
-    lines += ["#### Confusion matrices", "", *_confusions(group, out_path)]
+    lines += ["#### Confusion matrices", "", *_confusions(group, out_path, 5)]
     return lines
 
 

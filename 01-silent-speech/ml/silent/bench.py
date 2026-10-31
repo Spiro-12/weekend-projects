@@ -231,16 +231,17 @@ def plot_luck(metrics: dict[str, Any], path: Path) -> None:
     perm = metrics["params"]["permutation"]
     n = perm["nClips"]
     hist = {int(k): v for k, v in perm["shuffledCorrectHistogram"].items()}
-    xs = np.array(sorted(hist))
+    pct = np.repeat(100 * np.array(list(hist)) / n, list(hist.values()))
+    counts, edges = np.histogram(pct, bins=np.arange(0, 101, 1.0))  # 1 point wide bins
     fig, ax = plt.subplots(figsize=(6.4, 2.8), dpi=110, facecolor=SURFACE)
     ax.set_facecolor(SURFACE)
-    ax.bar(100 * xs / n, [hist[x] for x in xs], width=0.8 * 100 / n, color=SERIES_1, edgecolor=SURFACE, linewidth=0.5)
+    ax.bar(edges[:-1] + 0.5, counts, width=0.8, color=SERIES_1, linewidth=0)
     real = 100 * perm["realAccuracy"]
     ax.axvline(real, color=INK, linewidth=2)
     ax.text(real, ax.get_ylim()[1] * 0.92, f" real {real:.1f}%\n ({perm['realCorrect']}/{n})", color=INK, fontsize=8, va="top",
             ha="right" if real > 85 else "left")
     mean = 100 * perm["shuffledMean"]
-    ax.text(mean, ax.get_ylim()[1] * 0.92, f"shuffled labels\nmean {mean:.1f}%", color=INK_2, fontsize=8, va="top", ha="center")
+    ax.text(100 * perm["shuffledMax"] + 2, ax.get_ylim()[1] * 0.6, f"shuffled labels\nmean {mean:.1f}%", color=INK_2, fontsize=8, va="top")
     ax.set_xlim(0, 100)
     ax.set_xlabel("LOSO accuracy (%)", fontsize=8, color=INK_2)
     ax.set_ylabel("shuffles", fontsize=8, color=INK_2)
