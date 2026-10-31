@@ -1,0 +1,10 @@
+[
+  { "id": "text_mom", "sentence": "Text mom I'm on my way", "action": "text_mom" },
+  { "id": "volume_up", "sentence": "Turn the volume up", "action": "volume_up" },
+  { "id": "call_back", "sentence": "Call me back later", "action": "call_back" },
+  { "id": "demo_48h", "sentence": "I created this demo in 48 hours", "action": "demo_48h" },
+  { "id": "help", "sentence": "I need help right now", "action": "help" },
+  { "id": "calendar", "sentence": "What's on my calendar today?", "action": "calendar" },
+  { "id": "focus_music", "sentence": "Play my focus music", "action": "focus_music" },
+  { "id": "none", "sentence": "(still, swallow, nod, glance)", "action": null }
+]

@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: ['p[0-9]*'] # phase and track branches (p1, p1-a-mac, ...)
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web (typecheck, unit, e2e, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 01-silent-speech
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: 01-silent-speech/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx playwright test
+      - name: Pages build
+        working-directory: .
+        run: ./scripts/build-site.sh && test -f _site/01-silent-speech/index.html
+
+  mac:
+    name: Mac app (compile)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: test -f 01-silent-speech/mac/project.yml && echo "has=true" >> "$GITHUB_OUTPUT" || echo "has=false" >> "$GITHUB_OUTPUT"
+      - if: steps.check.outputs.has == 'true'
+        run: brew install xcodegen xcbeautify
+      - if: steps.check.outputs.has == 'true'
+        working-directory: 01-silent-speech/mac
+        # xcbeautify turns compile errors into GitHub annotations, which Claude can read through the API
+        # (raw job logs are not reachable from Claude's sandbox).
+        run: |
+          set -o pipefail
+          xcodegen
+          xcodebuild -project SilentSpeechBridge.xcodeproj -target SilentSpeechBridge -configuration Debug CODE_SIGNING_ALLOWED=NO build 2>&1 | xcbeautify --renderer github-actions
+      - if: steps.check.outputs.has != 'true'
+        run: echo "No Mac app yet, skipping."
+
+  python:
+    name: Python bench (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: test -f 01-silent-speech/ml/pyproject.toml && echo "has=true" >> "$GITHUB_OUTPUT" || echo "has=false" >> "$GITHUB_OUTPUT"
+      - if: steps.check.outputs.has == 'true'
+        uses: astral-sh/setup-uv@v6
+      - if: steps.check.outputs.has == 'true'
+        working-directory: 01-silent-speech/ml
+        run: uv sync && uv run pytest -q
+      - if: steps.check.outputs.has != 'true'
+        run: echo "No Python bench yet, skipping."

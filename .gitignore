@@ -3,3 +3,13 @@ dist/
 _site/
 .DS_Store
 .env
+*.xcodeproj/
+.venv/
+__pycache__/
+test-results/
+playwright-report/
+actions.json
+build/
+DerivedData/
+.pytest_cache/
+*.egg-info/
