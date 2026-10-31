@@ -1,7 +1,7 @@
 // Track J: the Recognize screen's action rule, guard, words and model source (no DOM).
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import type { Mode, SourceKind } from '../../web/src/core/app';
+import type { Mode, PressContext, SourceKind } from '../../web/src/core/app';
 import type { ActionResultMsg, ClassDef, Dataset, DatasetClip, HelloMsg, MotionSample, StatusMsg } from '../../web/src/core/contracts';
 import { fakeStatus } from '../../web/src/core/synth';
 import { MotionSynth } from '../../web/src/core/synth';
@@ -9,12 +9,14 @@ import * as ml from '../../web/src/ml/index';
 import { buildDemoModelJSON } from '../../web/src/panels/result/demo-build';
 import { DEMO_REPS, FAKE_SPEAK_DELAY, buildDemoJSON, demoClips } from '../../web/src/panels/result/demo-model';
 import {
-  EXCLUDED, classCount, fetchPublicModel, fingerprint, planModel, realClips, type Provenance,
+  EXCLUDED, MIN_TAKES_FOR_ACTIONS, actionReadiness, classCount, fetchPublicModel, fingerprint, planModel, realClips, type Provenance,
 } from '../../web/src/panels/result/model-source';
 import {
   ACTION_GAP_MS, ActionGuard, BLOCK_REASONS, decideAction, type BlockReason, type GuardInput, type RuleInput,
 } from '../../web/src/panels/result/rule';
-import { OUTCOME_UNKNOWN, UNPAIRED_TEXT, describeAction, ghostReason, toastFor } from '../../web/src/panels/result/text';
+import {
+  OUTCOME_UNKNOWN, TEXTING_ACTIONS, UNPAIRED_TEXT, describeAction, ghostReason, okWords, toastFor,
+} from '../../web/src/panels/result/text';
 import type { ClipMeta } from '../../web/src/store';
 
 const read = (rel: string) => JSON.parse(readFileSync(new URL(rel, import.meta.url), 'utf8'));
@@ -24,9 +26,13 @@ const ACTIONS = classes.filter((c) => c.action).map((c) => c.action as string);
 const hello = (actions = ACTIONS): HelloMsg => ({ type: 'hello', v: 1, app: 'MockBridge', version: 't', actions, armed: true });
 const status = (p: Partial<StatusMsg> = {}): StatusMsg => fakeStatus({ armed: true, simulated: false, ...p });
 
+const SERIAL = 7;
+const press = (p: Partial<PressContext> = {}): PressContext => ({ mode: 'classify', source: 'live', conn: SERIAL, simulated: false, ...p });
+
 /** Everything allowed: the rule sends. */
 const ok = (p: Partial<RuleInput> = {}): RuleInput => ({
-  mode: 'classify', source: 'live', connOpen: true, hello: hello(), status: status(), ownModel: true,
+  mode: 'classify', source: 'live', press: press(), connSerial: SERIAL, panelConn: { atPress: 3, now: 3 },
+  connOpen: true, hello: hello(), status: status(), ownModel: true,
   pred: { label: 'volume_up', accepted: true, confidence: 0.9 }, action: 'volume_up', token: 'abc123',
   now: 100_000, lastSentAt: null, inflight: false, ...p,
 });
@@ -46,13 +52,23 @@ describe('decideAction: the strict rule', () => {
     ['action undefined', { action: undefined }, 'no-action'],
     ['action empty', { action: '' }, 'no-action'],
     ['Record mode', { mode: 'enroll' }, 'not-recognize'],
+    ['take started in Record mode', { press: press({ mode: 'enroll' }) }, 'press-mode'],
+    ['no press context', { press: undefined }, 'press-mode'],
+    ['null press context', { press: null }, 'press-mode'],
     ['fake source', { source: 'fake' }, 'not-live'],
     ['replay source', { source: 'replay' }, 'not-live'],
     ['no source', { source: null }, 'not-live'],
+    ['take started on another source', { press: press({ source: 'fake' }) }, 'press-changed'],
+    ['take started with no source', { press: press({ source: null }) }, 'press-changed'],
+    ['connection changed since key down (core serial)', { press: press({ conn: SERIAL - 1 }) }, 'press-changed'],
+    ['connection changed since key down (panel serial)', { panelConn: { atPress: 3, now: 4 } }, 'press-changed'],
+    ['panel never saw the key go down', { panelConn: { atPress: null, now: 3 } }, 'press-changed'],
     ['connection not open', { connOpen: false }, 'not-connected'],
     ['no status yet', { status: null }, 'not-connected'],
     ['no hello yet', { hello: null }, 'not-connected'],
     ['Simulate mode', { status: status({ simulated: true }) }, 'simulated'],
+    ['Simulate mode when the take started', { press: press({ simulated: true }) }, 'simulated'],
+    ['no status when the take started', { press: press({ simulated: null }) }, 'simulated'],
     ['not armed', { status: status({ armed: false }) }, 'not-armed'],
     ['public or practice model', { ownModel: false }, 'not-own-model'],
     ['Mac does not offer the action', { hello: hello(['text_mom']) }, 'not-offered'],
@@ -108,36 +124,46 @@ describe('decideAction: the strict rule', () => {
     }
   });
 
-  // Exhaustive: every combination of these values (about 260k inputs) against an independent oracle
+  // Exhaustive: every combination of these values (about 344k inputs) against an independent oracle
   // written straight from the brief. Sends iff all conditions hold; when blocked, the reason is the
   // first failing check in the documented order.
   it('exhaustive grid agrees with the brief', () => {
     const NOW = 50_000;
     const modes: Mode[] = ['classify', 'enroll'];
     const sources: (SourceKind | null)[] = ['live', 'fake', 'replay', null];
-    const hellos = [hello(), hello(['text_mom']), null];
-    const statuses = [null, status(), status({ armed: false }), status({ simulated: true }), status({ armed: false, simulated: true })];
+    const hellos = [hello(), hello(['text_mom'])];
+    const statuses = [null, status(), status({ armed: false }), status({ simulated: true })];
     const preds = [
       { label: 'volume_up', accepted: true, confidence: 0.9 }, { label: 'volume_up', accepted: false, confidence: 0.4 },
-      { label: 'none', accepted: true, confidence: 0.9 }, { label: 'none', accepted: false, confidence: 0.9 },
-      { label: 'volume_up', accepted: true, confidence: NaN }, { label: 'help', accepted: true, confidence: 0.7 },
+      { label: 'none', accepted: true, confidence: 0.9 }, { label: 'volume_up', accepted: true, confidence: NaN },
     ];
-    const actions = ['volume_up', null, ''];
-    const tokens = ['tok', '', null];
-    const lasts = [null, NOW - 3000, NOW - 2999, NOW + 5, NaN];
+    const actions = ['volume_up', null];
+    const tokens = ['tok', null];
+    const lasts = [null, NOW - 3000, NOW - 2999];
+    const presses: (PressContext | null)[] = [
+      press(), null, press({ mode: 'enroll' }), press({ source: 'fake' }), press({ conn: SERIAL + 1 }),
+      press({ simulated: true }), press({ simulated: null }),
+    ];
+    const panels = [{ atPress: 2, now: 2 }, { atPress: 1, now: 2 }];
     let n = 0, sent = 0;
     const wrong: unknown[] = [];
     for (const mode of modes) for (const source of sources) for (const connOpen of [true, false])
     for (const h of hellos) for (const st of statuses) for (const ownModel of [true, false]) for (const pred of preds)
-    for (const action of actions) for (const token of tokens) for (const lastSentAt of lasts) for (const inflight of [true, false]) {
-      const x: RuleInput = { mode, source, connOpen, hello: h, status: st, ownModel, pred, action, token, now: NOW, lastSentAt, inflight };
+    for (const action of actions) for (const token of tokens) for (const lastSentAt of lasts) for (const inflight of [true, false])
+    for (const pr of presses) for (const panelConn of panels) {
+      const x: RuleInput = {
+        mode, source, press: pr, connSerial: SERIAL, panelConn, connOpen, hello: h, status: st, ownModel, pred, action, token,
+        now: NOW, lastSentAt, inflight,
+      };
       const checks: [BlockReason, boolean][] = [
         ['not-accepted', pred.accepted && pred.label !== 'none' && Number.isFinite(pred.confidence)],
         ['no-action', !!action],
         ['not-recognize', mode === 'classify'],
+        ['press-mode', pr?.mode === 'classify'],
         ['not-live', source === 'live'],
+        ['press-changed', pr?.source === 'live' && pr.conn === SERIAL && panelConn.atPress === panelConn.now],
         ['not-connected', connOpen && st !== null && h !== null],
-        ['simulated', st?.simulated === false],
+        ['simulated', st?.simulated === false && pr?.simulated === false],
         ['not-armed', st?.armed === true],
         ['not-own-model', ownModel],
         ['not-offered', !!action && !!h && h.actions.includes(action)],
@@ -155,9 +181,9 @@ describe('decideAction: the strict rule', () => {
       if (!right && wrong.length < 5) wrong.push({ x, d, firstFail });
     }
     expect(wrong).toEqual([]);
-    expect(n).toBe(259_200);
+    expect(n).toBe(344_064);
     expect(sent).toBeGreaterThan(0);
-    expect(BLOCK_REASONS).toHaveLength(12);
+    expect(BLOCK_REASONS).toHaveLength(14);
   }, 60_000);
 });
 
@@ -260,11 +286,14 @@ describe('words', () => {
     for (const r of BLOCK_REASONS) for (const s of ['live', 'fake', 'replay', null] as const) expect(ghostReason(r, s).length).toBeGreaterThan(5);
     expect(ghostReason('not-live', 'replay')).toMatch(/Replay/);
     expect(ghostReason('not-armed', 'live')).toMatch(/Armed/);
+    expect(ghostReason('not-own-model', 'live', 8, 5)).toBe('Record all 8 sentences (5 each) to run actions');
+    expect(ghostReason('unpaired', 'live')).toMatch(/Open this page from the Mac app’s link/);
   });
 
   const res = (p: Partial<ActionResultMsg>) => ({ action: 'text_mom', ok: false, dryRun: false, message: 'm', ...p });
   it('toasts: done, dry run, unpaired, unknown outcome, cooldown, others', () => {
-    expect(toastFor(res({ ok: true, message: 'Mock ran text_mom' }))).toEqual({ kind: 'ok', title: 'Done on your Mac', body: 'Mock ran text_mom' });
+    expect(toastFor(res({ action: 'volume_up', ok: true, message: 'Mock ran volume_up' })))
+      .toEqual({ kind: 'ok', title: 'Done on your Mac', body: 'Turn the Mac’s volume up' }); // our words, not the raw message
     expect(toastFor(res({ ok: true, dryRun: true })).kind).toBe('dry');
     expect(toastFor(res({ error: 'unpaired' }))).toEqual({ kind: 'bad', title: 'Not paired', body: UNPAIRED_TEXT });
     expect(UNPAIRED_TEXT).toBe("This dashboard isn't paired with your Mac app. Open it from the Mac app's link.");
@@ -276,7 +305,21 @@ describe('words', () => {
     expect(toastFor(res({ error: 'cooldown' })).title).toBe('Too soon');
     expect(toastFor(res({ error: 'unknown_action' })).body).toMatch(/doesn’t know/);
     expect(toastFor(res({ error: 'not_connected' })).body).toMatch(/nothing happened/);
-    expect(toastFor(res({ error: 'weird', message: 'Something odd happened' })).body).toBe('Something odd happened');
+    // Unknown codes: a generic plain line, never the Mac's raw message or the code.
+    expect(toastFor(res({ error: 'weird_code', message: 'NSAppleScriptErrorNumber -1743 text_mom' })))
+      .toEqual({ kind: 'bad', title: 'It didn’t work', body: 'Your Mac couldn’t do it this time.' });
+  });
+
+  it('texts are only STARTED when the Mac says ok: "sending", never "Done" or "on the way"', () => {
+    for (const a of TEXTING_ACTIONS) {
+      const t = toastFor(res({ action: a, ok: true, message: 'Sent' }));
+      expect(t.title).toBe('Your Mac is sending the text');
+      const w = okWords(a, 'Sent');
+      expect(w.chip).toBe(`Sending: ${describeAction(a)}`);
+      expect(`${t.title} ${t.body} ${w.chip} ${w.why}`).not.toMatch(/Done|on the way/i);
+    }
+    expect(okWords('focus_music').title).toBe('Your Mac is on it');
+    expect(okWords('volume_up').chip).toBe('Done: Turn the Mac’s volume up');
   });
 
   it('long actions that answer "Working on it" read naturally', () => {
@@ -290,6 +333,7 @@ describe('words', () => {
     ['bad_uri', /playlist/], ['script_failed', /permission/], ['busy', /still doing the last one/],
     ['cooldown', /30 seconds/], ['unknown_action', /doesn’t know/], ['send_failed', /nothing happened/],
     ['duplicate_id', /wasn’t sent twice/], ['bad_json', /didn’t understand/],
+    ['not_allowed', /needs permission: System Settings › Privacy & Security › Automation/],
   ];
   for (const [code, body] of MAC_CODES) {
     it(`error ${code}: plain English, no code shown`, () => {
@@ -340,33 +384,104 @@ describe('model source', () => {
     expect(fingerprint([{ id: 'a' }])).not.toBe(fingerprint([{ id: 'a' }, { id: 'c' }]));
   });
 
+  it('recordedOnly: only clips recorded in this browser (imports and old records without origin do not count)', () => {
+    const all = [clip('r1', 'text_mom'), clip('i1', 'text_mom'), clip('o1', 'help'), clip('f1', 'help')];
+    const metas: Record<string, ClipMeta> = {
+      r1: { ...meta('airpods'), origin: 'recorded' }, i1: { ...meta('airpods'), origin: 'imported' },
+      o1: meta('airpods'), f1: { ...meta('fake'), origin: 'recorded' },
+    };
+    expect(realClips(all, (id) => metas[id], known).map((c) => c.id)).toEqual(['r1', 'i1', 'o1']);
+    expect(realClips(all, (id) => metas[id], known, { recordedOnly: true }).map((c) => c.id)).toEqual(['r1']);
+  });
+
+  it('action readiness: every sentence in classes.json, none included, at least 5 takes each', () => {
+    const takes = (per: Record<string, number>) => Object.entries(per).flatMap(([label, n]) => Array.from({ length: n }, () => ({ label })));
+    const all5 = Object.fromEntries(known.map((id) => [id, 5]));
+    expect(MIN_TAKES_FOR_ACTIONS).toBe(5);
+    expect(actionReadiness(takes(all5), known)).toEqual({ ready: true, done: 8, total: 8 });
+    expect(actionReadiness(takes({ ...all5, none: 4 }), known)).toEqual({ ready: false, done: 7, total: 8 });
+    expect(actionReadiness(takes({ ...all5, none: 0 }), known).ready).toBe(false);
+    expect(actionReadiness(takes({ none: 15, text_mom: 15 }), known)).toEqual({ ready: false, done: 2, total: 8 });
+    expect(actionReadiness([], known).ready).toBe(false);
+    expect(actionReadiness([], []).ready).toBe(false);
+  });
+
   it('plan, fake source: the demo model (a practice model from Record stays unless Re-train)', () => {
-    const plan = (current: Provenance | null, force = false, realClasses = 8) => planModel({ fake: true, realClasses, current, fresh: true, force });
+    const plan = (current: Provenance | null, force = false) =>
+      planModel({ source: 'fake', ownReady: true, realClasses: 8, current, fresh: true, force });
     expect(plan(null)).toBe('demo');
     expect(plan('own')).toBe('demo'); // your real model doesn't know fake motion
+    expect(plan('preview')).toBe('demo');
     expect(plan('public')).toBe('demo');
     expect(plan('demo')).toBe('keep');
     expect(plan('other')).toBe('keep');
     expect(plan('other', true)).toBe('demo');
-    expect(plan('demo', true, 0)).toBe('demo');
   });
 
-  it('plan: train on 2+ real classes, else keep a practice or public model, else public', () => {
-    const plan = (realClasses: number, current: Provenance | null, fresh = false, force = false) => planModel({ fake: false, realClasses, current, fresh, force });
-    expect(plan(2, null)).toBe('train');
-    expect(plan(8, 'public')).toBe('train');
-    expect(plan(8, 'other')).toBe('train'); // Record's model is replaced by one we know is yours
-    expect(plan(8, 'own', false)).toBe('train'); // new recordings since
-    expect(plan(8, 'own', true)).toBe('keep');
-    expect(plan(8, 'own', true, true)).toBe('train'); // Re-train
-    expect(plan(1, null)).toBe('public');
-    expect(plan(0, 'own', true)).toBe('public'); // your recordings are gone
-    expect(plan(1, 'other')).toBe('keep'); // practice model from Record stays
-    expect(plan(1, 'public')).toBe('keep');
-    expect(plan(1, 'other', false, true)).toBe('public');
-    expect(plan(0, 'demo')).toBe('public'); // left fake mode: the demo model doesn't know real motion
-    expect(plan(8, 'demo')).toBe('train');
+  it('plan, replay: always Spiro\'s public model, never your clips (the held out score stays honest)', () => {
+    const plan = (current: Provenance | null, force = false) =>
+      planModel({ source: 'replay', ownReady: true, realClasses: 8, current, fresh: true, force });
+    for (const cur of [null, 'own', 'preview', 'demo', 'other'] as const) expect(plan(cur)).toBe('public');
+    expect(plan('public')).toBe('keep');
+    expect(plan('public', true)).toBe('public');
   });
+
+  it('plan, live: your model only when ready, a preview model from 2+ real sentences, else public', () => {
+    const plan = (o: { ready?: boolean; real?: number; cur?: Provenance | null; fresh?: boolean; force?: boolean }) => planModel({
+      source: 'live', ownReady: o.ready ?? false, realClasses: o.real ?? 0, current: o.cur ?? null, fresh: o.fresh ?? false, force: o.force ?? false,
+    });
+    expect(plan({ ready: true, real: 8 })).toBe('own');
+    expect(plan({ ready: true, real: 8, cur: 'own', fresh: true })).toBe('keep');
+    expect(plan({ ready: true, real: 8, cur: 'own', fresh: false })).toBe('own'); // new recordings since
+    expect(plan({ ready: true, real: 8, cur: 'own', fresh: true, force: true })).toBe('own'); // Re-train
+    expect(plan({ ready: true, real: 8, cur: 'preview', fresh: true })).toBe('own'); // became ready
+    expect(plan({ ready: false, real: 2 })).toBe('preview');
+    expect(plan({ ready: false, real: 8, cur: 'own', fresh: true })).toBe('preview'); // recorded takes were deleted
+    expect(plan({ ready: false, real: 8, cur: 'preview', fresh: true })).toBe('keep');
+    expect(plan({ ready: false, real: 8, cur: 'other' })).toBe('preview'); // Record's model is replaced
+    expect(plan({ ready: false, real: 1 })).toBe('public');
+    expect(plan({ ready: false, real: 0, cur: 'own', fresh: true })).toBe('public'); // your recordings are gone
+    expect(plan({ ready: false, real: 1, cur: 'other' })).toBe('keep'); // practice model from Record stays
+    expect(plan({ ready: false, real: 1, cur: 'public' })).toBe('keep');
+    expect(plan({ ready: false, real: 1, cur: 'other', force: true })).toBe('public');
+    expect(plan({ ready: false, real: 0, cur: 'demo' })).toBe('public'); // left fake mode
+    // Source not picked yet: like live (the source event plans again).
+    expect(planModel({ source: null, ownReady: false, realClasses: 0, current: null, fresh: false, force: false })).toBe('public');
+  });
+
+  // Reviewer finding: a model that knows only 2 sentences calls everything one of them. Spiro's real data:
+  // train none + text_mom on s1 + s2 (exclude list), test the other sentences of s3.
+  it('real data: a none + text_mom model accepts other sentences as text_mom, so it is never allowed to act', () => {
+    const ds = ['ss-dataset-s1-20261031-1621.json', 'ss-dataset-s2-20261031-1637.json', 'ss-dataset-s3-20261031-1654.json']
+      .map((f) => read(`../../data/raw/${f}`) as Dataset);
+    const metaOf = new Map<string, ClipMeta>();
+    for (const d of ds) for (const c of d.clips) {
+      metaOf.set(c.id, { source: 'airpods', subject: d.subject, device: d.device, hz: d.hz, origin: 'recorded' }); // even "recorded here"
+    }
+    const pick = (d: Dataset, labels: string[]) => d.clips.filter((c) => labels.includes(c.label)).map((c) => ({ ...c, session: d.session }));
+    const train = realClips([...pick(ds[0], ['none', 'text_mom']), ...pick(ds[1], ['none', 'text_mom'])], (id) => metaOf.get(id), known, { recordedOnly: true });
+    expect(classCount(train)).toBe(2);
+    // The panel's decision: 2 sentences recorded is not ready, so this is a preview model, not "your model".
+    const ready = actionReadiness(train, known);
+    expect(ready.ready).toBe(false);
+    const plan = planModel({ source: 'live', ownReady: ready.ready, realClasses: classCount(train), current: null, fresh: false, force: false });
+    expect(plan).toBe('preview');
+    const ownModel = plan === 'own';
+
+    const model = ml.train(train);
+    const others = ds[2].clips.filter((c) => c.label !== 'none' && c.label !== 'text_mom' && !EXCLUDED.has(c.id));
+    let wronglyAccepted = 0;
+    for (const c of others) {
+      const p = model.predict(c.samples, { loc: c.loc ?? ds[2].device.loc });
+      if (p.accepted) wronglyAccepted++;
+      const action = classes.find((k) => k.id === p.label)?.action ?? null;
+      const d = decideAction(ok({ pred: p, action, ownModel })); // everything else allowed: armed, paired, live, real
+      expect(d).toEqual(p.accepted ? { send: false, reason: 'not-own-model' } : { send: false, reason: 'not-accepted' });
+    }
+    // The danger is real: this model accepts many sentences it doesn't know (reviewer: 70 of 90).
+    expect(others.length).toBeGreaterThanOrEqual(80);
+    expect(wronglyAccepted).toBeGreaterThan(others.length / 4);
+  }, 60_000);
 
   it('demo clips: every class, deterministic, long enough, labeled, never airpods', () => {
     const a = demoClips(classes);

@@ -1,24 +1,26 @@
 // Recognize screen (result panel): you mouth a sentence, it appears big, and (only when safe) the Mac
 // does it. Track J brief.
 //
-// - Model (Recognize mode): your real AirPods clips for 2+ sentences → train "your model"; else
-//   Spiro's public model (models/templates.json). Fake practice clips never train it. See result/model-source.ts.
+// - Model (Recognize mode), see result/model-source.ts: fake source → demo model; replay → Spiro's public
+//   model; live → "your model" (recorded here with real AirPods, every sentence 5+ times: the only kind
+//   that may run actions), else a preview model from your real clips, else Spiro's public model.
 // - Actions: one strict rule (result/rule.ts). Anything else shows a ghost chip "Would: …".
 // - Moments: demo_48h → confetti, help → full screen red alert, optional "Say it out loud".
 import './result/result.css';
-import type { App, Panel } from '../core/app';
+import type { App, Panel, PressContext } from '../core/app';
 import type { ActionResultMsg, Classifier, HelloMsg, Prediction, StatusMsg } from '../core/contracts';
 import { NONE } from '../core/contracts';
 import * as ml from '../ml/index';
 import { confetti } from './result/confetti';
 import { buildDemoModelJSON, type DemoBuilt } from './result/demo-build';
 import {
-  MIN_REAL_CLASSES, classCount, fetchPublicModel, fingerprint, planModel, realClips,
-  type Provenance, type PublicModel,
+  MIN_REAL_CLASSES, MIN_TAKES_FOR_ACTIONS, actionReadiness, classCount, fetchPublicModel, fingerprint, planModel, realClips,
+  type Provenance, type PublicModel, type Readiness,
 } from './result/model-source';
 import { ActionGuard, type BlockReason, type Decision, type GuardInput, type Sent } from './result/rule';
 import {
-  OUTCOME_UNKNOWN, UNPAIRED_TEXT, describeAction, ghostReason, recordings, sentenceOf, toastFor, type ToastText,
+  OUTCOME_UNKNOWN, TEXTING_ACTIONS, UNPAIRED_TEXT, describeAction, ghostReason, okWords, recordAllText, recordings, sentenceOf,
+  toastFor, type ToastText,
 } from './result/text';
 
 const HISTORY = 5;
@@ -26,9 +28,9 @@ const THINK_TIMEOUT_MS = 2600; // the shell cuts the clip at most 1.5 s after re
 const SPEAK_KEY = 'ss.result.speak';
 const RING_C = 2 * Math.PI * 52; // ring circumference (r = 52 in a 120 viewBox)
 
-type Tag = { kind: 'own'; n: number; fp: string } | { kind: 'public'; n: number } | { kind: 'demo'; n: number };
+type Tag = { kind: 'own' | 'preview'; n: number; fp: string } | { kind: 'public' | 'demo'; n: number };
 type StageState = 'idle' | 'listening' | 'thinking' | 'accepted' | 'unsure' | 'nomodel';
-type ChipState = 'ghost' | 'sending' | 'done' | 'dry' | 'failed' | 'unknown';
+type ChipState = 'ghost' | 'sending' | 'started' | 'done' | 'dry' | 'failed' | 'unknown';
 interface Seen { label: string; accepted: boolean; confidence: number }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
@@ -96,8 +98,11 @@ class ResultPanel {
   private demo: Classifier | null = null; // built once, on first use in fake mode
   private demoLoad: Promise<DemoBuilt> | null = null;
   private demoWhere: DemoBuilt['where'] | null = null;
-  private realNow: { n: number; classes: number; fp: string } = { n: 0, classes: 0, fp: '' };
+  private realNow: { n: number; classes: number; fp: string; recFp: string; ready: Readiness } =
+    { n: 0, classes: 0, fp: '', recFp: '', ready: { ready: false, done: 0, total: 0 } };
   private conn = 'connecting';
+  private mySerial = 0; // this panel's own count of source and conn changes
+  private downSerial: number | null = null; // mySerial at the last key down this panel saw
   private hello: HelloMsg | null = null; // from the current connection only
   private status: StatusMsg | null = null; // from the current connection only
   private guard = new ActionGuard();
@@ -107,6 +112,9 @@ class ResultPanel {
   private speak = false;
   private toast!: HTMLElement;
   private alert!: HTMLElement;
+  private dismiss!: HTMLButtonElement;
+  private inerted: HTMLElement[] = [];
+  private spaceDownInAlert = false;
 
   constructor(private el: HTMLElement, private app: App) {
     el.classList.add('rs');
@@ -154,6 +162,7 @@ class ResultPanel {
       this.renderArmed();
     });
     app.bus.on('source', () => {
+      this.mySerial++;
       this.hello = null;
       this.status = null;
       this.conn = 'connecting';
@@ -162,13 +171,17 @@ class ResultPanel {
       if (app.mode === 'classify') void this.ensureModel(false); // fake ↔ live/replay need different models
     });
     app.bus.on('conn', (c) => {
+      this.mySerial++;
       this.conn = c.state;
       if (c.state !== 'open') { this.hello = null; this.status = null; } // only trust what this connection says
       this.renderArmed();
     });
     app.bus.on('hello', (h) => { this.hello = h; this.renderArmed(); });
     app.bus.on('status', (s) => { this.status = s; this.renderArmed(); });
-    app.bus.on('ptt', ({ down }) => this.onPtt(down));
+    app.bus.on('ptt', ({ down }) => {
+      if (down) this.downSerial = this.mySerial;
+      this.onPtt(down);
+    });
     app.bus.on('prediction', (p) => this.onPrediction(p));
     app.bus.on('actionResult', (res) => this.showToast(toastFor(res)));
     app.store.onChange(() => { this.refreshReal(); this.renderModel(); });
@@ -176,11 +189,14 @@ class ResultPanel {
   }
 
   // ---------- model source ----------
-  private real() { return realClips(this.app.store.all(), (id) => this.app.store.meta(id), this.app.classes.map((c) => c.id)); }
+  private ids() { return this.app.classes.map((c) => c.id); }
+  private real() { return realClips(this.app.store.all(), (id) => this.app.store.meta(id), this.ids()); }
+  private recorded() { return realClips(this.app.store.all(), (id) => this.app.store.meta(id), this.ids(), { recordedOnly: true }); }
 
   private refreshReal() {
     const real = this.real();
-    this.realNow = { n: real.length, classes: classCount(real), fp: fingerprint(real) };
+    const rec = this.recorded();
+    this.realNow = { n: real.length, classes: classCount(real), fp: fingerprint(real), recFp: fingerprint(rec), ready: actionReadiness(rec, this.ids()) };
   }
 
   private provenance(): Provenance | null {
@@ -188,8 +204,8 @@ class ResultPanel {
     return m ? this.tags.get(m)?.kind ?? 'other' : null;
   }
 
-  private get ownModel(): boolean {
-    const m = this.app.model;
+  /** Only a model this panel trained as "your model" (recorded here, every sentence 5+ times) may act. */
+  private isOwn(m: Classifier | null | undefined): boolean {
     return !!m && this.tags.get(m)?.kind === 'own';
   }
 
@@ -201,11 +217,12 @@ class ResultPanel {
     await app.store.ready;
     if (gen !== this.gen) return;
     const real = this.real();
-    const fp = fingerprint(real);
+    const rec = this.recorded();
+    const ready = actionReadiness(rec, this.ids());
     const tag = app.model ? this.tags.get(app.model) : undefined;
+    const fresh = tag?.kind === 'own' ? tag.fp === fingerprint(rec) : tag?.kind === 'preview' ? tag.fp === fingerprint(real) : false;
     const plan = planModel({
-      fake: app.source?.kind === 'fake', realClasses: classCount(real), current: this.provenance(),
-      fresh: tag?.kind === 'own' && tag.fp === fp, force,
+      source: app.source?.kind ?? null, ownReady: ready.ready, realClasses: classCount(real), current: this.provenance(), fresh, force,
     });
     this.trainError = null;
     if (plan === 'keep') { this.setLoading(null); return; }
@@ -237,13 +254,14 @@ class ResultPanel {
       app.setModel(this.demo);
       return;
     }
-    if (plan === 'train') {
-      this.setLoading(`Training on your ${recordings(real.length)}…`);
+    if (plan === 'own' || plan === 'preview') {
+      const clips = plan === 'own' ? rec : real; // "your model" only ever learns from takes recorded here
+      this.setLoading(`Training on your ${recordings(clips.length)}…`);
       await nextFrame();
       if (gen !== this.gen) return;
       try {
-        const model = ml.train(real);
-        this.tags.set(model, { kind: 'own', n: real.length, fp });
+        const model = ml.train(clips);
+        this.tags.set(model, { kind: plan, n: clips.length, fp: fingerprint(clips) });
         this.failure = null;
         this.loading = null;
         app.setModel(model);
@@ -274,9 +292,9 @@ class ResultPanel {
     }
     this.loading = null;
     if (model) { this.failure = null; app.setModel(model); return; }
-    // No public model. Your model whose recordings are gone, or the fake data demo, shouldn't linger.
+    // No public model. Your model (its recordings are gone, or this is a replay), or the fake data demo, shouldn't linger.
     const prov = this.provenance();
-    if (prov === 'own' || prov === 'demo') app.setModel(null);
+    if (prov === 'own' || prov === 'preview' || prov === 'demo' || (prov === 'other' && app.source?.kind === 'replay')) app.setModel(null);
     else { this.renderModel(); this.renderIdle(); }
   }
 
@@ -301,7 +319,7 @@ class ResultPanel {
     }, THINK_TIMEOUT_MS);
   }
 
-  private onPrediction(p: Prediction & { clipId?: string }) {
+  private onPrediction(p: Prediction & { clipId?: string; model?: Classifier; press?: PressContext }) {
     if (this.app.mode !== 'classify') return;
     if (this.thinkTimer) clearTimeout(this.thinkTimer);
     this.thinkTimer = null;
@@ -352,7 +370,8 @@ class ResultPanel {
 
     // action (the strict rule), then moments
     const action = app.classes.find((c) => c.id === p.label)?.action ?? null;
-    const input = this.guardInput({ label: p.label, accepted: p.accepted, confidence: p.confidence }, action);
+    // The model that MADE this prediction (not whatever app.model is now) and where the take started.
+    const input = this.guardInput({ label: p.label, accepted: p.accepted, confidence: p.confidence }, action, p.model, p.press);
     const run = this.guard.run(input, (a) => app.sendAction({ action: a, label: p.label, confidence: p.confidence }));
     this.renderChip(run.decision, action);
     if (run.sent) void run.sent.then((s) => this.onSent(s, action!));
@@ -364,12 +383,19 @@ class ResultPanel {
     if (accepted && this.speak) this.say(sentence);
   }
 
-  private guardInput(pred: GuardInput['pred'], action: string | null): GuardInput {
+  private guardInput(
+    pred: GuardInput['pred'], action: string | null, model: Classifier | null | undefined, press: PressContext | null | undefined,
+  ): GuardInput {
     const { app } = this;
     return {
-      mode: app.mode, source: app.source?.kind ?? null, connOpen: this.conn === 'open',
-      hello: this.hello, status: this.status, ownModel: this.ownModel, pred, action, token: app.pairToken,
+      mode: app.mode, source: app.source?.kind ?? null, press, connSerial: app.connSerial,
+      panelConn: { atPress: this.downSerial, now: this.mySerial }, connOpen: this.conn === 'open',
+      hello: this.hello, status: this.status, ownModel: this.isOwn(model), pred, action, token: app.pairToken,
     };
+  }
+
+  private why(reason: BlockReason): string {
+    return ghostReason(reason, this.app.source?.kind ?? null, this.app.classes.length, MIN_TAKES_FOR_ACTIONS);
   }
 
   private onSent(s: Sent, action: string) {
@@ -383,9 +409,10 @@ class ResultPanel {
     const res: ActionResultMsg = s.result;
     const what = describeAction(action);
     if (res.ok && !res.dryRun) {
-      const t = toastFor(res);
-      this.setChip('done', `${t.title === 'Your Mac is on it' ? 'On it' : 'Done'}: ${what}`, t.title === 'Your Mac is on it' ? 'Your Mac is working on it' : res.message);
-      this.updateAlert('Sent. Help is on the way.');
+      // The Mac answers ok when it has STARTED (texts, music, calendar), so those never say "Done".
+      const w = okWords(action, res.message);
+      this.setChip(w.title === 'Done on your Mac' ? 'done' : 'started', w.chip, w.why);
+      this.updateAlert(TEXTING_ACTIONS.includes(action) ? 'Your Mac is sending the text.' : w.title);
     }
     else if (res.ok) { this.setChip('dry', `Dry run: ${what}`, 'Safe mode is on in the Mac app'); this.updateAlert('Dry run: safe mode is on, nothing was sent.'); }
     else if (OUTCOME_UNKNOWN.includes(res.error ?? '')) { this.setChip('unknown', `Maybe: ${what}`, 'No answer from the Mac. Not trying again.'); this.updateAlert('No answer from the Mac. It may have been sent.'); }
@@ -451,7 +478,13 @@ class ResultPanel {
     else if (m && tag?.kind === 'own') {
       kind = 'own';
       main = `Your model: ${recordings(tag.n)}`;
-      sub = tag.fp !== this.realNow.fp && this.realNow.classes >= MIN_REAL_CLASSES ? 'New recordings since. Press Re-train.' : 'Actions can run from this one';
+      sub = tag.fp !== this.realNow.recFp ? 'New recordings since. Press Re-train.' : 'Can run actions on your Mac';
+    } else if (m && tag?.kind === 'preview') {
+      kind = 'preview';
+      main = `Your model (preview): ${recordings(tag.n)}`;
+      const rd = this.realNow.ready;
+      sub = rd.ready || tag.fp !== this.realNow.fp ? 'New recordings since. Press Re-train.'
+        : `${recordAllText(rd.total, MIN_TAKES_FOR_ACTIONS)} (${rd.done} of ${rd.total} done in this browser)`;
     } else if (m && tag?.kind === 'demo') {
       kind = 'demo';
       main = 'Demo model (fake data)';
@@ -487,17 +520,20 @@ class ResultPanel {
     const { r, app } = this;
     if (app.mode !== 'classify') return;
     const action = this.hello?.actions[0] ?? app.classes.find((c) => c.action)?.action ?? 'volume_up';
-    const d = this.guard.decide(this.guardInput({ label: action, accepted: true, confidence: 1 }, action));
+    // A take started right now, by the current model.
+    const press: PressContext = { mode: 'classify', source: app.source?.kind ?? null, conn: app.connSerial, simulated: this.status?.simulated ?? null };
+    const x = this.guardInput({ label: action, accepted: true, confidence: 1 }, action, app.model, press);
+    const d = this.guard.decide({ ...x, panelConn: { atPress: this.mySerial, now: this.mySerial } });
     const live = d.send || d.reason === 'busy' || d.reason === 'too-soon';
     r.armed.dataset.live = live ? '1' : '0';
-    const text = live ? 'Live: sentences run on your Mac' : `Preview only · ${ghostReason((d as { reason: BlockReason }).reason, app.source?.kind ?? null)}`;
+    const text = live ? 'Live: sentences run on your Mac' : `Preview only · ${this.why((d as { reason: BlockReason }).reason)}`;
     if (r.armedText.textContent !== text) r.armedText.textContent = text;
   }
 
   private renderChip(d: Decision, action: string | null) {
     if (d.send) { this.setChip('sending', `Doing: ${describeAction(d.action)}`, 'Sent to your Mac…'); return; }
     if (d.reason === 'not-accepted' || d.reason === 'no-action' || !action) { this.r.chip.hidden = true; return; }
-    this.setChip('ghost', `Would: ${describeAction(action)}`, ghostReason(d.reason, this.app.source?.kind ?? null));
+    this.setChip('ghost', `Would: ${describeAction(action)}`, this.why(d.reason));
     this.r.chip.dataset.reason = d.reason;
   }
 
@@ -536,17 +572,14 @@ class ResultPanel {
         <div class="rs-alert-sub" data-testid="result-alert-sub"></div>
         <button class="rs-alert-btn" data-testid="result-alert-dismiss">Dismiss</button>
       </div>`;
-    const dismiss = this.alert.querySelector('button')!;
-    dismiss.addEventListener('click', () => this.closeAlert());
-    // While the alert is up, keys belong to it: Space/Enter press Dismiss, Escape closes, no push to talk.
-    const keys = (e: KeyboardEvent) => {
-      if (this.alert.hidden) return;
-      if (e.key === 'Escape') { e.preventDefault(); this.closeAlert(); }
-      if (e.code === 'Space' || e.key === 'Escape' || e.key === 'Tab') e.stopPropagation();
-      if (e.key === 'Tab') { e.preventDefault(); dismiss.focus(); } // keep focus inside
-    };
-    this.alert.addEventListener('keydown', keys);
-    this.alert.addEventListener('keyup', (e) => { if (e.code === 'Space') e.stopPropagation(); });
+    this.dismiss = this.alert.querySelector('button')!;
+    this.dismiss.addEventListener('click', () => this.closeAlert());
+    // Clicks anywhere else on the alert keep focus on Dismiss.
+    this.alert.addEventListener('pointerdown', (e) => {
+      if (e.target === this.dismiss) return;
+      e.preventDefault();
+      this.dismiss.focus();
+    });
     document.body.append(this.toast, this.alert);
   }
 
@@ -572,13 +605,53 @@ class ResultPanel {
   private openAlert(sentence: string, d: Decision, action: string | null) {
     const a = this.alert;
     a.querySelector('.rs-alert-title')!.textContent = sentence;
-    const sub = d.send ? 'Texting your emergency contact…'
-      : action ? `Would: ${describeAction(action)}. ${ghostReason(d.reason, this.app.source?.kind ?? null)}.` : '';
+    const sub = d.send ? 'Asking your Mac to send the text…'
+      : action ? `Would: ${describeAction(action)}. ${this.why(d.reason)}.` : '';
     a.querySelector('.rs-alert-sub')!.textContent = sub;
+    if (!a.hidden) { this.dismiss.focus(); return; }
+    // End a take that is still held, so its key up can't get stuck behind the alert.
+    if (this.app.pttDown) this.app.ptt(false);
+    this.spaceDownInAlert = false;
     a.hidden = false;
     document.body.classList.add('rs-alert-open');
-    (a.querySelector('button') as HTMLButtonElement).focus();
+    // Everything behind the alert is inert: no clicks, no focus, no push to talk button.
+    this.inerted = [...document.body.children].filter((n): n is HTMLElement => n !== a && n instanceof HTMLElement && !n.inert);
+    for (const n of this.inerted) n.inert = true;
+    document.addEventListener('keydown', this.alertKeyDown, true);
+    document.addEventListener('keyup', this.alertKeyUp, true);
+    document.addEventListener('focusin', this.alertFocus, true);
+    this.dismiss.focus();
   }
+
+  /** While the alert is open, keys belong to it (capture phase, before the shell's push to talk). */
+  private alertKeyDown = (e: KeyboardEvent) => {
+    if (this.alert.hidden) return;
+    if (e.key === 'Escape' || e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.repeat) this.closeAlert();
+      return;
+    }
+    if (e.code === 'Space') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.repeat) this.spaceDownInAlert = true;
+      return;
+    }
+    if (e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); this.dismiss.focus(); }
+  };
+
+  private alertKeyUp = (e: KeyboardEvent) => {
+    if (this.alert.hidden || e.code !== 'Space') return;
+    if (this.app.pttDown) return; // never swallow the key up that ends push to talk
+    e.preventDefault();
+    e.stopPropagation();
+    if (this.spaceDownInAlert) { this.spaceDownInAlert = false; this.closeAlert(); } // Space pressed on the alert = Dismiss
+  };
+
+  private alertFocus = (e: FocusEvent) => {
+    if (!this.alert.hidden && !this.alert.contains(e.target as Node)) this.dismiss.focus();
+  };
 
   private updateAlert(text: string) {
     if (this.alert.hidden) return;
@@ -587,9 +660,15 @@ class ResultPanel {
 
   private closeAlert() {
     if (this.alert.hidden) return;
+    document.removeEventListener('keydown', this.alertKeyDown, true);
+    document.removeEventListener('keyup', this.alertKeyUp, true);
+    document.removeEventListener('focusin', this.alertFocus, true);
+    for (const n of this.inerted) n.inert = false;
+    this.inerted = [];
+    this.spaceDownInAlert = false;
     this.alert.hidden = true;
     document.body.classList.remove('rs-alert-open');
-    (this.alert.querySelector('button') as HTMLButtonElement).blur();
+    this.dismiss.blur();
   }
 
   private say(text: string) {

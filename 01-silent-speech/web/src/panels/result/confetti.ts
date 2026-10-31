@@ -20,7 +20,7 @@ export function confetti(): HTMLCanvasElement | null {
   running = cv;
   const ctx = cv.getContext('2d');
   if (!ctx) { setTimeout(() => cv.remove(), DURATION_MS); return cv; }
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = 1; // plenty for confetti, and a quarter of the pixels on Retina screens
   const W = window.innerWidth, H = window.innerHeight;
   cv.width = Math.round(W * dpr);
   cv.height = Math.round(H * dpr);

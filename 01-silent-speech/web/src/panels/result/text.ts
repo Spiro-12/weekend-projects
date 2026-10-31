@@ -16,8 +16,17 @@ const ACTION_TEXT: Record<string, string> = {
 
 export const describeAction = (action: string): string => ACTION_TEXT[action] ?? `Run “${action}”`;
 
+/** Actions that text a real person. The Mac answers ok once it has STARTED sending (Track I). */
+export const TEXTING_ACTIONS: readonly string[] = ['text_mom', 'call_back', 'help'];
+/** Actions the Mac starts and finishes in the background (it answers ok right away). */
+const STARTED_ACTIONS: readonly string[] = ['focus_music', 'calendar'];
+
+/** What "your model" needs before it may run actions (model-source.ts). */
+export const recordAllText = (sentences: number, takes: number) =>
+  `Record all ${sentences} sentences (${takes} each) to run actions`;
+
 /** Why the ghost chip says "Would" instead of doing it. */
-export function ghostReason(reason: BlockReason, source: SourceKind | null): string {
+export function ghostReason(reason: BlockReason, source: SourceKind | null, sentences = 8, takes = 5): string {
   switch (reason) {
     case 'not-live':
       return source === 'replay' ? 'Replay, so just a preview'
@@ -25,12 +34,14 @@ export function ghostReason(reason: BlockReason, source: SourceKind | null): str
     case 'not-connected': return 'The Mac app isn’t connected';
     case 'simulated': return 'The Mac app is in Simulate mode';
     case 'not-armed': return 'Safe mode: turn on Armed in the Mac app';
-    case 'not-own-model': return 'Only your own model can run actions';
+    case 'not-own-model': return recordAllText(sentences, takes);
     case 'not-offered': return 'The Mac app can’t do this one yet';
     case 'unpaired': return 'Not paired. Open this page from the Mac app’s link';
     case 'busy': return 'Waiting for the Mac to answer';
     case 'too-soon': return 'Just did one. Wait 3 seconds';
     case 'not-recognize': return 'Recognize mode is off';
+    case 'press-mode': return 'You started in Record mode. Say it again';
+    case 'press-changed': return 'The connection changed while you were talking. Say it again';
     case 'not-accepted': return 'Not sure what you said';
     case 'no-action': return 'This one doesn’t do anything';
   }
@@ -46,7 +57,7 @@ export const OUTCOME_UNKNOWN = ['timeout', 'disconnected', 'stopped'];
 
 /**
  * Plain English for the Mac app's error codes (PROTOCOL §2, live.ts and Track I's ActionRunner). The codes
- * themselves, and the Mac's raw messages (they can name action ids), are never shown for these.
+ * themselves, and the Mac's raw messages (they can name action ids), are never shown.
  */
 const ERROR_TEXT: Record<string, [title: string, body: string]> = {
   cooldown: ['Too soon', 'The Mac waits a bit between actions (30 seconds for texts). Try again in a moment.'],
@@ -61,16 +72,25 @@ const ERROR_TEXT: Record<string, [title: string, body: string]> = {
   no_spotify: ['Spotify is missing', 'Spotify isn’t installed on this Mac, so no music played.'],
   bad_uri: ['Music link problem', 'The playlist saved for this doesn’t work, so no music played.'],
   script_failed: ['It didn’t work', 'Your Mac tried but couldn’t do it. It may need permission in System Settings › Privacy & Security › Automation.'],
+  not_allowed: ['Needs permission', 'Your Mac needs permission: System Settings › Privacy & Security › Automation.'],
 };
+
+/** How an ok (not dry run) answer reads: texts are only STARTED when the Mac answers, so never "Done". */
+export function okWords(action: string, message = ''): { chip: string; title: string; why: string } {
+  const what = describeAction(action);
+  if (TEXTING_ACTIONS.includes(action)) return { chip: `Sending: ${what}`, title: 'Your Mac is sending the text', why: 'Your Mac is sending the text' };
+  if (STARTED_ACTIONS.includes(action) || /working on it/i.test(message)) {
+    return { chip: `On it: ${what}`, title: 'Your Mac is on it', why: 'Your Mac is working on it' };
+  }
+  return { chip: `Done: ${what}`, title: 'Done on your Mac', why: '' };
+}
 
 /** The toast for an action's answer. */
 export function toastFor(r: Pick<ActionResultMsg, 'action' | 'ok' | 'dryRun' | 'message' | 'error'>): ToastText {
   const what = describeAction(r.action);
   if (r.ok) {
     if (r.dryRun) return { kind: 'dry', title: 'Dry run', body: `Safe mode is on in the Mac app, so nothing happened. (${what})` };
-    // Long actions (calendar) answer "Working on it" right away and finish in the background.
-    if (/working on it/i.test(r.message)) return { kind: 'ok', title: 'Your Mac is on it', body: what };
-    return { kind: 'ok', title: 'Done on your Mac', body: r.message || what };
+    return { kind: 'ok', title: okWords(r.action, r.message).title, body: what }; // our words, not the Mac's raw message
   }
   const err = r.error ?? '';
   if (err === 'unpaired') return { kind: 'bad', title: 'Not paired', body: UNPAIRED_TEXT };
@@ -79,7 +99,7 @@ export function toastFor(r: Pick<ActionResultMsg, 'action' | 'ok' | 'dryRun' | '
   }
   const known = ERROR_TEXT[err];
   if (known) return { kind: 'bad', title: known[0], body: known[1] };
-  return { kind: 'bad', title: 'It didn’t work', body: r.message || 'The Mac app couldn’t do it.' };
+  return { kind: 'bad', title: 'It didn’t work', body: 'Your Mac couldn’t do it this time.' }; // never the raw message or code
 }
 
 /** "N recordings" with the right plural. */
