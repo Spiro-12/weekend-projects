@@ -64,7 +64,7 @@ Panels and data sources auto load (`import.meta.glob`), so each UI agent only ad
 ## Contracts (frozen in Phase 0, written in full to `PROTOCOL.md`)
 - **WebSocket** (JSON, `v:1`). Mac → browser: `hello` (actions list, armed), `status` every 1 s (headphones, auth, bud, hz, gapPct), `motion` per sample `{seq, t, q[4], rr[3], ua[3]}`, `actionResult`. Browser → Mac: `action {id, action, confidence}`. Actions dry run unless "Armed" is on in the Mac app; 3 s cooldown.
 - **Dataset file** `ss-dataset v1`: session info + clips `{label, rep, pressT, releaseT, samples[]}`. **Replay file** `ss-session v1`: continuous samples + push to talk events + ground truth.
-- **Preprocessing v1** (same in JS and Python): resample to 25 Hz → rotationRate + userAcceleration (6 ch) → 1 Hz high pass → resample to 64 points → z score.
+- **Preprocessing v1** (same in JS and Python): resample to a 50 Hz grid → rotationRate + userAcceleration (6 ch) → 1 Hz high pass → resample to 64 points → z score.
 - **Classifier API** (`web/src/ml/index.ts`): `train`, `loadModel`, `predict → {label, confidence, accepted, top3}`, `evaluate(loo|loso)`. Any winning model implements the same interface.
 - **Fake data generator** (`synth.ts`, seeded): fake jaw bursts per class so every track is testable with no AirPods.
 
@@ -85,7 +85,7 @@ Each track = one agent in its own git worktree + branch, owning only its files. 
 | D DTW | Preprocess, DTW, kNN, evaluate, CLI, model export | Synthetic accuracy ≥95%, predict <20 ms |
 | E Python bench | uv project, loaders, DTW + MiniRocket + CNN, reports | pytest passes, synthetic ≥90%, JS and Python DTW agree |
 
-**You (~1 h):** `xcodegen`, build in Xcode with your free Personal Team, paste any errors to me (expect 1 to 3 rounds). Test "Simulate motion", then real AirPods. Open the Pages URL in Chrome, check 23 to 26 Hz and <5% gaps for 60 s with Chrome in front. Then pilot: 3 classes × 5 reps (~3 min), export to `data/raw/pilot.json`.
+**You (~1 h):** `xcodegen`, build in Xcode with your free Personal Team, paste any errors to me (expect 1 to 3 rounds). Test "Simulate motion", then real AirPods. Open the Pages URL in Chrome, check 23 to 27 Hz (or 45 to 55 Hz) and <5% gaps for 60 s with Chrome in front. Then pilot: 3 classes × 5 reps (~3 min), export to `data/raw/pilot.json`.
 
 **GO / NO GO:**
 - **GO:** clear bumps every rep, pilot accuracy ≥80% (chance 33%) → Phase 2.

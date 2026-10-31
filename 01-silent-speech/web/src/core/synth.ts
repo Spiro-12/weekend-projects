@@ -164,10 +164,11 @@ export class MotionSynth {
   }
 }
 
-export function gapPct(samples: MotionSample[], hz = 25): number {
+/** % of sample intervals longer than 60 ms (same definition as status.gapPct, any input rate). */
+export function gapPct(samples: MotionSample[]): number {
   if (samples.length < 2) return 0;
   let gaps = 0;
-  for (let i = 1; i < samples.length; i++) if (samples[i].t - samples[i - 1].t > 1.5 / hz) gaps++;
+  for (let i = 1; i < samples.length; i++) if (samples[i].t - samples[i - 1].t > 0.06) gaps++;
   return r5((100 * gaps) / (samples.length - 1));
 }
 
@@ -191,7 +192,7 @@ export function synthClip(cls: ClassDef, seed: number, o: SynthClipOpts = {}): D
     pressT,
     releaseT,
     padSec,
-    quality: { gapPct: gapPct(samples, synth.hz), nSamples: samples.length },
+    quality: { gapPct: gapPct(samples), nSamples: samples.length },
     samples,
   };
 }

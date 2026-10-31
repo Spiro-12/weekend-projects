@@ -169,7 +169,7 @@ export class App {
     if (samples.length < 3) return;
     const clip: ClipEvent = {
       id: newId('clip'), samples, pressT: p.pressT, releaseT: p.releaseT, padSec: PAD_SEC,
-      gapPct: gapPct(samples, this.lastStatus?.hz || 25),
+      gapPct: gapPct(samples),
     };
     this.bus.emit('clip', clip);
     if (this.mode === 'classify' && this.model) {
