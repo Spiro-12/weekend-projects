@@ -1,0 +1,144 @@
+{
+  "model": "dtw-py",
+  "protocol": "loso",
+  "nClips": 120,
+  "labels": [
+    "calendar",
+    "call_back",
+    "demo_48h",
+    "focus_music",
+    "help",
+    "none",
+    "text_mom",
+    "volume_up"
+  ],
+  "accuracy": 0.9833333333333333,
+  "macroF1": 0.9835668103448276,
+  "confusion": [
+    [
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      14,
+      1,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      15,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      15,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      14
+    ]
+  ],
+  "noneFalseAcceptRate": 0.0,
+  "params": {
+    "channels": [
+      "rr.x",
+      "rr.y",
+      "rr.z",
+      "ua.x",
+      "ua.y",
+      "ua.z"
+    ],
+    "L": 64,
+    "hpHz": 1.0,
+    "norm": "global",
+    "gridHz": 50,
+    "threshold": 0.5,
+    "band": 0.1,
+    "k": 1,
+    "radius": 6,
+    "weights": "1/(d+1e-9)",
+    "confidence": "vote x separation (knn.ts): softmax T=0.1 dRef, unknown at 1.7 dRef, stillness at 1.25 sum(q^2)",
+    "data": [
+      "shared/fixtures/dataset.synthetic.json"
+    ],
+    "datasets": [
+      "dataset.synthetic.json"
+    ],
+    "sources": [
+      "fake"
+    ],
+    "subjects": [
+      "synthetic"
+    ],
+    "sessions": [
+      "s1",
+      "s2",
+      "s3"
+    ],
+    "folds": 3,
+    "jobs": 1,
+    "timing": "single process",
+    "duplicatesDropped": 0,
+    "evalSec": 0.91
+  },
+  "inferMsPerClip": 7.127764099967256,
+  "generatedAt": "2026-10-31T02:34:18.230Z"
+}
