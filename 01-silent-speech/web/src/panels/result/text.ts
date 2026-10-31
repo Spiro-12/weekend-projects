@@ -44,11 +44,32 @@ export interface ToastText { kind: ToastKind; title: string; body: string }
 /** Errors that mean "we don't know if it ran" (live.ts). Never retried. */
 export const OUTCOME_UNKNOWN = ['timeout', 'disconnected', 'stopped'];
 
+/**
+ * Plain English for the Mac app's error codes (PROTOCOL §2, live.ts and Track I's ActionRunner). The codes
+ * themselves, and the Mac's raw messages (they can name action ids), are never shown for these.
+ */
+const ERROR_TEXT: Record<string, [title: string, body: string]> = {
+  cooldown: ['Too soon', 'The Mac waits a bit between actions (30 seconds for texts). Try again in a moment.'],
+  busy: ['One moment', 'Your Mac is still doing the last one. Try again in a moment.'],
+  unknown_action: ['Not sent', 'The Mac app doesn’t know how to do this one yet.'],
+  not_connected: ['Not sent', 'Not connected to the Mac app, so nothing happened.'],
+  send_failed: ['Not sent', 'Couldn’t reach the Mac app, so nothing happened.'],
+  duplicate_id: ['Not sent', 'That one was already on its way, so it wasn’t sent twice.'],
+  bad_json: ['Not sent', 'The Mac app didn’t understand the request, so nothing happened.'],
+  no_contact: ['No contact set', 'The Mac app doesn’t have anyone to text for this yet, so nothing was sent.'],
+  bad_contact: ['Contact problem', 'The phone number saved for this doesn’t look right, so nothing was sent.'],
+  no_spotify: ['Spotify is missing', 'Spotify isn’t installed on this Mac, so no music played.'],
+  bad_uri: ['Music link problem', 'The playlist saved for this doesn’t work, so no music played.'],
+  script_failed: ['It didn’t work', 'Your Mac tried but couldn’t do it. It may need permission in System Settings › Privacy & Security › Automation.'],
+};
+
 /** The toast for an action's answer. */
 export function toastFor(r: Pick<ActionResultMsg, 'action' | 'ok' | 'dryRun' | 'message' | 'error'>): ToastText {
   const what = describeAction(r.action);
   if (r.ok) {
     if (r.dryRun) return { kind: 'dry', title: 'Dry run', body: `Safe mode is on in the Mac app, so nothing happened. (${what})` };
+    // Long actions (calendar) answer "Working on it" right away and finish in the background.
+    if (/working on it/i.test(r.message)) return { kind: 'ok', title: 'Your Mac is on it', body: what };
     return { kind: 'ok', title: 'Done on your Mac', body: r.message || what };
   }
   const err = r.error ?? '';
@@ -56,10 +77,9 @@ export function toastFor(r: Pick<ActionResultMsg, 'action' | 'ok' | 'dryRun' | '
   if (OUTCOME_UNKNOWN.includes(err)) {
     return { kind: 'unknown', title: 'No answer from the Mac', body: 'It may have run anyway, so it won’t try again.' };
   }
-  if (err === 'cooldown') return { kind: 'bad', title: 'Too soon', body: 'The Mac waits a bit between actions (30 s for texts). Try again in a moment.' };
-  if (err === 'unknown_action') return { kind: 'bad', title: 'Not sent', body: 'The Mac app doesn’t know this action yet.' };
-  if (err === 'not_connected') return { kind: 'bad', title: 'Not sent', body: 'Not connected to the Mac app, so nothing happened.' };
-  return { kind: 'bad', title: 'It didn’t work', body: r.message || 'The Mac app said no.' };
+  const known = ERROR_TEXT[err];
+  if (known) return { kind: 'bad', title: known[0], body: known[1] };
+  return { kind: 'bad', title: 'It didn’t work', body: r.message || 'The Mac app couldn’t do it.' };
 }
 
 /** "N recordings" with the right plural. */

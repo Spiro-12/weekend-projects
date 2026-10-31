@@ -347,7 +347,11 @@ class ResultPanel {
     }
     const res: ActionResultMsg = s.result;
     const what = describeAction(action);
-    if (res.ok && !res.dryRun) { this.setChip('done', `Done: ${what}`, res.message); this.updateAlert('Sent. Help is on the way.'); }
+    if (res.ok && !res.dryRun) {
+      const t = toastFor(res);
+      this.setChip('done', `${t.title === 'Your Mac is on it' ? 'On it' : 'Done'}: ${what}`, t.title === 'Your Mac is on it' ? 'Your Mac is working on it' : res.message);
+      this.updateAlert('Sent. Help is on the way.');
+    }
     else if (res.ok) { this.setChip('dry', `Dry run: ${what}`, 'Safe mode is on in the Mac app'); this.updateAlert('Dry run: safe mode is on, nothing was sent.'); }
     else if (OUTCOME_UNKNOWN.includes(res.error ?? '')) { this.setChip('unknown', `Maybe: ${what}`, 'No answer from the Mac. Not trying again.'); this.updateAlert('No answer from the Mac. It may have been sent.'); }
     else { this.setChip('failed', `Didn’t run: ${what}`, toastFor(res).body); this.updateAlert(`Not sent: ${toastFor(res).body}`); }

@@ -273,8 +273,30 @@ describe('words', () => {
     expect(toastFor(res({ error: 'cooldown' })).title).toBe('Too soon');
     expect(toastFor(res({ error: 'unknown_action' })).body).toMatch(/doesn’t know/);
     expect(toastFor(res({ error: 'not_connected' })).body).toMatch(/nothing happened/);
-    expect(toastFor(res({ error: 'weird', message: 'Spotify is not installed' })).body).toBe('Spotify is not installed');
+    expect(toastFor(res({ error: 'weird', message: 'Something odd happened' })).body).toBe('Something odd happened');
   });
+
+  it('long actions that answer "Working on it" read naturally', () => {
+    expect(toastFor(res({ action: 'calendar', ok: true, message: 'Working on it' })))
+      .toEqual({ kind: 'ok', title: 'Your Mac is on it', body: 'Read out today’s calendar' });
+  });
+
+  // Track I's ActionRunner codes: plain English, never the code or the Mac's raw message (it can name action ids).
+  const MAC_CODES: [string, RegExp][] = [
+    ['no_contact', /anyone to text/], ['bad_contact', /phone number/], ['no_spotify', /Spotify isn’t installed/],
+    ['bad_uri', /playlist/], ['script_failed', /permission/], ['busy', /still doing the last one/],
+    ['cooldown', /30 seconds/], ['unknown_action', /doesn’t know/], ['send_failed', /nothing happened/],
+    ['duplicate_id', /wasn’t sent twice/], ['bad_json', /didn’t understand/],
+  ];
+  for (const [code, body] of MAC_CODES) {
+    it(`error ${code}: plain English, no code shown`, () => {
+      const t = toastFor(res({ error: code, message: `No contact set for text_mom (${code})` }));
+      expect(t.kind).toBe('bad');
+      expect(t.body).toMatch(body);
+      expect(`${t.title} ${t.body}`).not.toContain(code);
+      expect(`${t.title} ${t.body}`).not.toMatch(/text_mom|_/);
+    });
+  }
 });
 
 describe('model source', () => {
