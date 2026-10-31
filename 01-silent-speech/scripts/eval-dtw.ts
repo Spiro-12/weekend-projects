@@ -263,19 +263,49 @@ function thresholdTable(r: FoldResult[], ts = THRESHOLDS) {
   });
 }
 
-function printThresholds(f: Folds) {
+/**
+ * Small models (PROTOCOL §6: confidence must drop for clips far from every template): 2 to 4 class models trained
+ * on some sessions, tested on another session. `known` = their own sentences, `unknown` = sentences they were not
+ * trained on (any accept there is a false action). Same sets and splits as tests/unit/ml/safety-real.test.ts;
+ * splits whose sessions aren't loaded are skipped.
+ */
+const SMALL_SETS = [['text_mom', NONE], ['text_mom', 'volume_up', NONE], ['call_back', 'help', 'calendar', NONE], ['focus_music', 'demo_48h', NONE]];
+const SMALL_SPLITS: [string[], string[]][] = [[['s2'], ['s3']], [['s3'], ['s2']], [['s2', 's3'], ['s1']], [['s1', 's2'], ['s3']]];
+
+function smallModels(clips: Clip[], o: DtwKnnOptions) {
+  const sess = (s: string[]) => clips.filter((c) => s.includes(c.session ?? ''));
+  const known: FoldResult[] = [], unknown: FoldResult[] = [];
+  for (const set of SMALL_SETS) for (const [tr, te] of SMALL_SPLITS) {
+    const train = sess(tr).filter((c) => set.includes(c.label)), test = sess(te);
+    if (new Set(train.map((c) => c.label)).size < 2 || !test.length) continue;
+    for (const r of holdOut(train, test, o)) {
+      if (!set.includes(r.label)) unknown.push(r);
+      else if (r.label !== NONE) known.push(r);
+    }
+  }
+  return { known, unknown };
+}
+
+function printThresholds(f: Folds, small: ReturnType<typeof smallModels>) {
   const tabs = Object.entries({ all: f.all, same: f.same, xbud: f.xbud })
     .filter((e): e is [string, FoldResult[]] => e[1] !== null).map(([k, r]) => ({ split: k, rows: thresholdTable(r) }));
-  console.log(`\nthreshold  ${tabs.map((t) => `${t.split} (${t.rows[0].nSentence} sentence, ${t.rows[0].nNone} none)`.padEnd(30)).join('')}`);
-  console.log(`           ${tabs.map(() => 'correct  wrong  noneFA'.padEnd(30)).join('')}`);
+  const fires = (r: FoldResult, t: number) => r.predicted !== NONE && r.confidence >= t;
+  const smallRows = THRESHOLDS.map((t) => ({
+    threshold: t,
+    knownCorrectAccepted: small.known.length ? small.known.filter((r) => fires(r, t) && r.predicted === r.label).length / small.known.length : null,
+    unknownAccepted: small.unknown.length ? small.unknown.filter((r) => fires(r, t)).length / small.unknown.length : null,
+  }));
+  const sm = (x: number | null) => (x === null ? 'n/a' : pct(x));
+  console.log(`\nthreshold  ${tabs.map((t) => `${t.split} (${t.rows[0].nSentence} sentence, ${t.rows[0].nNone} none)`.padEnd(30)).join('')}small models (${small.known.length} known, ${small.unknown.length} unknown)`);
+  console.log(`           ${tabs.map(() => 'correct  wrong  noneFA'.padEnd(30)).join('')}known  unknown accepted`);
   THRESHOLDS.forEach((t, i) => {
     const cells = tabs.map(({ rows }) => {
       const r = rows[i];
       return `${pad(pct(r.correctAccepted), 7)} ${pad(pct(r.wrongAccepted), 6)} ${pad(r.noneFalseAccept === null ? 'n/a' : pct(r.noneFalseAccept), 7)}`.padEnd(30);
     });
-    console.log(`${pad(t.toFixed(2), 9)}  ${cells.join('')}`);
+    console.log(`${pad(t.toFixed(2), 9)}  ${cells.join('')}${pad(sm(smallRows[i].knownCorrectAccepted), 6)} ${pad(sm(smallRows[i].unknownAccepted), 8)}`);
   });
-  return tabs;
+  return { splits: tabs, small: smallRows };
 }
 
 // ---------- main ----------
@@ -327,7 +357,8 @@ async function main() {
     const f = runFolds(sp, o);
     for (const [k, r] of Object.entries(f) as [string, FoldResult[] | null][]) if (r) log(`${k}: accuracy ${pct(summarize(r).acc)} (${r.filter((x) => x.label === x.predicted).length}/${r.length})`);
     log('correct / wrong = accepted and right / accepted and wrong, as a share of sentence (non none) clips; noneFA = share of none clips accepted');
-    const tabs = printThresholds(f);
+    log('small models = 2 to 4 class models on other sessions: known = own sentences accepted and right, unknown = other sentences accepted');
+    const tabs = printThresholds(f, smallModels(clips, o));
     if (args.json) { writeFileSync(args.json, prettyJson({ datasets, opts: o, tables: tabs }) + '\n'); console.log(`wrote ${args.json}`); }
     return;
   }
