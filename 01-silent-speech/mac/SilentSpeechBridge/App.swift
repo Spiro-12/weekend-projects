@@ -5,12 +5,48 @@ import SwiftUI
 
 @main
 struct SilentSpeechBridgeApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var bridge = BridgeModel()
 
     var body: some Scene {
         Window("Silent Speech Bridge", id: "main") {
-            ContentView(motion: bridge.motion, server: bridge.server, runner: bridge.runner, pairing: bridge.pairing, log: bridge.log)
+            MainWindowContent(bridge: bridge, appDelegate: appDelegate)
         }
+    }
+}
+
+/// Closing the window keeps the app (and the server) running; only Quit (menu or Cmd+Q) ends it. Clicking the Dock
+/// icon brings the window back.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Opens (or brings forward) the main window. Set once the window has appeared.
+    var onReopen: (() -> Void)?
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        onReopen?()
+        return true
+    }
+}
+
+/// The window's content, plus the hooks that can open the window again after it was closed.
+private struct MainWindowContent: View {
+    @Environment(\.openWindow) private var openWindow
+    let bridge: BridgeModel
+    let appDelegate: AppDelegate
+
+    var body: some View {
+        ContentView(motion: bridge.motion, server: bridge.server, runner: bridge.runner, pairing: bridge.pairing, log: bridge.log)
+            .onAppear {
+                let open = openWindow
+                bridge.openMainWindow = { open(id: "main") }
+                appDelegate.onReopen = { open(id: "main") }
+            }
+            .onDisappear {
+                bridge.log.add("Window closed, still running (Dock icon opens it again; Quit with Cmd+Q)")
+            }
     }
 }
 
@@ -21,6 +57,9 @@ final class BridgeModel: ObservableObject {
     let runner: ActionRunner
     let motion: MotionStreamer
     let server: WebSocketServer
+    /// Opens (or brings forward) the main window, also after it was closed. Set by the window when it appears.
+    var openMainWindow: (() -> Void)?
+    private let helpPanel: HelpPanel
     private var activity: NSObjectProtocol?
 
     init() {
@@ -38,6 +77,21 @@ final class BridgeModel: ObservableObject {
         // they run, so switching Armed off cancels them.
         runner.isArmed = { [weak server] in server?.armed ?? false }
         runner.armedGeneration = { [weak server] in server?.armedGeneration ?? -1 }
+        // Help must be impossible to miss: the app comes forward, its window opens, a floating panel shows on top of
+        // everything, and the Dock icon bounces. Dismiss (window or panel) hides the panel.
+        let helpPanel = HelpPanel(runner: runner)
+        self.helpPanel = helpPanel
+        runner.onHelpNotice = { [weak self] raised in
+            guard let self = self else { return }
+            if raised {
+                NSApplication.shared.activate()
+                self.openMainWindow?()
+                self.helpPanel.show()
+                NSApplication.shared.requestUserAttention(.criticalRequest)
+            } else {
+                self.helpPanel.hide()
+            }
+        }
 
         // Keep streaming while the window is in the background: no App Nap.
         activity = ProcessInfo.processInfo.beginActivity(
@@ -65,8 +119,8 @@ final class BridgeModel: ObservableObject {
         }
         if arguments.contains("--print-pair-url") {
             if pairing.token != nil {
-                log.addFileOnly("Pair URL: \(pairing.dashboardURL.absoluteString)",
-                                windowText: "Launch option --print-pair-url: the pair link is in the log file")
+                log.add("Launch option --print-pair-url: the pair link is in the log file")
+                log.addFileOnly("Pair URL: \(pairing.dashboardURL.absoluteString)")
             } else {
                 log.add("Launch option --print-pair-url: no pairing token, nothing to print")
             }
@@ -111,10 +165,9 @@ final class LogStore: ObservableObject {
         show(line)
     }
 
-    /// For the pair link: the full text goes only to the log file; the window shows `windowText` instead.
-    func addFileOnly(_ text: String, windowText: String) {
+    /// For the pair link: this line goes only to the log file, never to the window (or stdout).
+    func addFileOnly(_ text: String) {
         write(stamp(text))
-        show(stamp(windowText))
     }
 
     /// "HH:mm:ss  text", always one line: control characters (newlines too) become spaces, so nothing can fake a

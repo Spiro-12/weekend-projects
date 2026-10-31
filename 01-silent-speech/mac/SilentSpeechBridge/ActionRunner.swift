@@ -14,23 +14,27 @@ struct ActionOutcome {
     var error: String? = nil
 }
 
-/// The kinds of real actions. Each action id has exactly one kind (`ActionRunner.kinds`), so only the actions
-/// with the 30 s cooldown (ProtocolV1.sensitiveActions) can ever send a text.
+/// The kinds of real actions. Each action id may only have the kinds in `ActionRunner.allowedKinds`, so only the
+/// actions with the 30 s cooldown (ProtocolV1.sensitiveActions) can ever send a text.
 enum ActionKind: String {
-    case imessage // send `text` to `to` with Messages
-    case volume   // turn the system volume up by `step` percent
-    case spotify  // play `uri` in Spotify
+    case imessage   // send `text` to `to` with Messages
+    case volume     // turn the system volume up by `step` percent
+    case applemusic // play the library `playlist`, else open `url` (an Apple Music playlist) and play
+    case spotify    // play `uri` in Spotify
     case say      // speak `text` out loud (through the AirPods when they are the sound output)
     case calendar // read today's events, summarize, speak (long: replies "Working on it" first)
 }
 
-/// One entry of ~/.silentspeech/actions.json. `kind` must match the action's kind. Missing fields use the
-/// defaults, except `to`: there is never a default contact.
+/// One entry of ~/.silentspeech/actions.json. `kind` must be one the action allows (nil: the action's default).
+/// Missing fields use the defaults, except `to`: there is never a default contact.
 struct ActionConfig {
+    var kind: ActionKind?
     var to: String?
     var text: String?
     var step: Double?
     var uri: String?
+    var playlist: String?
+    var url: String?
 }
 
 /// Shown in the window when `help` runs, until dismissed.
@@ -52,9 +56,10 @@ final class ActionRunner: ObservableObject {
     static let textingActions = ["text_mom", "call_back", "help"]
     static let configPath = NSHomeDirectory() + "/.silentspeech/actions.json"
 
-    static let kinds: [String: ActionKind] = [
-        "text_mom": .imessage, "call_back": .imessage, "help": .imessage,
-        "volume_up": .volume, "focus_music": .spotify, "demo_48h": .say, "calendar": .calendar,
+    /// The kinds each action may have; the first one is its default.
+    static let allowedKinds: [String: [ActionKind]] = [
+        "text_mom": [.imessage], "call_back": [.imessage], "help": [.imessage],
+        "volume_up": [.volume], "focus_music": [.applemusic, .spotify], "demo_48h": [.say], "calendar": [.calendar],
     ]
     static let defaultTexts = [
         "text_mom": "On my way!",
@@ -66,6 +71,13 @@ final class ActionRunner: ObservableObject {
     /// Spotify's public "Deep Focus" playlist.
     static let defaultSpotifyURI = "spotify:playlist:37i9dQZF1DWZeKCadgRdKQ"
     static let spotifyBundleID = "com.spotify.client"
+    /// Apple Music's public "Pure Focus" playlist (not checked from here: the real test confirms it).
+    static let defaultAppleMusicURL = "https://music.apple.com/us/playlist/pure-focus/pl.f54198ad42404535be13eabf3835fb22"
+    static let musicBundleID = "com.apple.Music"
+    /// After `open location`, wait this long before `play`; after `play`, this long before checking it plays.
+    static let musicOpenWait: TimeInterval = 3
+    static let musicLaunchWait: TimeInterval = 4
+    static let musicPlayCheck: TimeInterval = 5
     static let messagesBundleID = "com.apple.MobileSMS"
     static let maxTextLength = 300
     /// AppleScript runs this long after the reply went out (see `runScriptSoon`).
@@ -79,6 +91,9 @@ final class ActionRunner: ObservableObject {
     static let calendarMaxBusy: TimeInterval = 60
 
     @Published private(set) var helpNotice: HelpNotice? = nil
+    /// Called when `help` raises its alarm (true) and when the notice is dismissed (false). BridgeModel uses it
+    /// to bring the app forward and show the floating help panel.
+    var onHelpNotice: ((Bool) -> Void)?
 
     /// Asked again right before anything runs in the background (an AppleScript, Spotify play, speaking the
     /// calendar), so switching Armed off cancels what has not started yet. Set by BridgeModel; until then: off.
@@ -125,11 +140,11 @@ final class ActionRunner: ObservableObject {
             return
         }
         for (action, value) in all.sorted(by: { $0.key < $1.key }) {
-            guard let kind = ActionRunner.kinds[action] else {
+            guard let kinds = ActionRunner.allowedKinds[action] else {
                 log.add("actions.json: unknown action \(logSafeName(action)), skipped")
                 continue
             }
-            if let config = parseEntry(action, kind: kind, value) {
+            if let config = parseEntry(action, kinds: kinds, value) {
                 configs[action] = config
             }
         }
@@ -144,24 +159,28 @@ final class ActionRunner: ObservableObject {
         return ActionRunner.mask(clean)
     }
 
-    private func parseEntry(_ action: String, kind: ActionKind, _ value: Any) -> ActionConfig? {
+    private func parseEntry(_ action: String, kinds: [ActionKind], _ value: Any) -> ActionConfig? {
         func skip(_ why: String) -> ActionConfig? {
             log.add("actions.json: \(action) skipped (\(why))")
             return nil
         }
         guard let entry = value as? [String: Any] else { return skip("not an object") }
-        guard (entry["kind"] as? String) == kind.rawValue else { return skip("kind must be \"\(kind.rawValue)\"") }
+        let names = kinds.map { "\"\($0.rawValue)\"" }.joined(separator: " or ")
+        guard let kindText = entry["kind"] as? String, let kind = ActionKind(rawValue: kindText), kinds.contains(kind) else {
+            return skip("kind must be \(names)")
+        }
         var config = ActionConfig()
+        config.kind = kind
         for (key, field) in entry where key != "kind" {
             switch key {
-            case "to", "text", "uri":
+            case "to", "text", "uri", "playlist", "url":
                 guard let text = field as? String else { return skip("\(key) must be text") }
-                if key == "to" {
-                    config.to = text
-                } else if key == "text" {
-                    config.text = text
-                } else {
-                    config.uri = text
+                switch key {
+                case "to": config.to = text
+                case "text": config.text = text
+                case "uri": config.uri = text
+                case "playlist": config.playlist = text
+                default: config.url = text
                 }
             case "step":
                 guard let number = field as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else {
@@ -182,21 +201,23 @@ final class ActionRunner: ObservableObject {
     /// (Messages, Spotify) or take long (calendar) reply first and finish in the background; the end is logged
     /// as "<action> done: ...", "<action> failed: ..." or "<action> cancelled: not armed".
     func run(_ action: String, armed: Bool, reply: @escaping (ActionOutcome) -> Void) {
-        guard let kind = ActionRunner.kinds[action] else {
+        guard let defaultKind = ActionRunner.allowedKinds[action]?.first else {
             log.add("No such action: \(logSafeName(action))")
             reply(ActionOutcome(ok: false, dryRun: !armed, message: "No such action", error: "unknown_action"))
             return
         }
+        reloadIfChanged()
+        let config = configs[action] ?? ActionConfig()
+        let kind = config.kind ?? defaultKind
         guard armed else {
             log.add("Dry run: \(action) (not armed, would run \(kind.rawValue))")
             reply(ActionOutcome(ok: true, dryRun: true, message: "Dry run: \(action)"))
             return
         }
-        reloadIfChanged()
-        let config = configs[action] ?? ActionConfig()
         switch kind {
         case .imessage: runText(action, config, reply)
         case .volume: runVolume(action, config, reply)
+        case .applemusic: runAppleMusic(action, config, reply)
         case .spotify: runSpotify(action, config, reply)
         case .say: runSay(action, config, reply)
         case .calendar: runCalendar(action, reply)
@@ -336,7 +357,8 @@ final class ActionRunner: ObservableObject {
         }
         helpNotice = HelpNotice(time: Date(), detail: "")
         NSApplication.shared.activate()
-        log.add("Help: alert sound played, notice shown in the window")
+        onHelpNotice?(true)
+        log.add("Help: alert sound played, notice shown in the window and a floating panel")
     }
 
     private func setHelpDetail(_ detail: String) {
@@ -346,7 +368,9 @@ final class ActionRunner: ObservableObject {
     }
 
     func dismissHelp() {
+        guard helpNotice != nil else { return }
         helpNotice = nil
+        onHelpNotice?(false)
     }
 
     // MARK: Other apps, without freezing
@@ -447,6 +471,162 @@ final class ActionRunner: ObservableObject {
         case .failure(let failure):
             refuse(action, "Could not change the volume", error: "script_failed",
                    logDetail: failure.explained(app: "the volume"), reply)
+        }
+    }
+
+    // MARK: Apple Music
+
+    private func runAppleMusic(_ action: String, _ config: ActionConfig, _ reply: (ActionOutcome) -> Void) {
+        var playlist: String?
+        if let raw = config.playlist {
+            guard let clean = ActionRunner.cleanText(raw), clean.count <= 100 else {
+                refuse(action, "The playlist name for \(action) is empty or too long", error: "bad_playlist", reply)
+                return
+            }
+            playlist = clean
+        }
+        let url: String
+        if let raw = config.url {
+            guard let clean = ActionRunner.appleMusicURL(raw) else {
+                refuse(action, "The Apple Music link for \(action) must be a music.apple.com or music:// link", error: "bad_url", reply)
+                return
+            }
+            url = clean
+        } else {
+            url = ActionRunner.defaultAppleMusicURL
+        }
+        guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: ActionRunner.musicBundleID) != nil else {
+            refuse(action, "The Music app is not on this Mac", error: "no_music", reply)
+            return
+        }
+        guard !someoneWaits(for: ActionRunner.musicBundleID) else {
+            refuse(action, "Still waiting for Music (is a popup open?)", error: "busy", reply)
+            return
+        }
+        guard !knownDenied(ActionRunner.musicBundleID) else {
+            refuse(action, "Not allowed to control Music", error: "not_allowed",
+                   logDetail: ActionRunner.notAllowedDetail("Music"), reply)
+            return
+        }
+        let ticket = makeTicket(action)
+        let plan = playlist.map { "your playlist \"\($0)\" if it exists, else the focus playlist link" } ?? "the focus playlist link"
+        log.add("Real action: \(action): Apple Music, \(plan)")
+        reply(ActionOutcome(ok: true, dryRun: false, message: "Starting focus music…"))
+
+        prepareApp(ticket, bundleID: ActionRunner.musicBundleID, appName: "Music",
+                   launchWait: ActionRunner.musicLaunchWait) { [weak self] in
+            guard let self = self else { return }
+            if let playlist = playlist {
+                self.playLibraryPlaylist(ticket, playlist, url: url)
+            } else {
+                self.playMusicLink(ticket, url)
+            }
+        }
+    }
+
+    private static let music = "application id \"\(musicBundleID)\""
+
+    /// Step 1 (with a playlist name): play that library playlist; no such playlist: go on with the link.
+    private func playLibraryPlaylist(_ ticket: Ticket, _ name: String, url: String) {
+        let escaped = ActionRunner.appleScriptEscape(name)
+        let source = """
+        with timeout of 20 seconds
+            tell \(ActionRunner.music)
+                if not (exists playlist "\(escaped)") then return "missing"
+                play playlist "\(escaped)"
+                return "started"
+            end tell
+        end timeout
+        """
+        runScriptSoon(ticket, source) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let text) where text == "started":
+                self.checkMusicPlays(ticket, after: 2, what: "your playlist \"\(name)\"") { [weak self] in
+                    self?.playMusicLink(ticket, url)
+                }
+            case .success:
+                self.log.add("\(ticket.action): no playlist \"\(name)\" in the Music library, using the focus playlist link")
+                self.playMusicLink(ticket, url)
+            case .failure(let failure):
+                self.logFailed(ticket.action, failure.explained(app: "Music"))
+            }
+        }
+    }
+
+    /// Step 2: open the Apple Music link in Music, wait, play. Not playing a few seconds later (no subscription,
+    /// not signed in): step 3, shuffle the library.
+    private func playMusicLink(_ ticket: Ticket, _ url: String) {
+        let open = "with timeout of 20 seconds\n tell \(ActionRunner.music) to open location \"\(ActionRunner.appleScriptEscape(url))\"\nend timeout"
+        let play = "with timeout of 20 seconds\n tell \(ActionRunner.music) to play\nend timeout"
+        runScriptSoon(ticket, open) { [weak self] result in
+            guard let self = self else { return }
+            if case .failure(let failure) = result {
+                self.log.add("\(ticket.action): Music could not open the focus playlist link (\(failure.number)), shuffling the library")
+                self.shuffleLibrary(ticket)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + ActionRunner.musicOpenWait) { [weak self] in
+                guard let self = self, self.mayRun(ticket) else { return }
+                _ = ActionRunner.runScript(play) // whether it plays is checked below either way
+                self.checkMusicPlays(ticket, after: ActionRunner.musicPlayCheck, what: "after opening the focus playlist") { [weak self] in
+                    self?.log.add("\(ticket.action): the focus playlist did not start (Apple Music subscription? signed in?), shuffling the library")
+                    self?.shuffleLibrary(ticket)
+                }
+            }
+        }
+    }
+
+    /// Step 3: shuffle the whole library. Empty library: failed, with a plain message.
+    private func shuffleLibrary(_ ticket: Ticket) {
+        let source = """
+        with timeout of 20 seconds
+            tell \(ActionRunner.music)
+                if (count of tracks of library playlist 1) is 0 then return "empty"
+                set shuffle enabled to true
+                play library playlist 1
+                return "started"
+            end tell
+        end timeout
+        """
+        guard mayRun(ticket) else { return }
+        switch ActionRunner.runScript(source) {
+        case .success(let text) where text == "started":
+            checkMusicPlays(ticket, after: 2, what: "shuffling your library") { [weak self] in
+                self?.logFailed(ticket.action, "Music did not start playing (is Apple Music signed in?)")
+            }
+        case .success:
+            logFailed(ticket.action, "No focus music: the focus playlist did not play and your Music library is empty")
+        case .failure(let failure):
+            logFailed(ticket.action, failure.explained(app: "Music"))
+        }
+    }
+
+    /// Logs "done: playing <track> by <artist> (<what>)" if Music plays after `delay`; else calls `otherwise`.
+    private func checkMusicPlays(_ ticket: Ticket, after delay: TimeInterval, what: String, otherwise: @escaping () -> Void) {
+        let source = """
+        with timeout of 10 seconds
+            tell \(ActionRunner.music)
+                if player state is not playing then return "no"
+                try
+                    return "yes" & (name of current track) & " by " & (artist of current track)
+                on error
+                    return "yes"
+                end try
+            end tell
+        end timeout
+        """
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self = self, self.mayRun(ticket) else { return }
+            switch ActionRunner.runScript(source) {
+            case .success(let text) where text.hasPrefix("yes"):
+                let track = String(text.dropFirst(3).prefix(80))
+                self.logDone(ticket.action, track.isEmpty ? "Music is playing (\(what))" : "playing \(track) (\(what))")
+            case .success:
+                otherwise()
+            case .failure(let failure):
+                self.logFailed(ticket.action, failure.explained(app: "Music"))
+            }
         }
     }
 
@@ -716,6 +896,14 @@ final class ActionRunner: ObservableObject {
             out.replaceSubrange(range, with: new)
         }
         return out
+    }
+
+    /// An Apple Music link: https://music.apple.com/... or music://... with only plain URL characters. Else nil.
+    static func appleMusicURL(_ raw: String) -> String? {
+        let text = raw.trimmingCharacters(in: .whitespaces)
+        let pattern = "^(https://music\\.apple\\.com/|music://)[A-Za-z0-9._~:/?#@!$&()*+,;=%-]{1,300}$"
+        guard text.range(of: pattern, options: .regularExpression) != nil, URL(string: text) != nil else { return nil }
+        return text
     }
 
     /// "spotify:playlist:<id>" (or album, track, artist, show, episode), or an open.spotify.com link to one.
