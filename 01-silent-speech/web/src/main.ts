@@ -64,20 +64,38 @@ renderMode();
 
 // ---------- push to talk ----------
 const typing = (e: Event) => (e.target as HTMLElement)?.closest?.('input, textarea, select, [contenteditable]');
+// In a replay the recording presses push to talk itself; the visitor's Space, clicks and window blur must not.
+const replaying = () => app.source?.kind === 'replay';
 addEventListener('keydown', (e) => {
-  if (e.code !== 'Space' || e.repeat || typing(e)) return;
+  if (e.code !== 'Space' || e.repeat || typing(e) || replaying()) return;
   e.preventDefault();
   app.ptt(true);
 });
 addEventListener('keyup', (e) => {
-  if (e.code !== 'Space' || (typing(e) && !app.pttDown)) return;
+  if (e.code !== 'Space' || (typing(e) && !app.pttDown) || replaying()) return;
   e.preventDefault();
   app.ptt(false);
 });
-addEventListener('blur', () => app.ptt(false));
-pttBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); pttBtn.setPointerCapture(e.pointerId); app.ptt(true); });
-pttBtn.addEventListener('pointerup', () => app.ptt(false));
-pttBtn.addEventListener('pointercancel', () => app.ptt(false));
+addEventListener('blur', () => { if (!replaying()) app.ptt(false); });
+pttBtn.addEventListener('pointerdown', (e) => { if (replaying()) return; e.preventDefault(); pttBtn.setPointerCapture(e.pointerId); app.ptt(true); });
+pttBtn.addEventListener('pointerup', () => { if (!replaying()) app.ptt(false); });
+pttBtn.addEventListener('pointercancel', () => { if (!replaying()) app.ptt(false); });
+// In a replay the push to talk bar is hidden; a note (not inside the button) offers fake data instead.
+const replayNote = document.createElement('div');
+replayNote.className = 'replay-note';
+replayNote.dataset.testid = 'replay-note-bar';
+replayNote.hidden = true;
+replayNote.innerHTML = `<span>Watching a replay of a real recorded session.</span> <button class="ghost" data-testid="try-fake">Try it yourself with fake data</button>`;
+pttBtn.after(replayNote);
+(replayNote.querySelector('[data-testid=try-fake]') as HTMLButtonElement).onclick = () => {
+  history.replaceState(null, '', `${location.pathname}?mode=fake`);
+  app.setSource('fake').then(() => app.setMode('classify')).catch((e) => console.error('[source fake]', e));
+};
+app.bus.on('source', (k) => {
+  const r = k === 'replay';
+  pttBtn.hidden = r;
+  replayNote.hidden = !r;
+});
 app.bus.on('ptt', ({ down }) => {
   pttBtn.classList.toggle('down', down);
   document.body.classList.toggle('ptt-down', down);
@@ -108,6 +126,17 @@ const store = { // localStorage throws for visitors who block site data
   set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } },
 };
 app.bus.on('hello', () => { if (app.source?.kind === 'live') store.set(LIVE_FLAG, '1'); });
+
+// Pairing: the Mac app opens this page with #pair=<token>. The token lives in memory only (never in
+// localStorage: every page on spiro-12.github.io shares that storage), then it's removed from the address bar.
+// Reloading or reopening the tab means opening the dashboard from the Mac app again.
+const pairMatch = /(?:^#|&)pair=([0-9a-f]{16,128})(?:&|$)/i.exec(location.hash);
+try { localStorage.removeItem('ss.pair'); } catch { /* old builds stored it; clean up */ }
+if (pairMatch) {
+  app.pairToken = pairMatch[1].toLowerCase();
+  store.set(LIVE_FLAG, '1'); // came from the Mac app: probe live next time too
+  history.replaceState(null, '', location.pathname + location.search);
+}
 
 async function pickSource() {
   const forced = params.mode as SourceKind | undefined;

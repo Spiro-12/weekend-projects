@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CHANNELS } from '../../../web/src/core/contracts';
 import { preprocess } from '../../../web/src/ml/index';
-import { computeNorm, highpass, preprocessRaw, resolveOpts, toGrid } from '../../../web/src/ml/preprocess';
+import { computeNorm, DEFAULT_OPTS, highpass, preprocessRaw, resolveOpts, toGrid } from '../../../web/src/ml/preprocess';
 import { makeSamples, syntheticDataset } from './helpers';
 
 const power = (x: ArrayLike<number>) => {
@@ -10,6 +10,8 @@ const power = (x: ArrayLike<number>) => {
   return s / x.length;
 };
 const sine = (hz: number) => (t: number) => Math.sin(2 * Math.PI * hz * t);
+/** The spec's reference options (6 channels, L 64): these tests are about the pipeline, not the tuned defaults. */
+const SPEC = { channels: [...DEFAULT_CHANNELS], L: 64 };
 
 describe('high pass (1 Hz, zero phase)', () => {
   it('removes a 0.2 Hz sine (> 90% power drop) but keeps 5 Hz (> 80% kept)', () => {
@@ -40,12 +42,12 @@ describe('preprocess', () => {
 
   it('returns Float32Array[channel][L]', () => {
     const out = preprocess(clip.samples, {});
-    expect(out.length).toBe(6);
-    for (const r of out) { expect(r).toBeInstanceOf(Float32Array); expect(r.length).toBe(64); }
+    expect(out.length).toBe(DEFAULT_OPTS.channels.length);
+    for (const r of out) { expect(r).toBeInstanceOf(Float32Array); expect(r.length).toBe(DEFAULT_OPTS.L); }
     const o2 = preprocess(clip.samples, { L: 48, channels: ['ua.z', 'rr.x'] });
     expect(o2.length).toBe(2);
     expect(o2[0].length).toBe(48);
-    expect(Array.from(o2[1])).toEqual(Array.from(preprocess(clip.samples, { L: 48 })[0])); // rr.x, same values
+    expect(Array.from(o2[1])).toEqual(Array.from(preprocess(clip.samples, { ...SPEC, L: 48 })[0])); // rr.x, same values
   });
 
   it('grid is 50 Hz no matter the input rate, and sorts / drops duplicate t', () => {
@@ -58,9 +60,9 @@ describe('preprocess', () => {
 
   it('global norm gives mean 0 / std 1 per channel over the training clips', () => {
     const clips = syntheticDataset().clips.slice(0, 20);
-    const raws = clips.map((c) => preprocessRaw(c.samples));
+    const raws = clips.map((c) => preprocessRaw(c.samples, SPEC));
     const n = computeNorm(raws, 'global', 6);
-    const xs = clips.map((c) => preprocess(c.samples, {}, n));
+    const xs = clips.map((c) => preprocess(c.samples, { ...SPEC, norm: 'global' }, n));
     for (let ch = 0; ch < 6; ch++) {
       const v = xs.flatMap((x) => Array.from(x[ch]));
       const m = v.reduce((a, b) => a + b, 0) / v.length;
@@ -72,30 +74,33 @@ describe('preprocess', () => {
 
   it('clip norm z scores each clip, and the floor stops a quiet clip from blowing up', () => {
     const clips = syntheticDataset().clips.slice(0, 20);
-    const n = computeNorm(clips.map((c) => preprocessRaw(c.samples)), 'clip', 6);
+    const n = computeNorm(clips.map((c) => preprocessRaw(c.samples, SPEC)), 'clip', 6);
     expect(n.mean).toEqual([0, 0, 0, 0, 0, 0]);
-    const x = preprocess(clips[0].samples, { norm: 'clip' }, n);
+    const x = preprocess(clips[0].samples, { ...SPEC, norm: 'clip' }, n);
     const m = x[0].reduce((a, b) => a + b, 0) / x[0].length;
     expect(Math.abs(m)).toBeLessThan(1e-5);
-    const quiet = preprocess(makeSamples(25, 3, (t) => 1e-6 * Math.sin(20 * t)), { norm: 'clip' }, n);
+    const quiet = preprocess(makeSamples(25, 3, (t) => 1e-6 * Math.sin(20 * t)), { ...SPEC, norm: 'clip' }, n);
     expect(Math.max(...quiet.map((r) => Math.max(...Array.from(r, Math.abs))))).toBeLessThan(1e-3);
   });
 
   it('a constant channel stays finite (std floor)', () => {
     const s = makeSamples(25, 2, () => 0.3);
-    const n = computeNorm([preprocessRaw(s)], 'global', 6);
-    const out = preprocess(s, {}, n);
-    expect(out.every((r) => Array.from(r).every(Number.isFinite))).toBe(true);
+    for (const norm of ['global', 'clip'] as const) {
+      const n = computeNorm([preprocessRaw(s, SPEC)], norm, 6);
+      const out = preprocess(s, { ...SPEC, norm }, n);
+      expect(out.every((r) => Array.from(r).every(Number.isFinite))).toBe(true);
+    }
   });
 
   it('rejects a clip that spans more than 60 s (before building the grid)', () => {
     const long = [...makeSamples(25, 1, () => 0.1), ...makeSamples(25, 1, () => 0.1, 160.5)]; // 100 .. 161.46 s
     expect(() => preprocess(long, {})).toThrow(/max is 60 s/);
-    expect(preprocess(makeSamples(2, 59, () => 0.1), {})[0].length).toBe(64);
+    expect(preprocess(makeSamples(2, 59, () => 0.1), {})[0].length).toBe(DEFAULT_OPTS.L);
   });
 
   it('resolves defaults and rejects bad options', () => {
-    expect(resolveOpts()).toEqual({ channels: DEFAULT_CHANNELS, L: 64, hpHz: 1, band: 0.1, k: 1, norm: 'global', threshold: 0.5 });
+    // Phase 2 defaults, picked on real data (see DEFAULT_OPTS in preprocess.ts)
+    expect(resolveOpts()).toEqual({ channels: DEFAULT_CHANNELS, L: 96, hpHz: 1, band: 0.05, k: 3, norm: 'clip', threshold: 0.85, budNorm: 'mirror' });
     expect(() => resolveOpts({ L: 1 })).toThrow();
     expect(() => resolveOpts({ k: 0 })).toThrow();
     expect(() => resolveOpts({ channels: [] })).toThrow();

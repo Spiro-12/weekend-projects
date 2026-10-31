@@ -15,6 +15,8 @@ export interface ClipMeta {
   subject: string;
   device: Dataset['device'];
   hz: number; // measured input rate
+  /** 'recorded' in this browser, or 'imported' from a file. Only recorded clips may train a model that runs actions. Missing: treat as imported. */
+  origin?: 'recorded' | 'imported';
 }
 
 /** The per session part of a Dataset header, aggregated from its clips' ClipMeta. */
@@ -107,7 +109,7 @@ export class MemoryClipStore implements ClipStore {
 
   load(ds: Dataset): number {
     const have = new Set(this.clips.map((c) => c.id));
-    const meta: ClipMeta = { source: ds.source, subject: ds.subject, device: { ...ds.device }, hz: ds.hz };
+    const meta: ClipMeta = { source: ds.source, subject: ds.subject, device: { ...ds.device }, hz: ds.hz, origin: 'imported' };
     const fresh: StoredClip[] = [];
     for (const c of ds.clips) {
       if (have.has(c.id)) continue; // also dedupes repeats inside one file
@@ -129,7 +131,7 @@ export class MemoryClipStore implements ClipStore {
       device: { ...meta.device },
       hz: meta.hz,
       classes: meta.classes.map((c) => ({ ...c })),
-      clips: this.clips.filter(filter).map((c) => ({ ...c, session: c.session ?? meta.session })),
+      clips: this.clips.filter(filter).map((c) => ({ ...c, session: c.session ?? meta.session, loc: c.loc ?? this.meta(c.id)?.device.loc })),
     };
   }
 

@@ -18,9 +18,10 @@ const msgs: (ServerMsg | ActionRequestMsg)[] = [
   fakeHello(actions, false),
   fakeStatus({ simulated: false }),
   ...motion,
-  { type: 'action', id: 'act-1', action: 'volume_up', label: 'volume_up', confidence: 0.91 } satisfies ActionRequestMsg,
+  { type: 'action', id: 'act-1', action: 'volume_up', label: 'volume_up', confidence: 0.91, token: '0123456789abcdef0123456789abcdef' } satisfies ActionRequestMsg,
   { type: 'actionResult', id: 'act-1', action: 'volume_up', ok: true, dryRun: true, message: 'Dry run: volume_up', ms: 3 } satisfies ActionResultMsg,
   { type: 'error', code: 'cooldown', message: 'too soon', id: 'act-2' } satisfies ErrorMsg,
+  { type: 'error', code: 'unpaired', message: 'wrong or missing pairing token', id: 'act-3' } satisfies ErrorMsg,
 ];
 write('ws-messages.jsonl', msgs.map((m) => JSON.stringify(m)).join('\n') + '\n');
 

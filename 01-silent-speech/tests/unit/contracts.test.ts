@@ -41,6 +41,15 @@ describe('validators reject junk', () => {
     expect(parseServerFrame('nope')).toEqual({ kind: 'invalid' });
     expect(parseServerFrame(JSON.stringify({ type: 'error', code: 'cooldown', message: 'x' })).kind).toBe('msg');
   });
+  it('actions need a token string; clip loc must be a bud location', () => {
+    expect(parseClientMsg({ type: 'action', id: 'a', action: 'x', label: 'x', confidence: 1 })).toBeNull();
+    expect(parseClientMsg({ type: 'action', id: 'a', action: 'x', label: 'x', confidence: 1, token: '' })).not.toBeNull();
+    const ds = JSON.parse(fx('dataset.tiny.json'));
+    ds.clips[0].loc = 'right';
+    expect(validateDataset(ds)).toEqual([]);
+    ds.clips[0].loc = 'middle';
+    expect(validateDataset(ds).join()).toMatch(/loc invalid/);
+  });
   it('bad dataset', () => {
     expect(validateDataset({ format: 'ss-dataset' }).length).toBeGreaterThan(0);
     const ds = JSON.parse(fx('dataset.tiny.json'));

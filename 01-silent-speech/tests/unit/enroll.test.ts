@@ -247,7 +247,7 @@ describe('names', () => {
   });
   it('short labels and prompt text', () => {
     expect(['text_mom', 'volume_up', 'calendar', 'demo_48h', 'none'].map(shortLabel)).toEqual(['text', 'volume'.slice(0, 5), 'calen', 'demo', 'none']);
-    expect(promptText('none', '(still, swallow, nod, glance)')).toBe('Stay still. Maybe swallow or nod.');
+    expect(promptText('none', '(still, swallow, nod, glance)')).toBe("Keep your mouth closed and still. Don't say anything.");
     expect(promptText('help', 'I need help right now')).toBe('I need help right now');
   });
 });

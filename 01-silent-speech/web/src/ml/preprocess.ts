@@ -1,17 +1,44 @@
 // Preprocessing spec v1 (PROTOCOL.md §5). JS and Python must match exactly; tests/unit/ml/golden.json
 // holds values made with real scipy by scripts/golden-ml.py and this file must match them to 1e-6.
 // All math runs in float64; only the final output is rounded to Float32Array.
-import type { Channel, DtwKnnOptions, MotionSample, NormStats } from '../core/contracts';
+import type { BudLocation, Channel, DtwKnnOptions, MotionSample, NormStats } from '../core/contracts';
 import { DEFAULT_CHANNELS, GRID_HZ } from '../core/contracts';
 
+/**
+ * Defaults picked on Spiro's real recordings (Phase 2, Track F; data/raw s1..s3, exclude list applied, 342 clips):
+ * `eval-dtw --sweep` over 768 configs (8 channel sets x L 48/64/96/128 x band 0.05/0.1/0.2 x norm x k 1/3 x budNorm),
+ * ranked by LOSO over all 3 sessions (tie break: cross bud = train s2 + s3, test s1). Table:
+ * ml/results/dtw-knn/sweep/sweep-real.json.
+ * Honest accuracy (`eval-dtw --nested`, ml/results/dtw-knn/sweep/nested-real.json): options picked on 2 sessions
+ * only, then tested on the third: s1 (right bud, mirrored) 67.1%, s2 96.6%, s3 98.3%, pooled 88.2% (301.5 / 342). The sweep's
+ * own score picks on all 3 sessions and is optimistic: 94.2% (s1 83.8%, s2 97.4%, s3 100%); Phase 1 defaults scored
+ * 81.9% there (rank 274 of 768). So: a new session on the same bud ~97 to 98%, the other bud mirrored 67 to 84%.
+ * - norm 'clip' is the big win: +8.7 points at the Phase 1 options (81.9% -> 90.6%), +5.6 at these (88.6% -> 94.2%).
+ *   The sessions differ a lot in loudness per channel (head against the chair, bud seated differently: s1 rr.z RMS is
+ *   twice s2's), and per clip z scoring cancels that.
+ * - k 3 beats k 1 now that a class has ~30 takes over 2 training sessions (93.6% -> 94.2% at L 96, band 0.05;
+ *   Phase 1's "k 1 wins" was with 5 to 15 takes from one sitting).
+ * - L 96 with a narrow band (0.05, r = 5) beat L 64 / band 0.1 (92.7%) and L 96 / band 0.1 (93.3%); all 6 channels
+ *   tie the best subset (rr + ua.y/z).
+ * - budNorm 'mirror': cross bud 83.8%; unmirrored 26.7% at these options, 41.0% at best (PROTOCOL §5 step 0).
+ * - threshold 0.85, from `eval-dtw --thresholds` (ml/results/dtw-knn/sweep/thresholds-real.json): the lowest value in
+ *   0.05 steps where (1) <= 3% of sentences fire the wrong action (LOSO all 3, LOSO s2 + s3 and cross bud: all 0%),
+ *   (2) no none take fires, and (3) small real models (2 to 4 classes) accept <= 10% of the sentences they were not
+ *   trained on (7.7%; 11.1% at 0.80). At 0.85: 61.6% of sentences are acted on (55.1% with the options picked
+ *   without the test session), 0 / 315 wrong (95% upper bound 1.2%), 0 / 27 none takes (upper bound 12.8%).
+ *   Small models are only safe on average: one sound alike sentence can fire a lot ("call back" fires focus_music
+ *   on 73% of takes for a focus_music + demo_48h model), so actions need a full model (Track J gates them).
+ *   tests/unit/ml/safety-real.test.ts holds these lines.
+ */
 export const DEFAULT_OPTS: Readonly<Required<DtwKnnOptions>> = Object.freeze({
   channels: [...DEFAULT_CHANNELS],
-  L: 64,
+  L: 96,
   hpHz: 1.0,
-  band: 0.1,
-  k: 1, // 1 beats 3 with few takes per class (first real AirPods data: LOO 94% vs 71%)
-  norm: 'global',
-  threshold: 0.5,
+  band: 0.05,
+  k: 3,
+  norm: 'clip',
+  threshold: 0.85,
+  budNorm: 'mirror', // PROTOCOL §5 step 0: right bud clips are mirrored into the left bud frame
 });
 
 const CHANNEL_INDEX: Record<Channel, ['rr' | 'ua', number]> = {
@@ -29,6 +56,7 @@ export function resolveOpts(o: DtwKnnOptions = {}): Required<DtwKnnOptions> {
     k: o.k ?? DEFAULT_OPTS.k,
     norm: o.norm ?? DEFAULT_OPTS.norm,
     threshold: o.threshold ?? DEFAULT_OPTS.threshold,
+    budNorm: o.budNorm ?? DEFAULT_OPTS.budNorm,
   };
   if (r.channels.length === 0) throw new Error('ml: channels must not be empty');
   for (const c of r.channels) if (!(c in CHANNEL_INDEX)) throw new Error(`ml: unknown channel ${String(c)}`);
@@ -38,20 +66,47 @@ export function resolveOpts(o: DtwKnnOptions = {}): Required<DtwKnnOptions> {
   if (!(r.hpHz < GRID_HZ / 2)) throw new Error(`ml: hpHz must be below ${GRID_HZ / 2} Hz (got ${r.hpHz})`);
   if (r.norm !== 'global' && r.norm !== 'clip') throw new Error(`ml: unknown norm ${String(r.norm)}`);
   if (!Number.isFinite(r.threshold)) throw new Error('ml: threshold must be a number');
+  if (r.budNorm !== 'mirror' && r.budNorm !== 'none') throw new Error(`ml: unknown budNorm ${String(r.budNorm)}`);
   return r;
+}
+
+// ---------- Step 0: bud normalization ----------
+
+/**
+ * Channels that change sign when a right bud sample is mirrored into the left bud frame (PROTOCOL §5 step 0):
+ * rr -> [rr.x, -rr.y, -rr.z], ua -> [-ua.x, ua.y, ua.z] (a sagittal reflection: ua is a vector, rr a pseudo vector).
+ */
+export const MIRROR_FLIPS: Readonly<Record<Channel, boolean>> = Object.freeze({
+  'rr.x': false, 'rr.y': true, 'rr.z': true, 'ua.x': true, 'ua.y': false, 'ua.z': false,
+});
+
+/** True when step 0 mirrors a clip from this bud: only `right`, and only with budNorm 'mirror'. */
+export const mirrors = (loc: BudLocation | undefined, budNorm: Required<DtwKnnOptions>['budNorm']): boolean =>
+  budNorm === 'mirror' && loc === 'right';
+
+/** Step 0 spelled out on one sample (reference form; the pipeline flips the same signs inside toGrid). */
+export function mirrorSample(s: MotionSample): MotionSample {
+  return { ...s, rr: [s.rr[0], -s.rr[1], -s.rr[2]], ua: [-s.ua[0], s.ua[1], s.ua[2]] };
 }
 
 // ---------- Step 1 + 2: uniform 50 Hz grid, pick channels ----------
 
 /**
- * Sort by t (stable), drop duplicate t (keeps the first), grid t_k = t_0 + k/50 for
- * k = 0..floor((t_last - t_0)*50 + 1e-9), linear interpolation per channel (same as np.interp).
- * Returns [channel][n].
+ * Grid length epsilon (PROTOCOL §5 step 1): the last point is kept when it lands on the grid. 1e-6, not 1e-9: real
+ * Mac timestamps are ~1.3e6 s (seconds since boot), where t_last - t_0 carries ~1e-8 of float error.
  */
+export const GRID_EPS = 1e-6;
+
 /** Longest clip span preprocessing accepts (a push to talk clip is a few seconds; this stops a runaway grid). */
 export const MAX_CLIP_SEC = 60;
 
-export function toGrid(samples: MotionSample[], channels: Channel[]): Float64Array[] {
+/**
+ * Sort by t (stable), drop duplicate t (keeps the first), grid t_k = t_0 + k/50 for
+ * k = 0..floor((t_last - t_0)*50 + GRID_EPS), linear interpolation per channel (same as np.interp).
+ * `mirror`: step 0 for a right bud clip (flip the MIRROR_FLIPS channels; negation is exact, so this is bit for
+ * bit the same as gridding mirrorSample()d samples). Returns [channel][n].
+ */
+export function toGrid(samples: MotionSample[], channels: Channel[], mirror = false): Float64Array[] {
   if (samples.length === 0) throw new Error('ml.preprocess: clip has no samples');
   const order = samples.map((_, i) => i).sort((i, j) => samples[i].t - samples[j].t || i - j);
   const keep: number[] = [order[0]];
@@ -64,12 +119,13 @@ export function toGrid(samples: MotionSample[], channels: Channel[]): Float64Arr
   if (!Number.isFinite(t[0]) || !Number.isFinite(t[m - 1])) throw new Error('ml.preprocess: bad sample time');
   const span = t[m - 1] - t[0];
   if (span > MAX_CLIP_SEC) throw new Error(`ml.preprocess: clip spans ${span.toFixed(1)} s, max is ${MAX_CLIP_SEC} s`);
-  const n = Math.floor((t[m - 1] - t[0]) * GRID_HZ + 1e-9) + 1;
+  const n = Math.floor((t[m - 1] - t[0]) * GRID_HZ + GRID_EPS) + 1;
   const out: Float64Array[] = [];
   for (const ch of channels) {
     const [key, idx] = CHANNEL_INDEX[ch];
+    const sign = mirror && MIRROR_FLIPS[ch] ? -1 : 1;
     const v = new Float64Array(m);
-    for (let q = 0; q < m; q++) v[q] = samples[keep[q]][key][idx];
+    for (let q = 0; q < m; q++) v[q] = sign * samples[keep[q]][key][idx];
     const g = new Float64Array(n);
     let p = 0;
     for (let k = 0; k < n; k++) {
@@ -199,10 +255,13 @@ export function resampleLinear(x: Float64Array, L: number): Float64Array {
   return out;
 }
 
-/** Steps 1 to 4 (no normalization). Returns [channel][L] in float64. */
-export function preprocessRaw(samples: MotionSample[], opts?: DtwKnnOptions): Float64Array[] {
+/**
+ * Steps 0 to 4 (no normalization). Returns [channel][L] in float64.
+ * `loc`: which bud recorded the clip (clip.loc, or ctx.loc at predict time); step 0 mirrors `right` clips.
+ */
+export function preprocessRaw(samples: MotionSample[], opts?: DtwKnnOptions, loc?: BudLocation): Float64Array[] {
   const o = resolveOpts(opts);
-  return toGrid(samples, o.channels).map((g) => resampleLinear(highpass(g, o.hpHz), o.L));
+  return toGrid(samples, o.channels, mirrors(loc, o.budNorm)).map((g) => resampleLinear(highpass(g, o.hpHz), o.L));
 }
 
 // ---------- Step 5: normalization ----------
@@ -232,11 +291,12 @@ function median(v: number[]): number {
  * No training clips: identity stats (mean 0, std 1 / floor 1e-8).
  */
 export function computeNorm(raws: Float64Array[][], mode: 'global' | 'clip', nCh: number): NormStats {
+  if (mode === 'clip') return { mean: new Array<number>(nCh).fill(0), std: clipFloor(raws.map(channelStds), nCh) };
   const mean = new Array<number>(nCh).fill(0);
-  const std = new Array<number>(nCh).fill(mode === 'global' ? 1 : STD_FLOOR);
+  const std = new Array<number>(nCh).fill(1);
   if (raws.length === 0) return { mean, std };
   for (let c = 0; c < nCh; c++) {
-    if (mode === 'global') {
+    {
       let s = 0, cnt = 0;
       for (const r of raws) for (let i = 0; i < r[c].length; i++) { s += r[c][i]; cnt++; }
       const m = s / cnt;
@@ -244,11 +304,18 @@ export function computeNorm(raws: Float64Array[][], mode: 'global' | 'clip', nCh
       for (const r of raws) for (let i = 0; i < r[c].length; i++) v += (r[c][i] - m) ** 2;
       mean[c] = m;
       std[c] = Math.max(Math.sqrt(v / cnt), STD_FLOOR);
-    } else {
-      std[c] = Math.max(0.5 * median(raws.map((r) => meanStd(r[c])[1])), STD_FLOOR);
     }
   }
   return { mean, std };
+}
+
+/** Each channel's own population std (what norm 'clip' z scores a clip by). */
+export const channelStds = (raw: Float64Array[]): number[] => raw.map((x) => meanStd(x)[1]);
+
+/** The norm 'clip' std floor from every training clip's channelStds: 0.5 x median per channel, at least 1e-8. */
+export function clipFloor(stds: number[][], nCh: number): number[] {
+  if (stds.length === 0) return new Array<number>(nCh).fill(STD_FLOOR);
+  return Array.from({ length: nCh }, (_, c) => Math.max(0.5 * median(stds.map((s) => s[c])), STD_FLOOR));
 }
 
 /** Step 5 on one clip. Returns float64 [channel][L]. */
@@ -289,11 +356,12 @@ export const toF32 = (x: Float64Array[]): Float32Array[] => x.map((r) => Float32
 
 /**
  * Full spec v1 pipeline. Returns [channel][L].
+ * `loc`: the clip's bud for step 0 (only `right` with budNorm 'mirror' changes anything).
  * With `norm`, step 5 runs in `opts.norm` mode (see computeNorm for what the stats hold).
  * Without `norm`, it stops after step 4 (raw, unnormalized), which is what training uses to compute stats.
  */
-export function preprocess(samples: MotionSample[], opts?: DtwKnnOptions, norm?: NormStats): Float32Array[] {
+export function preprocess(samples: MotionSample[], opts?: DtwKnnOptions, norm?: NormStats, loc?: BudLocation): Float32Array[] {
   const o = resolveOpts(opts);
-  const raw = preprocessRaw(samples, o);
+  const raw = preprocessRaw(samples, o, loc);
   return toF32(norm ? applyNorm(raw, o.norm, norm) : raw);
 }

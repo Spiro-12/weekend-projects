@@ -1,0 +1,167 @@
+{
+  "model": "minirocket",
+  "protocol": "loo",
+  "nClips": 120,
+  "labels": [
+    "calendar",
+    "call_back",
+    "demo_48h",
+    "focus_music",
+    "help",
+    "none",
+    "text_mom",
+    "volume_up"
+  ],
+  "accuracy": 0.9833333333333333,
+  "macroF1": 0.9833240637745644,
+  "confusion": [
+    [
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      14,
+      0,
+      0,
+      1
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      15,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      15,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      14
+    ]
+  ],
+  "noneFalseAcceptRate": 0.0,
+  "params": {
+    "channels": [
+      "rr.x",
+      "rr.y",
+      "rr.z",
+      "ua.x",
+      "ua.y",
+      "ua.z"
+    ],
+    "L": 64,
+    "hpHz": 1.0,
+    "norm": "global",
+    "budNorm": "mirror",
+    "gridHz": 50,
+    "threshold": 0.5,
+    "nKernels": 10000,
+    "seed": 0,
+    "classifier": "StandardScaler(with_mean=False) + RidgeClassifierCV(logspace(-3,3,10))",
+    "confidence": "ridge decision (d+1)/2 clipped, normalized",
+    "data": [
+      "shared/fixtures/dataset.synthetic.json"
+    ],
+    "datasets": [
+      "dataset.synthetic.json"
+    ],
+    "sources": [
+      "fake"
+    ],
+    "subjects": [
+      "synthetic"
+    ],
+    "sessions": [
+      "s1",
+      "s2",
+      "s3"
+    ],
+    "buds": {
+      "s1": "left",
+      "s2": "left",
+      "s3": "left"
+    },
+    "exclude": null,
+    "excludeIds": [],
+    "excluded": 0,
+    "excludedBySession": {},
+    "duplicatesDropped": 0,
+    "folds": 120,
+    "perSession": {
+      "s1": {
+        "correct": 39,
+        "n": 40
+      },
+      "s2": {
+        "correct": 39,
+        "n": 40
+      },
+      "s3": {
+        "correct": 40,
+        "n": 40
+      }
+    },
+    "jobs": 3,
+    "timing": "rough: 3 processes in parallel",
+    "evalSec": 30.5
+  },
+  "inferMsPerClip": 7.025169583365217,
+  "generatedAt": "2026-10-31T10:40:24.870Z"
+}

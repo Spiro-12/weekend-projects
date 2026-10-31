@@ -38,7 +38,7 @@ describe('mock bridge speaks protocol v1', () => {
   it('answers actions: dry run, unknown, cooldown', async () => {
     const c = connect('https://spiro-12.github.io');
     await c.open;
-    const send = (action: string, id: string) => c.ws.send(JSON.stringify({ type: 'action', id, action, label: action, confidence: 0.9 }));
+    const send = (action: string, id: string) => c.ws.send(JSON.stringify({ type: 'action', id, action, label: action, confidence: 0.9, token: '' }));
     send('volume_up', 'a1');
     send('volume_up', 'a2');
     send('launch_rockets', 'a3');
@@ -56,5 +56,28 @@ describe('mock bridge speaks protocol v1', () => {
     expect(c.msgs.filter((m) => m.type === 'error' && m.code === 'bad_json')).toHaveLength(1);
     expect(byId('h1')).toMatchObject({ type: 'actionResult', ok: true });
     expect(byId('h2')).toMatchObject({ type: 'error', code: 'cooldown' });
+  });
+});
+
+describe('mock bridge pairing (token)', () => {
+  it('rejects actions without the right token, accepts the right one', async () => {
+    const b = await startMockBridge({ port: 0, token: 'abcdef0123456789abcdef0123456789', cooldownMs: 0 });
+    const ws = new WebSocket(`ws://127.0.0.1:${b.port}`, { origin: 'http://localhost:4173' });
+    const msgs: ServerMsg[] = [];
+    ws.on('message', (d) => { const m = parseServerMsg(d.toString()); if (m) msgs.push(m); });
+    await new Promise<void>((res) => ws.on('open', () => res()));
+    const send = (id: string, token: string) => ws.send(JSON.stringify({ type: 'action', id, action: 'volume_up', label: 'v', confidence: 0.9, token }));
+    ws.send(JSON.stringify({ type: 'action', id: 't0', action: 'volume_up', label: 'v', confidence: 0.9 })); // no token field
+    send('t1', '');
+    send('t2', 'ffff0123456789abcdef0123456789ab');
+    send('t3', 'abcdef0123456789abcdef0123456789');
+    await new Promise((r) => setTimeout(r, 300));
+    ws.close();
+    await b.close();
+    const byId = (id: string) => msgs.find((m) => 'id' in m && m.id === id);
+    expect(byId('t0')).toMatchObject({ type: 'error', code: 'unpaired' });
+    expect(byId('t1')).toMatchObject({ type: 'error', code: 'unpaired' });
+    expect(byId('t2')).toMatchObject({ type: 'error', code: 'unpaired' });
+    expect(byId('t3')).toMatchObject({ type: 'actionResult', ok: true });
   });
 });

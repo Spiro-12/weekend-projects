@@ -231,10 +231,14 @@ class EnrollPanel {
   /** Clips of the chosen sentences with the same source as now (real and practice never mix). */
   private pool(): DatasetClip[] {
     const chosen = this.chosen();
-    return this.app.store.all().filter((c) => chosen.includes(c.label) && this.sourceOf(c) === this.source);
+    const store = this.app.store;
+    return store.all()
+      .filter((c) => chosen.includes(c.label) && this.sourceOf(c) === this.source)
+      // which bud recorded it, so bud normalization (PROTOCOL §5 step 0) mirrors right bud takes
+      .map((c) => (c.loc ? c : { ...c, loc: store.meta(c.id)?.device.loc }));
   }
   private sentence(id: string) { return this.app.classes.find((c) => c.id === id)?.sentence ?? id; }
-  private label(id: string) { return id === NONE ? 'Stay still (no sentence)' : this.sentence(id); }
+  private label(id: string) { return id === NONE ? 'Mouth closed (say nothing)' : this.sentence(id); }
 
   private save() {
     try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.s)); } catch { /* storage blocked: settings just won't stick */ }
@@ -423,6 +427,7 @@ class EnrollPanel {
     const meta: ClipMeta = {
       source, subject: this.s.subject, device: { model: DEVICE_MODEL, loc: p.loc },
       hz: clipHz(c.samples, Math.round(this.status?.hz || 25)),
+      origin: 'recorded',
     };
     if (p.session === this.session) this.prompter.done(p.label);
     this.recorded.push(clip.id);

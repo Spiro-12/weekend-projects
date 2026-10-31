@@ -13,6 +13,8 @@ from silent.preprocess import (
     butter_highpass,
     fit_norm,
     highpass,
+    mirror_samples,
+    mirror_signs,
     preprocess_clip,
     preprocess_clips,
     resample,
@@ -32,7 +34,7 @@ def test_grid_is_50hz():
 
 def test_grid_25hz_input_is_upsampled_linearly():
     g = to_grid([S(0.0, rx=0), S(0.04, rx=1), S(0.08, rx=2), S(0.12, rx=3)], ["rr.x"])
-    assert g.shape == (1, 7)  # k = 0..floor(0.12 * 50 + 1e-9) = 6
+    assert g.shape == (1, 7)  # k = 0..floor(0.12 * 50 + 1e-6) = 6
     np.testing.assert_allclose(g[0], [0, 0.5, 1, 1.5, 2, 2.5, 3], atol=1e-12)
 
 
@@ -42,10 +44,26 @@ def test_grid_sorts_and_drops_duplicate_t_keeping_the_first():
 
 
 def test_grid_includes_last_point_despite_float_error():
-    # (9.81695 - 9.71695) * 50 = 4.99999999999998 -> the + 1e-9 makes it k = 0..5 (6 points)
+    # (9.81695 - 9.71695) * 50 = 4.99999999999998 -> the + 1e-6 makes it k = 0..5 (6 points)
     assert (9.81695 - 9.71695) * 50 < 5
     g = to_grid([S(9.71695, rx=0), S(9.81695, rx=1)], ["rr.x"])
     assert g.shape == (1, 6)
+
+
+def test_grid_includes_last_point_on_real_boot_clock_timestamps():
+    # s3-mvw5hqc0-e0: t is seconds since boot (~1.3e6 s), where t_last - t_0 carries ~1e-8 of float error.
+    t0, t1 = 1321219.21506, 1321222.79506  # 3.58 s apart = 179 grid steps
+    assert (t1 - t0) * 50 == pytest.approx(179, abs=1e-6) and math.floor((t1 - t0) * 50 + 1e-9) == 178  # the old epsilon dropped it
+    ts = [t0 + k * 0.02 for k in range(179)] + [t1]
+    g = to_grid([S(t, rx=i) for i, t in enumerate(ts)], ["rr.x"])
+    assert g.shape == (1, 180)  # k = 0..179: the last sample is a grid point (PROTOCOL §5 step 1, epsilon 1e-6)
+    assert g[0, -1] == pytest.approx(179)
+
+
+def test_grid_epsilon_is_not_a_rounding_rule():
+    # 2e-6 of a step short of the next grid point is still short (only float noise is forgiven)
+    g = to_grid([S(0.0, rx=0), S(0.04 - 4e-8, rx=1)], ["rr.x"])
+    assert g.shape == (1, 2)
 
 
 def test_grid_stops_before_t_last_when_off_grid():
@@ -170,7 +188,7 @@ def _pipeline_by_hand(samples, L=64):
         if not dedup or s["t"] != dedup[-1]["t"]:
             dedup.append(s)
     t = [s["t"] for s in dedup]
-    K = math.floor((t[-1] - t[0]) * 50 + 1e-9)
+    K = math.floor((t[-1] - t[0]) * 50 + 1e-6)
     out = []
     b, a = butter_highpass(1.0)
     for key, i in keys:
@@ -203,3 +221,46 @@ def test_preprocess_clips_shape(synthetic):
     X = preprocess_clips(synthetic.clips[:5], PreOpts(L=48))
     assert X.shape == (5, 6, 48)
     assert np.isfinite(X).all()
+
+
+# ---------- step 0: bud normalization ----------
+
+def test_mirror_samples_hand_values():
+    s = [{"t": 0.0, "rr": [1.0, 2.0, 3.0], "ua": [4.0, 5.0, 6.0], "g": [7.0, 8.0, 9.0], "q": [1, 0, 0, 0]}]
+    m = mirror_samples(s)[0]
+    assert m["rr"] == [1.0, -2.0, -3.0] and m["ua"] == [-4.0, 5.0, 6.0] and m["g"] == [-7.0, 8.0, 9.0]
+    assert m["q"] == [1, 0, 0, 0] and s[0]["rr"] == [1.0, 2.0, 3.0]  # copies, input untouched
+    assert mirror_samples(mirror_samples(s)) == s
+
+
+def test_mirror_signs():
+    np.testing.assert_array_equal(mirror_signs(["rr.x", "rr.y", "rr.z", "ua.x", "ua.y", "ua.z"]), [1, -1, -1, -1, 1, 1])
+    np.testing.assert_array_equal(mirror_signs(["ua.z", "rr.y"]), [1, -1])
+
+
+def test_right_bud_is_bit_for_bit_the_mirrored_samples(real_smoke):
+    clip = next(c for c in real_smoke.clips if c.loc == "right")
+    a = preprocess_clip(clip.samples, PreOpts(), "right")
+    np.testing.assert_array_equal(a, preprocess_clip(mirror_samples(clip.samples), PreOpts(), "left"))
+    assert not np.allclose(a, preprocess_clip(clip.samples, PreOpts(), "left"))
+
+
+@pytest.mark.parametrize("loc", ["left", "default", "unknown", None])
+def test_only_right_bud_is_mirrored(synthetic, loc):
+    s = synthetic.clips[0].samples
+    np.testing.assert_array_equal(preprocess_clip(s, PreOpts(), loc), preprocess_clip(s))
+
+
+def test_bud_norm_none_is_a_no_op(synthetic):
+    s = synthetic.clips[0].samples
+    np.testing.assert_array_equal(preprocess_clip(s, PreOpts(bud_norm="none"), "right"), preprocess_clip(s))
+    assert PreOpts().bud_norm == "mirror" and PreOpts().as_params()["budNorm"] == "mirror"  # PROTOCOL §5 default
+    with pytest.raises(ValueError):
+        preprocess_clip(s, PreOpts(bud_norm="flip"), "right")  # type: ignore[arg-type]
+
+
+def test_preprocess_clips_uses_each_clips_bud(real_smoke):
+    clips = [c for c in real_smoke.clips if c.loc == "right"][:2] + [c for c in real_smoke.clips if c.loc == "left"][:2]
+    X = preprocess_clips(clips)
+    for x, c in zip(X, clips):
+        np.testing.assert_array_equal(x, preprocess_clip(c.samples, PreOpts(), c.loc))

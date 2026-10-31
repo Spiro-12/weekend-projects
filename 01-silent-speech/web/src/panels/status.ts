@@ -169,7 +169,7 @@ const panel: Panel = {
         const [aText, aTone] = AUTH[status.auth] ?? [status.auth, 'warn'];
         setRow('auth', aText, aTone);
         setRow('loc', LOC[status.loc] ?? status.loc);
-        setRow('simulated', status.simulated ? 'Simulated (no AirPods needed)' : 'Real AirPods');
+        setRow('simulated', app.source?.kind === 'replay' ? 'Recorded from real AirPods (replay)' : status.simulated ? 'Simulated (no AirPods needed)' : 'Real AirPods');
         setRow('armed', status.armed ? 'Armed: actions run for real' : 'Safe mode: dry run only', status.armed ? 'warn' : 'good');
       } else {
         for (const k of ['headphones', 'auth', 'loc', 'simulated', 'armed']) setRow(k, '–', 'idle');
@@ -185,6 +185,7 @@ const panel: Panel = {
       else if (!status) [tone, text] = ['warn', kind === 'live' ? 'Connected, waiting for the Mac…' : 'Starting…'];
       else if (status.headphones !== 'connected') [tone, text] = ['warn', 'Put in your AirPods'];
       else if (status.auth !== 'authorized') [tone, text] = ['warn', 'Motion access needed'];
+      else if (kind === 'replay') [tone, text] = ['good', 'Replaying a real AirPods session']; // replay paces itself (pause, 2×)
       else if (browserHz === 0) [tone, text] = ['bad', 'No motion data yet'];
       else if (!rateOk(browserHz) || worstGap >= 5) [tone, text] = ['warn', 'Signal is choppy'];
       else [tone, text] = ['good', kind === 'live' ? (status.simulated ? 'Streaming (simulated)' : 'Streaming from AirPods') : `Streaming ${kind} data`];

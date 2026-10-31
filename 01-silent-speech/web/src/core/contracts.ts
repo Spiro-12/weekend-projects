@@ -58,7 +58,7 @@ export interface ActionResultMsg {
   ms: number;
 }
 
-export type ErrorCode = 'bad_json' | 'unknown_action' | 'cooldown';
+export type ErrorCode = 'bad_json' | 'unknown_action' | 'cooldown' | 'unpaired';
 export interface ErrorMsg {
   type: 'error';
   code: ErrorCode;
@@ -75,6 +75,8 @@ export interface ActionRequestMsg {
   action: string;
   label: string;
   confidence: number;
+  /** Pairing token from the Mac app's dashboard link (#pair=...). Wrong or empty: error 'unpaired' (PROTOCOL §2). */
+  token: string;
 }
 export type ClientMsg = ActionRequestMsg;
 
@@ -91,6 +93,8 @@ export interface Clip {
   label: string;
   samples: MotionSample[];
   session?: string;
+  /** Which bud had the sensor when this clip was recorded (PROTOCOL §3). Missing: use the dataset's device.loc. */
+  loc?: BudLocation;
 }
 
 export interface DatasetClip extends Clip {
@@ -144,10 +148,15 @@ export interface Prediction {
   ms: number;
 }
 
+/** What the shell knows about the live clip besides its samples. */
+export interface PredictContext {
+  loc?: BudLocation; // which bud is streaming (from status.loc); used by bud normalization
+}
+
 export interface Classifier {
   name: string;
   labels: string[];
-  predict(samples: MotionSample[]): Prediction;
+  predict(samples: MotionSample[], ctx?: PredictContext): Prediction;
 }
 
 /** Preprocessing resamples every clip onto this uniform grid (PROTOCOL §5). */
@@ -155,12 +164,13 @@ export const GRID_HZ = 50;
 
 export interface DtwKnnOptions {
   channels?: Channel[]; // default DEFAULT_CHANNELS
-  L?: number; // resampled length, default 64
+  L?: number; // resampled length, default 96
   hpHz?: number; // high pass cutoff, default 1.0
-  band?: number; // Sakoe-Chiba radius as fraction of L, default 0.1
-  k?: number; // default 1 (PROTOCOL §6)
-  norm?: 'global' | 'clip'; // default 'global'
-  threshold?: number; // default 0.5
+  band?: number; // Sakoe-Chiba radius as fraction of L, default 0.05
+  k?: number; // default 3 (PROTOCOL §6)
+  norm?: 'global' | 'clip'; // default 'clip'
+  threshold?: number; // default 0.85
+  budNorm?: 'mirror' | 'none'; // default 'mirror': right-bud clips are mirrored into the left-bud frame (PROTOCOL §5 step 0)
 }
 
 export interface NormStats {
@@ -179,7 +189,7 @@ export interface DtwKnnModelJSON {
 
 export interface Metrics {
   model: string;
-  protocol: 'loo' | 'loso';
+  protocol: 'loo' | 'loso' | 'xbud'; // xbud: train on one bud's sessions, test on the other bud's (Python bench)
   nClips: number;
   labels: string[];
   accuracy: number;

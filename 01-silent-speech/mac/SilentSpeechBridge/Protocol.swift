@@ -18,6 +18,8 @@ enum ProtocolV1 {
     /// Actions that message real people get a longer cooldown.
     static let sensitiveActions: Set<String> = ["text_mom", "call_back", "help"]
     static let sensitiveCooldown: TimeInterval = 30
+    /// Pairing token file (PROTOCOL §2): 32 random hex chars, created on first launch, mode 0600.
+    static let tokenPath = "~/.silentspeech/token"
 }
 
 /// Rounds to 5 decimals to keep frames small.
@@ -26,7 +28,7 @@ enum ProtocolV1 {
 enum HeadphoneState: String, Codable { case connected, disconnected, unavailable }
 enum AuthState: String, Codable { case authorized, denied, notDetermined, restricted }
 enum BudLocation: String, Codable { case left, right, `default`, unknown }
-enum ErrorCode: String, Codable { case bad_json, unknown_action, cooldown }
+enum ErrorCode: String, Codable { case bad_json, unknown_action, cooldown, unpaired }
 
 // MARK: Mac -> browser
 
@@ -87,6 +89,8 @@ struct ActionRequest: Codable {
     let action: String
     let label: String
     let confidence: Double
+    /// Pairing token (PROTOCOL §2). Optional only so an old dashboard gets `unpaired` instead of `bad_json`.
+    let token: String?
 }
 
 enum ProtocolCoding {

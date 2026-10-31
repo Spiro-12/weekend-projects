@@ -1,0 +1,168 @@
+{
+  "model": "dtw-py",
+  "protocol": "loso",
+  "nClips": 120,
+  "labels": [
+    "calendar",
+    "call_back",
+    "demo_48h",
+    "focus_music",
+    "help",
+    "none",
+    "text_mom",
+    "volume_up"
+  ],
+  "accuracy": 1.0,
+  "macroF1": 1.0,
+  "confusion": [
+    [
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      15,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      15,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      15
+    ]
+  ],
+  "noneFalseAcceptRate": 0.0,
+  "params": {
+    "channels": [
+      "rr.x",
+      "rr.y",
+      "rr.z",
+      "ua.x",
+      "ua.y",
+      "ua.z"
+    ],
+    "L": 96,
+    "hpHz": 1.0,
+    "norm": "clip",
+    "budNorm": "mirror",
+    "gridHz": 50,
+    "threshold": 0.85,
+    "band": 0.05,
+    "k": 3,
+    "radius": 5,
+    "weights": "1/(d+1e-9)",
+    "confidence": "vote x separation (knn.ts): softmax T=0.1 dRef, unknown at 1.7 dRef, stillness at 1.25 sum(q^2)",
+    "data": [
+      "shared/fixtures/dataset.synthetic.json"
+    ],
+    "datasets": [
+      "dataset.synthetic.json"
+    ],
+    "sources": [
+      "fake"
+    ],
+    "subjects": [
+      "synthetic"
+    ],
+    "sessions": [
+      "s1",
+      "s2",
+      "s3"
+    ],
+    "buds": {
+      "s1": "left",
+      "s2": "left",
+      "s3": "left"
+    },
+    "exclude": null,
+    "excludeIds": [],
+    "excluded": 0,
+    "excludedBySession": {},
+    "duplicatesDropped": 0,
+    "folds": 3,
+    "perSession": {
+      "s1": {
+        "correct": 40,
+        "n": 40
+      },
+      "s2": {
+        "correct": 40,
+        "n": 40
+      },
+      "s3": {
+        "correct": 40,
+        "n": 40
+      }
+    },
+    "jobs": 3,
+    "timing": "rough: 3 processes in parallel",
+    "evalSec": 5.38
+  },
+  "inferMsPerClip": 48.40182745000069,
+  "generatedAt": "2026-10-31T12:20:17.638Z"
+}
