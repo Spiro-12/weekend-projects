@@ -1,7 +1,14 @@
 """Preprocessing spec v1, PROTOCOL.md §5. Must match the JS version (web/src/ml) exactly.
 
-Steps 1 to 4 only look at one clip, so `preprocess_clips` runs them once per clip. Step 5
+Steps 0 to 4 only look at one clip, so `preprocess_clips` runs them once per clip. Step 5
 (normalize) needs stats from the *training* fold: `fit_norm` on train, `apply_norm` on train and test.
+
+Step 0 (bud normalization, `bud_norm='mirror'`, the default): a clip recorded on the right bud is
+mirrored into the left bud frame, rr -> [x, -y, -z], ua -> [-x, y, z] (a sagittal reflection: ua is a
+vector, rr a pseudo vector). left / default / unknown clips are unchanged; `bud_norm='none'` turns it off.
+The flip is applied per channel right after the 50 Hz grid: every later step is linear per channel and
+IEEE rounding is symmetric under negation, so this is bit for bit the same as mirroring the raw samples
+(`mirror_samples`, checked in the tests).
 """
 
 from __future__ import annotations
@@ -18,7 +25,11 @@ GRID_HZ = 50  # contracts.ts GRID_HZ
 DEFAULT_CHANNELS: tuple[str, ...] = ("rr.x", "rr.y", "rr.z", "ua.x", "ua.y", "ua.z")
 STD_FLOOR = 1e-8
 Norm = Literal["global", "clip"]
+BudNorm = Literal["mirror", "none"]
 _AXES = {"x": 0, "y": 1, "z": 2}
+# Step 0: sign per axis when a right bud clip is mirrored into the left bud frame (PROTOCOL §5).
+# g (gravity) is not in the spec's channels; it is a vector, so it would flip like ua.
+MIRROR_SIGNS: dict[str, tuple[float, float, float]] = {"rr": (1.0, -1.0, -1.0), "ua": (-1.0, 1.0, 1.0), "g": (-1.0, 1.0, 1.0)}
 
 
 @dataclass(frozen=True)
@@ -27,9 +38,12 @@ class PreOpts:
     L: int = 64
     hp_hz: float = 1.0  # high pass cutoff; 0 turns the filter off
     norm: Norm = "global"
+    bud_norm: BudNorm = "mirror"  # step 0
 
     def as_params(self) -> dict[str, Any]:
-        return {"channels": list(self.channels), "L": self.L, "hpHz": self.hp_hz, "norm": self.norm, "gridHz": GRID_HZ}
+        return {
+            "channels": list(self.channels), "L": self.L, "hpHz": self.hp_hz, "norm": self.norm, "budNorm": self.bud_norm, "gridHz": GRID_HZ,
+        }
 
 
 DEFAULT_OPTS = PreOpts()
@@ -52,6 +66,30 @@ def _channel_getter(ch: str) -> tuple[str, int]:
     if key not in ("rr", "ua", "g") or axis not in _AXES:
         raise ValueError(f"unknown channel {ch!r}")
     return key, _AXES[axis]
+
+
+def mirrors(loc: str | None, bud_norm: BudNorm = "mirror") -> bool:
+    """Step 0 applies to this clip: only right bud clips, only with bud_norm 'mirror'."""
+    if bud_norm not in ("mirror", "none"):
+        raise ValueError(f"unknown bud_norm {bud_norm!r}")
+    return bud_norm == "mirror" and loc == "right"
+
+
+def mirror_signs(channels: Sequence[str]) -> np.ndarray:
+    """(ch,) of +1 / -1: what step 0 multiplies each channel by for a right bud clip."""
+    return np.array([MIRROR_SIGNS[k][i] for k, i in (_channel_getter(c) for c in channels)])
+
+
+def mirror_samples(samples: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Step 0 spelled out on raw samples (copies): rr -> [x, -y, -z], ua -> [-x, y, z]. Reference for tests."""
+    out = []
+    for s in samples:
+        m = dict(s)
+        for key, signs in MIRROR_SIGNS.items():
+            if key in s and s[key] is not None:
+                m[key] = [sg * v for sg, v in zip(signs, s[key])]
+        out.append(m)
+    return out
 
 
 def to_grid(samples: Sequence[dict[str, Any]], channels: Sequence[str] = DEFAULT_CHANNELS) -> np.ndarray:
@@ -97,14 +135,18 @@ def resample(x: np.ndarray, L: int = 64) -> np.ndarray:
     return np.stack([np.interp(pos, idx, row) for row in x])
 
 
-def preprocess_clip(samples: Sequence[dict[str, Any]], opts: PreOpts = DEFAULT_OPTS) -> np.ndarray:
-    """Steps 1 to 4 for one clip. Returns (ch, L), not normalized yet."""
-    return resample(highpass(to_grid(samples, opts.channels), opts.hp_hz), opts.L)
+def preprocess_clip(samples: Sequence[dict[str, Any]], opts: PreOpts = DEFAULT_OPTS, loc: str | None = None) -> np.ndarray:
+    """Steps 0 to 4 for one clip. `loc` = the clip's bud (clip.loc ?? device.loc; live: status.loc).
+    Returns (ch, L), not normalized yet."""
+    g = to_grid(samples, opts.channels)
+    if mirrors(loc, opts.bud_norm):
+        g = g * mirror_signs(opts.channels)[:, None]
+    return resample(highpass(g, opts.hp_hz), opts.L)
 
 
 def preprocess_clips(clips: Sequence[Any], opts: PreOpts = DEFAULT_OPTS) -> np.ndarray:
-    """Steps 1 to 4 for many clips (objects with .samples, or raw sample lists). Returns (n, ch, L)."""
-    out = [preprocess_clip(c.samples if hasattr(c, "samples") else c, opts) for c in clips]
+    """Steps 0 to 4 for many clips (objects with .samples and .loc, or raw sample lists = no bud). Returns (n, ch, L)."""
+    out = [preprocess_clip(c.samples, opts, getattr(c, "loc", None)) if hasattr(c, "samples") else preprocess_clip(c, opts) for c in clips]
     return np.stack(out) if out else np.zeros((0, len(opts.channels), opts.L))
 
 
