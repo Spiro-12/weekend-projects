@@ -142,3 +142,10 @@ Auto detect when you start mouthing (no Space key), iPhone bridge, LibrePods rou
 
 ## First step after approval
 Update `01-silent-speech/PLAN.md` with this plan, then start Phase 0 on branch `p0-skeleton`.
+
+## Follow ups found in Phase 1 reviews (do in Phase 2)
+- **Pairing before real actions:** the Mac app trusts every page on `spiro-12.github.io` and local dev servers. Before Armed can send real texts, add pairing (Mac app shows a code, dashboard stores it, actions must carry it).
+- **LOO confidence parity:** if Track D's fast LOO path computes dRef with all-clip norm stats, port the same shortcut to Python `dtw-py` and add a LOO snapshot test (LOSO stays exact and is the published headline).
+- **report.py:** tag every row of a dataset group as synthetic when any row is; compare datasets by session ids / clip id hash, not file name.
+- **Phase 2 tuning:** track "correct accepted" rate, not only none false accepts; recheck dRef factors (1.7 / 0.1 / 1.25) and the threshold on real data; watch quiet (0.5x amplitude) speakers.
+- **Never auto retry** an action that returned `timeout` or `disconnected` (outcome unknown).
