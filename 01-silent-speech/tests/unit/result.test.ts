@@ -14,7 +14,7 @@ import {
   EXCLUDED, MIN_TAKES_FOR_ACTIONS, actionReadiness, classCount, fetchPublicModel, fingerprint, planModel, realClips, type Provenance,
 } from '../../web/src/panels/result/model-source';
 import {
-  ACTION_GAP_MS, ActionGuard, BLOCK_REASONS, CONFIDENCE, MESSAGING_ACTIONS, clearsBar, decideAction,
+  ACTION_GAP_MS, ActionGuard, BLOCK_REASONS, CONFIDENCE, LOOSE_ACTIONS, MESSAGING_ACTIONS, clearsBar, decideAction,
   type BlockReason, type GuardInput, type RuleInput,
 } from '../../web/src/panels/result/rule';
 import {
@@ -108,6 +108,18 @@ describe('decideAction: the strict rule', () => {
       expect(send(a, false, 0.4999)).toBe(false);
       expect(send(a, true, 0.4999)).toBe(false); // a model with a lower threshold doesn't lower the bar
     }
+    // Allowlist: only these four are loose. Any other action, including one added later, gets the strict bar.
+    expect([...LOOSE_ACTIONS].sort()).toEqual(['calendar', 'demo_48h', 'focus_music', 'volume_up']);
+    for (const a of ['launch_rocket', 'email_boss', 'unlock_door', '']) {
+      expect(clearsBar(a, { accepted: false, confidence: 0.99 })).toBe(false);
+      expect(clearsBar(a, { accepted: true, confidence: 0.8499 })).toBe(false);
+      expect(clearsBar(a, { accepted: true, confidence: 0.85 })).toBe(true);
+    }
+    const newAction = (accepted: boolean, confidence: number) => decideAction(ok({
+      action: 'launch_rocket', hello: hello([...ACTIONS, 'launch_rocket']), pred: { label: 'launch_rocket', accepted, confidence },
+    }));
+    expect(newAction(false, 0.7)).toEqual({ send: false, reason: 'low-confidence' });
+    expect(newAction(true, 0.9)).toEqual({ send: true, action: 'launch_rocket' });
     expect(clearsBar('volume_up', { accepted: true, confidence: NaN })).toBe(false);
     expect(clearsBar('text_mom', { accepted: 1 as unknown as boolean, confidence: 0.9 })).toBe(false);
   });
@@ -188,8 +200,8 @@ describe('decideAction: the strict rule', () => {
       const oracle = (): BlockReason | undefined => {
         if (!(pred.label !== 'none' && Number.isFinite(pred.confidence))) return 'not-accepted';
         if (!action) return 'no-action';
-        const texting = action === 'text_mom' || action === 'call_back' || action === 'help';
-        if (texting ? !(pred.accepted && pred.confidence >= 0.85) : !(pred.confidence >= 0.5)) return 'low-confidence';
+        const loose = ['volume_up', 'focus_music', 'calendar', 'demo_48h'].includes(action); // allowlist
+        if (loose ? !(pred.confidence >= 0.5) : !(pred.accepted && pred.confidence >= 0.85)) return 'low-confidence';
         if (mode !== 'classify') return 'not-recognize';
         if (pr?.mode !== 'classify') return 'press-mode';
         if (source !== 'live') return 'not-live';
@@ -320,6 +332,8 @@ describe('words', () => {
     expect(ghostReason('not-live', 'replay')).toMatch(/Replay/);
     expect(ghostReason('not-armed', 'live')).toMatch(/Armed/);
     expect(ghostReason('not-own-model', 'live', 8, 5)).toBe('Record all 8 sentences (5 each) to run actions');
+    // Your recordings are complete but another model is on: say how to switch, not "record".
+    expect(ghostReason('not-own-model', 'live', 8, 5, 'volume_up', true)).toBe('Re-train to use your model');
     expect(ghostReason('unpaired', 'live')).toMatch(/Open this page from the Mac app’s link/);
     expect(ghostReason('low-confidence', 'live', 8, 5, 'text_mom')).toMatch(/Texts need it to be very sure/);
     expect(ghostReason('low-confidence', 'live', 8, 5, 'volume_up')).toMatch(/Not sure enough/);

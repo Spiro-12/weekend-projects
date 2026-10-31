@@ -44,13 +44,15 @@ async function recognize(page: Page) {
  * with a press context for a take started now (override with `press`). A push to talk down/up is
  * announced on the bus first (the panel tracks key downs itself) without cutting a real clip.
  */
-const inject = (page: Page, p: Partial<Prediction> & { label: string; press?: Partial<PressContext> }) => page.evaluate((p) => {
+const inject = (page: Page, p: Partial<Prediction> & { label: string; press?: Partial<PressContext>; ptt?: boolean }) => page.evaluate((p) => {
   const app = window.__ss.app;
   const press: PressContext = {
     mode: 'classify', source: app.source?.kind ?? null, conn: app.connSerial, simulated: app.lastStatus?.simulated ?? null, ...p.press,
   };
-  app.bus.emit('ptt', { down: true, t: app.lastT });
-  app.bus.emit('ptt', { down: false, t: app.lastT });
+  if (p.ptt !== false) { // ptt: false = the prediction of a take whose key down the panel already saw
+    app.bus.emit('ptt', { down: true, t: app.lastT });
+    app.bus.emit('ptt', { down: false, t: app.lastT });
+  }
   app.bus.emit('prediction', {
     confidence: 0.9, accepted: p.label !== 'none', top: [{ label: p.label, score: p.confidence ?? 0.9 }], ms: 1, clipId: 'test', ...p,
     model: app.model!, press,
@@ -633,6 +635,11 @@ test('Re-train picks up new recordings', async ({ page }) => {
   try {
     await expect(page.getByTestId('result-model')).toContainText("Spiro's model (public)");
     await addRecorded(page, { ...REAL, clips: REAL.clips.filter((c) => c.session === 's1') }); // 8 sentences × 5
+    // Complete, but Spiro's model is still on: the hint says to Re-train, not to record more.
+    await inject(page, accepted('volume_up'));
+    await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'not-own-model');
+    await expect(page.getByTestId('result-action')).toContainText('Re-train to use your model');
+    await expect(page.getByTestId('result-armed')).toContainText('Re-train to use your model');
     await page.getByTestId('result-retrain').click();
     await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40 recordings/);
     await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'own');
@@ -691,21 +698,45 @@ test('help: full screen red alert with a big Dismiss; Space, Enter and Escape cl
   await expect(alert).toBeHidden();
 });
 
-test('help alert: push to talk held when it opens is ended, and its key up is not swallowed', async ({ page }) => {
-  const alert = await helpPage(page);
-  await page.waitForTimeout(500);
-  await page.keyboard.down('Space');
-  await expect.poll(() => pttDown(page)).toBe(true);
-  await inject(page, accepted('help')); // the alert opens while Space is still held
-  await expect(alert).toBeVisible();
-  expect(await pttDown(page)).toBe(false); // the take was ended
-  await page.keyboard.up('Space'); // the key up of a press that started before the alert
-  await page.waitForTimeout(300);
-  await expect(alert).toBeVisible(); // ...does not close it
-  expect(await pttDown(page)).toBe(false);
-  await page.keyboard.press('Space'); // a press on the alert does
-  await expect(alert).toBeHidden();
-  expect(await pttDown(page)).toBe(false);
+test('help alert: push to talk held when it opens is ended, can\'t act behind it, and its key up is not swallowed', async ({ page }) => {
+  // Live, armed, paired, your model: the worst case for a take cut short by the alert.
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true, utterEvery: 1 });
+  try {
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
+    const alert = page.getByTestId('result-alert');
+    const predictions = () => page.evaluate(() => window.__ss.counts.prediction ?? 0);
+    await page.waitForTimeout(500);
+    await page.keyboard.down('Space');
+    await expect.poll(() => pttDown(page)).toBe(true);
+    await page.waitForTimeout(800);
+    const before = await predictions();
+    // The alert opens while Space is still held (this help itself is blocked: started while simulated).
+    await inject(page, { ...accepted('help'), press: { simulated: true }, ptt: false });
+    await expect(alert).toBeVisible();
+    expect(await pttDown(page)).toBe(false); // the take was ended...
+    await expect.poll(predictions, { timeout: 5000 }).toBeGreaterThanOrEqual(before + 2); // ...and the shell predicted it
+    // ...but nothing from that take may act behind the alert: a late, sure prediction for it is blocked.
+    await inject(page, { ...accepted('volume_up'), ptt: false });
+    await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'press-changed');
+    await expect(page.getByTestId('result-action')).toContainText('Say it again');
+    await page.waitForTimeout(500);
+    expect(bridge.actions).toEqual([]);
+    expect(await actionResults(page)).toBe(0);
+    await page.keyboard.up('Space'); // the key up of a press that started before the alert
+    await page.waitForTimeout(300);
+    await expect(alert).toBeVisible(); // ...does not close it
+    expect(await pttDown(page)).toBe(false);
+    await page.keyboard.press('Space'); // a press on the alert does
+    await expect(alert).toBeHidden();
+    expect(await pttDown(page)).toBe(false);
+    // After the alert, a fresh take is fine again.
+    await inject(page, accepted('volume_up'));
+    await expect(page.getByTestId('result-toast')).toContainText('Done on your Mac');
+    await page.waitForTimeout(300);
+    expect(bridge.actions).toEqual([{ action: 'volume_up', dryRun: false }]);
+  } finally {
+    await bridge.close();
+  }
 });
 
 test('help alert: nothing behind it works (inert, no push to talk button, focus stays on Dismiss)', async ({ page }) => {

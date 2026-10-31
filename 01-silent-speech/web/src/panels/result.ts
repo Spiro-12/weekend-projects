@@ -403,7 +403,7 @@ class ResultPanel {
   }
 
   private why(reason: BlockReason, action = ''): string {
-    return ghostReason(reason, this.app.source?.kind ?? null, this.app.classes.length, MIN_TAKES_FOR_ACTIONS, action);
+    return ghostReason(reason, this.app.source?.kind ?? null, this.app.classes.length, MIN_TAKES_FOR_ACTIONS, action, this.realNow.ready.ready);
   }
 
   /** The Mac answered (the toast comes from the actionResult event). Updates the chip only if it still shows this prediction. */
@@ -628,8 +628,12 @@ class ResultPanel {
     a.querySelector('.rs-alert-sub')!.textContent = sub;
     if (this.app.source?.kind === 'replay') { this.flashHelp(); return; } // a replay plays on: no modal over it
     if (!a.hidden) { this.dismiss.focus(); return; }
-    // End a take that is still held, so its key up can't get stuck behind the alert.
-    if (this.app.pttDown) this.app.ptt(false);
+    // End a take that is still held, so its key up can't get stuck behind the alert. Its prediction must not
+    // act behind the alert: bump our own serial first, so the rule blocks it as press-changed ("Say it again").
+    if (this.app.pttDown) {
+      this.mySerial++;
+      this.app.ptt(false);
+    }
     this.spaceDownInAlert = false;
     a.hidden = false;
     document.body.classList.add('rs-alert-open');

@@ -6,7 +6,8 @@
 // Send only if ALL of these hold, else show a ghost chip "Would: …" (visitors and replay see that):
 //   1. the label isn't 'none', and its confidence is a real number
 //   2. the predicted class has an action, and the prediction clears that action's bar (CONFIDENCE):
-//      texting a person needs the model's own accept AND confidence >= 0.85; other actions need >= 0.5
+//      only LOOSE_ACTIONS may fire from confidence >= 0.5; every other action (texts, and any added later)
+//      needs the model's own accept AND confidence >= 0.85
 //   3. the app is in Recognize mode, and the take was STARTED in Recognize mode (press.mode)
 //   4. the source is `live` (the Mac app) now and when the take started (press.source)
 //   5. same connection from key down to now: press.conn === app.connSerial, and this panel saw the key
@@ -27,15 +28,18 @@ import { NONE } from '../../core/contracts';
 /** At most one action per this many ms, whatever the action (the Mac has its own cooldowns too). */
 export const ACTION_GAP_MS = 3000;
 
-/** Actions that message a real person (the Mac also gives them a 30 s cooldown). */
+/** Actions that message a real person (the Mac also gives them a 30 s cooldown). Used for wording. */
 export const MESSAGING_ACTIONS: readonly string[] = ['text_mom', 'call_back', 'help'];
+/** The only actions allowed to fire on the loose bar (nothing here reaches another person). Allowlist: new actions are strict. */
+export const LOOSE_ACTIONS: readonly string[] = ['volume_up', 'focus_music', 'calendar', 'demo_48h'];
 
 /**
  * Confidence bars. Track F, Spiro's real data at the Phase 2 defaults (k 3, clip norm, L 96, mirror):
  * at 0.85, 61.6% of correct sentences accepted, 0% wrong, 0% 'none' false accepts; at 0.5, 85.4% accepted,
  * 1.0% wrong, 0% 'none'. A wrong text to a real person is the worst mistake, so:
- * - messaging: texts need the model's own accept (its threshold, 0.85 by default) AND at least this.
- * - other: everything else (volume, music, calendar, the demo line) may fire from this, and the screen shows
+ * - messaging: every action NOT in LOOSE_ACTIONS (texts, and any action added later) needs the model's own
+ *   accept (its threshold, 0.85 by default) AND at least this.
+ * - other: LOOSE_ACTIONS (volume, music, calendar, the demo line) may fire from this, and the screen shows
  *   the sentence from this up (as "probably" below the model's threshold); below it shows "Not sure".
  */
 export const CONFIDENCE = { messaging: 0.85, other: 0.5 } as const;
@@ -44,7 +48,7 @@ export const CONFIDENCE = { messaging: 0.85, other: 0.5 } as const;
 export function clearsBar(action: string, pred: Pick<Prediction, 'accepted' | 'confidence'>): boolean {
   const c = pred.confidence;
   if (typeof c !== 'number' || !Number.isFinite(c)) return false;
-  return MESSAGING_ACTIONS.includes(action) ? pred.accepted === true && c >= CONFIDENCE.messaging : c >= CONFIDENCE.other;
+  return LOOSE_ACTIONS.includes(action) ? c >= CONFIDENCE.other : pred.accepted === true && c >= CONFIDENCE.messaging;
 }
 
 export interface RuleInput {

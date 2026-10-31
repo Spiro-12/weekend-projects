@@ -26,7 +26,9 @@ export const recordAllText = (sentences: number, takes: number) =>
   `Record all ${sentences} sentences (${takes} each) to run actions`;
 
 /** Why the ghost chip says "Would" instead of doing it. */
-export function ghostReason(reason: BlockReason, source: SourceKind | null, sentences = 8, takes = 5, action = ''): string {
+export function ghostReason(
+  reason: BlockReason, source: SourceKind | null, sentences = 8, takes = 5, action = '', ownReady = false,
+): string {
   switch (reason) {
     case 'low-confidence':
       return MESSAGING_ACTIONS.includes(action) ? 'Texts need it to be very sure. Say it again' : 'Not sure enough. Say it again';
@@ -36,7 +38,8 @@ export function ghostReason(reason: BlockReason, source: SourceKind | null, sent
     case 'not-connected': return 'The Mac app isn’t connected';
     case 'simulated': return 'The Mac app is in Simulate mode';
     case 'not-armed': return 'Safe mode: turn on Armed in the Mac app';
-    case 'not-own-model': return recordAllText(sentences, takes);
+    // Your recordings are complete but another model is on (e.g. you recorded since): Re-train switches.
+    case 'not-own-model': return ownReady ? 'Re-train to use your model' : recordAllText(sentences, takes);
     case 'not-offered': return 'The Mac app can’t do this one yet';
     case 'unpaired': return 'Not paired. Open this page from the Mac app’s link';
     case 'busy': return 'Waiting for the Mac to answer';
