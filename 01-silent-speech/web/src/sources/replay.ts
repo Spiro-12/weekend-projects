@@ -238,7 +238,7 @@ export class ReplaySource implements MotionSource {
 
   private running() { return !this.stopped && this.phase === 'playing' && !this.hidden; }
 
-  private playhead() { return this.anchorT + ((this.env.now() - this.anchorWall) / 1000) * this.speed; }
+  private playhead() { return this.hidden ? this.anchorT : this.anchorT + ((this.env.now() - this.anchorWall) / 1000) * this.speed; }
 
   private anchor(t: number, now = this.env.now()) { this.anchorT = t; this.anchorWall = now; }
 
