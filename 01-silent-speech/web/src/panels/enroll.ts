@@ -423,6 +423,7 @@ class EnrollPanel {
     const meta: ClipMeta = {
       source, subject: this.s.subject, device: { model: DEVICE_MODEL, loc: p.loc },
       hz: clipHz(c.samples, Math.round(this.status?.hz || 25)),
+      origin: 'recorded',
     };
     if (p.session === this.session) this.prompter.done(p.label);
     this.recorded.push(clip.id);
