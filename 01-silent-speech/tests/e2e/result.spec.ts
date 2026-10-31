@@ -59,7 +59,12 @@ const inject = (page: Page, p: Partial<Prediction> & { label: string; press?: Pa
 const accepted = (label: string, confidence = 0.92) => ({ label, confidence, accepted: true, top: [{ label, score: confidence }] });
 
 const actionResults = (page: Page) => page.evaluate(() => window.__ss.counts.actionResult ?? 0);
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** The page's own clock (the action rule's 3 s gap runs on it, not on the test runner's). */
+const pageNow = (page: Page) => page.evaluate(() => performance.now());
+/** Waits until `ms` have passed on the page's clock since `since`. */
+const pageWait = async (page: Page, since: number, ms: number) => {
+  await expect.poll(() => page.evaluate((s) => performance.now() - s, since), { intervals: [100], timeout: ms + 10_000 }).toBeGreaterThanOrEqual(ms);
+};
 
 /** Actions may only ever go to a mock. */
 async function assertMockBridge(page: Page) {
@@ -270,8 +275,8 @@ test('armed, paired, real AirPods, your own model: exactly one action per accept
 
     await assertMockBridge(page);
     // 1. One accepted sentence: exactly one action, with its toast.
-    let t0 = Date.now();
     await inject(page, accepted('volume_up'));
+    let sentAt = await pageNow(page); // the send happened before this (the prediction is handled synchronously)
     const toast = page.getByTestId('result-toast');
     const chip = page.getByTestId('result-action');
     await expect(toast).toBeVisible();
@@ -285,9 +290,9 @@ test('armed, paired, real AirPods, your own model: exactly one action per accept
 
     // 2. Two accepted sentences back to back (3 s after the first): the first sends, the second is too soon.
     //    The first one's answer arrives later and must not overwrite the second one's chip.
-    await sleep(Math.max(0, 3100 - (Date.now() - t0)));
-    t0 = Date.now();
+    await pageWait(page, sentAt, 3100);
     await inject(page, accepted('focus_music'));
+    sentAt = await pageNow(page);
     await inject(page, accepted('text_mom'));
     await expect(chip).toHaveAttribute('data-reason', /^(busy|too-soon)$/); // the first may still be waiting for its answer
     await expect(chip).toContainText('Would: Text Mom');
@@ -299,7 +304,7 @@ test('armed, paired, real AirPods, your own model: exactly one action per accept
     expect(await actionResults(page)).toBe(2);
 
     // 3. A text, once allowed again: the Mac has only STARTED sending it.
-    await sleep(Math.max(0, 3100 - (Date.now() - t0)));
+    await pageWait(page, sentAt, 3100);
     await inject(page, accepted('text_mom'));
     await expect(chip).toHaveAttribute('data-state', 'started');
     await expect(chip).toContainText('Sending: Text Mom');
