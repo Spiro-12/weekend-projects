@@ -1,0 +1,57 @@
+{
+  "trainedOn": [
+    "ss-dataset-s1-20261031-1621.json",
+    "ss-dataset-s2-20261031-1637.json"
+  ],
+  "sessions": [
+    "s1",
+    "s2"
+  ],
+  "heldOut": "s3",
+  "exclude": "exclude.json",
+  "nExcluded": 18,
+  "opts": {
+    "channels": [
+      "rr.x",
+      "rr.y",
+      "rr.z",
+      "ua.x",
+      "ua.y",
+      "ua.z"
+    ],
+    "L": 96,
+    "hpHz": 1,
+    "band": 0.05,
+    "k": 3,
+    "norm": "clip",
+    "threshold": 0.85,
+    "budNorm": "mirror"
+  },
+  "nTemplates": 222,
+  "perLabel": {
+    "calendar": 30,
+    "call_back": 30,
+    "demo_48h": 30,
+    "focus_music": 30,
+    "help": 30,
+    "none": 12,
+    "text_mom": 30,
+    "volume_up": 30
+  },
+  "decimals": 4,
+  "check": {
+    "nClips": 120,
+    "accuracy": 1,
+    "correctAccepted": 0.7333333333333333,
+    "wrongAccepted": 0,
+    "noneFalseAccept": 0,
+    "files": [
+      "ss-dataset-s3-20261031-1654.json"
+    ],
+    "sessions": [
+      "s3"
+    ],
+    "threshold": 0.85
+  },
+  "createdAt": "2026-10-31T11:44:53.701Z"
+}
