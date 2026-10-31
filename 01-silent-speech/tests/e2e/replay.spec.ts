@@ -117,6 +117,15 @@ test('a visitor (no ?mode) gets the real replay within 2 s: no console errors, n
   await expect(page.getByTestId('replay-now')).toContainText('silently mouths', { timeout: 3000 });
   await expect(page.getByTestId('ptt')).toHaveClass(/down/);
   await expect(score(page)).toContainText('Waiting for the model'); // no model loader on this branch: honest, not scored
+  await expect(page.getByTestId('replay-score-detail')).toHaveText('16 takes');
+  // The now line only changes when there is something new to say (it used to be rewritten 5 times a second).
+  const mutations = await page.getByTestId('replay-now').evaluate((el) => new Promise<number>((res) => {
+    let n = 0;
+    const mo = new MutationObserver((ms) => { n += ms.length; });
+    mo.observe(el, { childList: true, subtree: true, characterData: true });
+    setTimeout(() => { mo.disconnect(); res(n); }, 1500);
+  }));
+  expect(mutations).toBeLessThanOrEqual(1);
   expect(await page.evaluate(() => window.__ss.counts.motion ?? 0)).toBeGreaterThan(50);
   expect(w.errors).toEqual([]);
   expect(w.sockets()).toBe(0);
@@ -147,6 +156,11 @@ test('with a real model, every take is marked exactly as the model scores it, an
   await expect(score(page)).toHaveAttribute('data-right', String(right));
   await expect(score(page)).toHaveAttribute('data-scored', '8');
   await expect(score(page).locator('.big')).toHaveText(`${right} of 8 right`);
+  await expect(page.getByTestId('replay-score-detail')).toHaveText(
+    `${want.filter((v) => v === 'wrong').length} wrong · ${want.filter((v) => v === 'unsure').length} not sure · 8 takes`);
+  // screen readers get one short line per finished take
+  await expect(page.getByTestId('replay-live')).toHaveAttribute('aria-live', 'polite');
+  await expect(page.getByTestId('replay-live')).toHaveText(/^Take \d: (right|wrong|not sure)/);
   expect(w.errors).toEqual([]);
 });
 
@@ -157,8 +171,17 @@ test('wrong ones show as wrong (a model that always says "help")', async ({ page
   const want = SHORT.truth.map((t) => (t.label === 'help' ? 'right' : 'wrong'));
   expect(await finalStates(page)).toEqual(want);
   await expect(score(page).locator('.big')).toHaveText('1 of 8 right');
-  await expect(score(page).locator('small')).toHaveText('7 wrong · 0 not sure');
+  await expect(page.getByTestId('replay-score-detail')).toHaveText('7 wrong · 0 not sure · 8 takes');
   await expect(page.getByTestId('replay-win').first()).toHaveAttribute('title', /heard “I need help right now”/);
+});
+
+test('without a model, finished takes are counted as not scored, never dropped', async ({ page }) => {
+  await serveShort(page);
+  await page.goto(`./?session=${SHORT_URL}&speed=8`);
+  await expect(score(page)).toHaveAttribute('data-unscored', '8', { timeout: 15_000 });
+  await expect(score(page).locator('.big')).toHaveText('Waiting for the model…');
+  await expect(page.getByTestId('replay-score-detail')).toHaveText('8 not scored · 8 takes');
+  await expect(page.getByTestId('replay-live')).toHaveText(/^Take 8: not scored, said /);
 });
 
 test('loops forever without resetting the clock, and keeps scoring', async ({ page }) => {
@@ -168,7 +191,7 @@ test('loops forever without resetting the clock, and keeps scoring', async ({ pa
   await expect(score(page)).toHaveAttribute('data-pass', '1', { timeout: 15_000 });
   const dur = SHORT.samples.at(-1)!.t - SHORT.samples[0].t;
   expect(await page.evaluate(() => window.__ss.app.lastT)).toBeGreaterThan(dur);
-  await expect(score(page).locator('small')).toContainText('last loop 1 of 8', { timeout: 10_000 });
+  await expect(page.getByTestId('replay-score-last')).toHaveText('last loop: 1 of 8 right', { timeout: 10_000 });
   // the ring was never reset by a clock jump, so it still holds the end of loop 1
   expect(await page.evaluate(() => window.__ss.app.ring[0].t)).toBeLessThan(dur);
   await expect(score(page)).toHaveAttribute('data-scored', /[1-8]/, { timeout: 10_000 });
