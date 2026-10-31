@@ -183,6 +183,29 @@ def cross_bud(
     return m
 
 
+SEEDED_MODELS = ("minirocket", "cnn")  # dtw-py has no randomness
+
+
+def seed_spread(
+    corpus: Corpus, model: str, opts: PreOpts, threshold: float, model_kw: dict[str, Any], first: dict[str, Any], n: int,
+    log: Callable[[str], None] | None = None, jobs: int = 1,
+) -> dict[str, Any]:
+    """The same evaluation with n seeds (the given one first, then the next ones): how much of a score is the seed.
+    The headline stays the first seed, fixed before looking (no picking the best one)."""
+    seed0 = model_kw.get("seed", 0)
+    correct = [int(np.trace(np.array(first["confusion"])))]
+    for s in range(seed0 + 1, seed0 + n):
+        r = evaluate(corpus, model, first["protocol"], opts, threshold, {**model_kw, "seed": s}, jobs=jobs)
+        correct.append(int(np.trace(np.array(r["confusion"]))))
+        if log:
+            log(f"  {model} {first['protocol']} seed {s}: {correct[-1]}/{r['nClips']}")
+    acc = np.array(correct) / first["nClips"]
+    return {
+        "seeds": list(range(seed0, seed0 + n)), "correct": correct, "nClips": first["nClips"],
+        "mean": float(acc.mean()), "min": float(acc.min()), "max": float(acc.max()),
+    }
+
+
 def plot_confusion(metrics: dict[str, Any], path: Path) -> None:
     import matplotlib
 
@@ -308,6 +331,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--permutations", type=int, default=0, help="luck test with this many label shuffles (loso, dtw-py / minirocket)")
     ap.add_argument("--perm-seed", type=int, default=0)
+    ap.add_argument("--seeds", type=int, default=1,
+                    help="loso, minirocket / cnn: also run seeds seed+1 .. seed+N-1 and keep their accuracies (params.seedSpread)")
     ap.add_argument("--jobs", type=int, default=1, help="run folds in this many processes: same predictions, faster, but rough timings")
     a = ap.parse_args(argv)
 
@@ -358,6 +383,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 m = cross_bud(corpus, model, opts, a.threshold, kw[model], log=log)
             else:
                 m = evaluate(corpus, model, protocol, opts, a.threshold, kw[model], log=log, jobs=a.jobs)
+            if protocol == "loso" and a.seeds > 1 and model in SEEDED_MODELS:
+                m["params"]["seedSpread"] = seed_spread(corpus, model, opts, a.threshold, kw[model], m, a.seeds, log=log, jobs=a.jobs)
             if protocol == "loso" and a.permutations > 0:
                 if model in LUCK_MODELS:
                     X, _ = preprocess_corpus(corpus, opts)

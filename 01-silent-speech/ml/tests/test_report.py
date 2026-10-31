@@ -105,6 +105,15 @@ def test_real_section_comes_first_with_counts_buds_folds_xbud_and_luck(tmp_path)
     assert "#### Leave one clip out" in real and "| dtw-py | 90.0% (9/10) | " in real
     assert real.index("(the headline)") < real.index("#### Cross bud") < real.index("#### Luck test") < real.index("#### Leave one clip out")
     assert "Warning" not in md
+    assert "Seeds" not in md  # no seed spread recorded -> no column
+
+
+def test_loso_table_shows_the_seed_spread(tmp_path):
+    spread = {"seeds": [0, 1, 2], "correct": [7, 6, 9], "nClips": 10, "mean": 22 / 30, "min": 0.6, "max": 0.9}
+    md = build(tmp_path, [fake("dtw-py", "loso", 8, REAL), fake("cnn", "loso", 7, {**REAL, "seedSpread": spread})])
+    assert "| test s2 (left bud) | Seeds 0 to 2: mean (range) | None false accept |" in md
+    assert "| 80.0% (4/5) | 60.0% (3/5) | 73.3% (60.0% to 90.0%) | 0.0% (0/5) |" in md
+    assert "| no randomness |" in md and "Accuracy is the first seed (0), fixed before the run." in md
 
 
 def test_real_results_without_the_exclusion_list_are_flagged(tmp_path):

@@ -1,6 +1,6 @@
 {
  "_what": "JS dtw-knn held out predictions, LOSO, real data smoke set: data/raw s1 (right bud) + s2 (left bud), labels text_mom + volume_up, exclude list applied, default options (budNorm mirror, k = 1), grid epsilon 1e-6",
- "_from": "p2-f-dtw-real 9351cb3 (Track F WIP) web/src/ml with the PROTOCOL ca3db69 grid epsilon (1e-9 -> 1e-6) applied: mergeDatasets(all 3 files) -> applyExclude(exclude.json) -> filter sessions/labels -> crossValidate(clips, {}, 'loso')",
+ "_from": "p2-f-dtw-real cdbb6ef (Track F WIP, has the PROTOCOL \u00a75 grid epsilon 1e-6), web/src/ml: mergeDatasets(all 3 files) -> applyExclude(exclude.json) -> filter sessions/labels -> crossValidate(clips, {}, 'loso')",
  "opts": {},
  "preds": [
   [

@@ -255,15 +255,33 @@ def _session_cols(group: Sequence[dict[str, Any]]) -> list[tuple[str, str]]:
     return sorted(sessions.items())
 
 
+def _seeds(m: dict[str, Any]) -> str:
+    sp = m["params"].get("seedSpread")
+    if not sp:
+        return "no randomness" if m["model"] in ("dtw-py", "dtw-knn") else "?"
+    return f"{_pct(sp['mean'])} ({_pct(sp['min'])} to {_pct(sp['max'])})"
+
+
 def _loso_table(rows: Sequence[dict[str, Any]], cols: Sequence[tuple[str, str]]) -> list[str]:
-    head = "| Model | Accuracy | Macro F1 | " + " | ".join(f"test {s} ({b} bud)" for s, b in cols) + " | None false accept | Infer ms/clip |"
-    lines = [head, "|---|---:|---:|" + "---:|" * len(cols) + "---:|---:|"]
+    seeds = next((m["params"]["seedSpread"]["seeds"] for m in rows if m["params"].get("seedSpread")), None)
+    seed_col = [f"Seeds {seeds[0]} to {seeds[-1]}: mean (range)"] if seeds else []
+    head = (
+        "| Model | Accuracy | Macro F1 | " + " | ".join(f"test {s} ({b} bud)" for s, b in cols) + " | "
+        + "".join(f"{c} | " for c in seed_col) + "None false accept | Infer ms/clip |"
+    )
+    lines = [head, "|---|---:|---:|" + "---:|" * (len(cols) + len(seed_col)) + "---:|---:|"]
     for m in rows:
         per = m["params"].get("perSession") or {}
-        cells = [_frac(per[s]["correct"], per[s]["n"]) if s in per else "?" for s, _ in cols]
+        cells = [_frac(per[s]["correct"], per[s]["n"]) if s in per else "?" for s, _ in cols] + ([_seeds(m)] if seeds else [])
         lines.append(
             f"| {_model(m)} | {_frac(correct(m), m['nClips'])} | {m['macroF1']:.3f} | " + " | ".join(cells) + f" | {_nfa(m)} | {_ms(m)} |"
         )
+    if seeds:
+        lines += [
+            "",
+            f"Accuracy is the first seed ({seeds[0]}), fixed before the run. MiniRocket and the CNN are random (kernels, weights), so the",
+            "seed column shows the same LOSO with other seeds: differences of a few points between models are within that spread.",
+        ]
     return lines + [""]
 
 

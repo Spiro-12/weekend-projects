@@ -226,3 +226,11 @@ def test_cli_real_luck_and_xbud_write_files(tmp_path, monkeypatch):
     assert m["params"]["permutation"]["n"] == 5 and (tmp_path / "dtw-py" / "luck_loso.png").stat().st_size > 1000
     x = json.loads((tmp_path / "dtw-py" / "xbud.json").read_text())
     assert validate_metrics(x) == [] and set(x["params"]["variants"]) == {"mirror", "none"}
+
+
+def test_seed_spread_keeps_the_first_seed_as_the_result(real_smoke):
+    kw = {"n_kernels": 840, "seed": 3}
+    m = bench.evaluate(real_smoke, "minirocket", "loso", model_kw=kw)
+    sp = bench.seed_spread(real_smoke, "minirocket", bench.DEFAULT_OPTS, 0.5, kw, m, 2)
+    assert sp["seeds"] == [3, 4] and sp["correct"][0] == round(m["accuracy"] * 60) and sp["nClips"] == 60
+    assert sp["min"] <= m["accuracy"] <= sp["max"] and sp["mean"] == pytest.approx(sum(sp["correct"]) / 120)
