@@ -1,0 +1,36 @@
+{
+ "format": "ss-session-meta",
+ "v": 1,
+ "matches": {
+  "recordedAt": "2026-10-31T08:39:47.852Z",
+  "nSamples": 5352,
+  "nTruth": 16
+ },
+ "real": true,
+ "subject": "Spiro",
+ "device": "AirPods Pro 3",
+ "heldOut": true,
+ "note": "16 takes from recording session s3, which the public model never trained on, picked at random and stitched into one stream.",
+ "builtBy": "scripts/build-replay.ts",
+ "from": "data/raw/ss-dataset-s3-20261031-1654.json",
+ "session": "s3",
+ "seed": 20261031,
+ "takes": [
+  "s3-mvw5mivw-fm",
+  "s3-mvw5pj39-gh",
+  "s3-mvw5tmwj-hx",
+  "s3-mvw5j240-eg",
+  "s3-mvw5ik7v-ea",
+  "s3-mvw5t0ap-hp",
+  "s3-mvw5y14v-jf",
+  "s3-mvw5qbyl-gr",
+  "s3-mvw5zt35-k1",
+  "s3-mvw5oa7j-g6",
+  "s3-mvw5hh0x-dw",
+  "s3-mvw5y94b-jh",
+  "s3-mvw5yerp-jj",
+  "s3-mvw5i2t1-e4",
+  "s3-mvw5vuji-ip",
+  "s3-mvw5q581-gp"
+ ]
+}

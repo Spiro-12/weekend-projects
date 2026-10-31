@@ -1,0 +1,56 @@
+/* Replay banner. Scoped under .rp (the panel body). Uses the shell's colour variables. */
+.card[data-panel=replay] { order: -2; padding: 12px 16px; border-color: #7c9cff55; background: linear-gradient(90deg, #7c9cff12, #12151d 60%); }
+.card[data-panel=replay] > h2 { display: none; }
+.card[data-panel=replay][hidden], .card[data-panel=session-recorder][hidden] { display: none !important; }
+.rp [hidden] { display: none !important; }
+.rp { display: flex; flex-direction: column; gap: 10px; }
+.rp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.rp-badge { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+  color: var(--accent); border: 1px solid #7c9cff66; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+.rp-badge i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.rp[data-phase=playing] .rp-badge i { animation: rp-blink 1.6s ease-in-out infinite; }
+.rp[data-phase=error] .rp-badge { color: var(--bad); border-color: #ff5d6c66; }
+.rp[data-phase=error] .rp-badge i { background: var(--bad); }
+.rp-title { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rp-title b { font-size: 15px; font-weight: 650; }
+.rp-note { font-size: 12px; color: var(--muted); line-height: 1.35; }
+.rp-score { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rp-score .big { font-size: 15px; }
+.rp-score .big b { font-size: 22px; font-weight: 800; color: var(--good); margin-right: 2px; }
+.rp-score[data-scored="0"] .big { color: var(--muted); font-size: 13px; }
+.rp-score small { font-size: 12px; color: var(--muted); }
+.rp-ctl { display: flex; gap: 8px; align-items: center; }
+.rp-ctl button { font-size: 13px; padding: 5px 12px; min-height: 32px; }
+.rp-ctl button:hover { border-color: var(--accent); }
+.rp-play { min-width: 84px; }
+.rp-speed { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.rp-speed button { border: 0; border-radius: 0; padding: 5px 10px; background: transparent; color: var(--muted); }
+.rp-speed button + button { border-left: 1px solid var(--line); }
+.rp-speed button[aria-pressed=true] { background: #7c9cff26; color: var(--text); font-weight: 700; }
+
+/* timeline: one segment per push to talk window */
+.rp-track { position: relative; height: 12px; border-radius: 999px; background: #ffffff0a; overflow: hidden; }
+.rp-win { position: absolute; top: 2px; bottom: 2px; min-width: 3px; border-radius: 3px; background: #ffffff26; transition: background .2s; }
+.rp-win[data-state=now], .rp-win[data-state=waiting] { background: var(--accent); }
+.rp-win[data-state=right] { background: var(--good); }
+.rp-win[data-state=wrong] { background: var(--bad); }
+.rp-win[data-state=unsure] { background: var(--warn); }
+.rp-win[data-state=skipped], .rp-win[data-state=unscored] { background: repeating-linear-gradient(45deg, #ffffff26 0 3px, transparent 3px 6px); }
+.rp-head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text); box-shadow: 0 0 6px #fff8; }
+.rp-now { font-size: 15px; min-height: 22px; line-height: 1.35; overflow-wrap: anywhere; }
+.rp-now .mk { display: inline-block; min-width: 1.1em; font-weight: 800; }
+.rp-now[data-state=right] .mk { color: var(--good); }
+.rp-now[data-state=wrong] .mk { color: var(--bad); }
+.rp-now[data-state=unsure] .mk { color: var(--warn); }
+.rp-now[data-state=now] .mk, .rp-now[data-state=waiting] .mk { color: var(--accent); }
+.rp-now .muted { font-size: 13px; }
+.rp-err { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; color: var(--bad); font-size: 14px; }
+.rp-err button { font-size: 13px; }
+@keyframes rp-blink { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .rp-badge i { animation: none !important; } .rp-win { transition: none; } }
+@media (max-width: 520px) {
+  .card[data-panel=replay] { padding: 10px 12px; }
+  .rp-title { flex-basis: 100%; }
+  .rp-score { align-items: flex-start; margin-right: auto; }
+  .rp-now { font-size: 14px; }
+}
