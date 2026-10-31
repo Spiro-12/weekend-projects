@@ -3,7 +3,7 @@
   "call_back": { "kind": "imessage", "to": "", "text": "Can't talk now, call me back later" },
   "help": { "kind": "imessage", "to": "", "text": "I need help right now" },
   "volume_up": { "kind": "volume", "step": 15 },
-  "focus_music": { "kind": "spotify", "uri": "spotify:playlist:37i9dQZF1DWZeKCadgRdKQ" },
+  "focus_music": { "kind": "applemusic", "url": "https://music.apple.com/us/playlist/pure-focus/pl.f54198ad42404535be13eabf3835fb22" },
   "demo_48h": { "kind": "say", "text": "I created this demo in 48 hours" },
   "calendar": { "kind": "calendar" }
 }

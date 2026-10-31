@@ -9,7 +9,8 @@ about to appear and what to click.
 Repo: `~/weekend-projects`. The app's log: `~/Library/Logs/SilentSpeechBridge.log` (new file each launch).
 Read it with `grep -v '#pair='` (not `cat`): after `--print-pair-url` it holds the pairing link, which must never
 show up in a chat.
-**Quit the app when not in use (it keeps the Mac awake):** `pkill -x SilentSpeechBridge`.
+**Quit the app when not in use (it keeps the Mac awake):** `pkill -x SilentSpeechBridge`. Closing its window does
+not quit it (log: `Window closed, still running`); clicking its Dock icon opens the window again; Cmd+Q quits.
 
 ## Get the code (first time)
 `~/weekend-projects` is the folder Spiro shares with Claude. It may start empty.
@@ -139,7 +140,7 @@ cd ~/weekend-projects/01-silent-speech && npm ci && npx tsx mac/check-bridge.ts
   `Protocol.swift`. Use Chrome if Safari blocks `ws://127.0.0.1`.
 - **Keychain popup during a build**: rerun `./make-cert.sh` and have Spiro click **Always Allow**.
 - **Actions (Phase 2)**: see "Phase 2" below. Real numbers go only in `~/.silentspeech/actions.json` (never in the repo).
-- **Automation popup was answered Don't Allow** (reply `Not allowed to control Messages` / `Spotify`, error `not_allowed`):
+- **Automation popup was answered Don't Allow** (reply `Not allowed to control Messages` / `Music` / `Spotify`, error `not_allowed`):
   `tccutil reset AppleEvents com.spiro.SilentSpeechBridge`, relaunch (step 3), fire the action again, Spiro clicks **OK**.
 - **Calendar popup was answered Don't Allow** (log: `No calendar access`): `tccutil reset Calendar com.spiro.SilentSpeechBridge`,
   relaunch, fire `calendar` again, Spiro clicks **Allow Full Access**.
@@ -147,9 +148,12 @@ cd ~/weekend-projects/01-silent-speech && npm ci && npx tsx mac/check-bridge.ts
   is an account step for Spiro (his Apple ID password).
 - **A text failed**: never send it again straight away. First ask Spiro whether it arrived anyway (Messages may have
   sent it). Only resend after he says no.
-- **Spotify: "did not start (player state: paused)"**: Spotify is not logged in, or the playlist is not available.
-  Pick another one: `cd ~/weekend-projects/01-silent-speech/mac && ./set-music.sh "<spotify:playlist:... or open.spotify.com link>"`.
-  It changes only the music entry. Never `cat` or open `~/.silentspeech/actions.json` (it holds Spiro's number).
+- **Focus music plays the wrong thing or nothing** (log `focus_music done: playing <track> by <artist> (...)` says
+  what really played; `focus_music failed: ...` says why). Pick something else, by script only:
+  `cd ~/weekend-projects/01-silent-speech/mac && ./set-music.sh "<what>"` where `<what>` is a playlist name from
+  Spiro's Music library (tried first), a `music.apple.com` link (Apple Music subscription needed), or a
+  `spotify:playlist:...` URI / `open.spotify.com` link (only if Spotify is installed). It changes only the music
+  entry. Never `cat` or open `~/.silentspeech/actions.json` (it holds Spiro's number).
 - **No permission popup** (log: `macOS showed no permission popup for Messages`): nothing ran.
   `tccutil reset AppleEvents com.spiro.SilentSpeechBridge`, relaunch, fire the action again and watch for the popup.
 - **`error busy` / "Still waiting for Messages"**: an earlier request is still waiting on a popup (or Messages is
@@ -228,14 +232,14 @@ Permission popups do not freeze the app: the question waits in the background an
 says `macOS showed no permission popup`, nothing ran: see Troubleshooting ("No permission popup"). While one request
 waits on a popup, another for the same app gets `error busy`; a request that waited over 60 s, or that Armed was
 switched off (or off and on) during, is dropped (log: `cancelled: too late` / `cancelled: not armed`).
-Once allowed, handing the text to Messages (or play to Spotify) runs on the app's main thread: normally well under a
+Once allowed, handing the text to Messages (or play to Music / Spotify) runs on the app's main thread: normally well under a
 second, at most 20 s if that app hangs. The popup's button may say **OK** or **Allow**.
 
 | # | Command (`npx tsx mac/fire-action.ts ...`) | Popup the first time (Spiro clicks) | Expected |
 |---|---|---|---|
 | 1 | `--action volume_up` | none | reply `Volume 40% to 55%` (any numbers 15 apart, max 100); the Mac's volume goes up |
 | 2 | `--action demo_48h` | none | AirPods say "I created this demo in 48 hours"; log `demo_48h done: said it out loud` |
-| 3 | `--action focus_music` | "Silent Speech Bridge wants access to control Spotify": **OK** / **Allow** | reply `Starting focus music…`; Spotify opens if needed and plays Deep Focus; log `focus_music done: Spotify is playing`. No Spotify: reply `Spotify is not installed on this Mac` (fine) |
+| 3 | `--action focus_music` | "Silent Speech Bridge wants access to control Music": **OK** / **Allow** | reply `Starting focus music…`; Music opens if needed. It plays the library playlist set with `set-music.sh` if there is one, else opens the Apple Music focus playlist link and plays, else (nothing plays after about 5 s: no subscription or not signed in) shuffles the library. Log `focus_music done: playing <track> by <artist> (after opening the focus playlist)` (or `(shuffling your library)`); empty library: `focus_music failed: No focus music: ...`. Ask Spiro: "Is music playing in your AirPods? Is it calm focus music?" |
 | 4 | `--action calendar` | "would like full access to your calendar": **Allow Full Access** | reply `Working on it`, then the AirPods say one sentence about today; log `calendar done: N event(s) today, said a summary from the on device model` (or `the plain list` when Apple Intelligence is off) |
 | 5 | `--action text_mom --yes-really` | "wants access to control Messages": **OK** / **Allow** | reply `Sending a text to ••NN…`; log `text_mom done: handed to Messages for ••NN`; his iPhone gets "On my way!" |
 | 6 | `--action call_back --yes-really` | none | text "Can't talk now, call me back later" |
@@ -250,6 +254,16 @@ cooldown (again sooner: `error cooldown`, expected); the others 3 s.
 Script for Spiro while testing: "Keep both AirPods in. You'll hear a sentence, then music, then a sentence about your
 calendar, and get 3 texts from yourself. After each one, tell me yes or no: did it happen?" For 4, also ask what he
 heard and whether it matches his calendar; for 7, whether he heard the alert and saw the red notice.
+
+**Help (row 7) must be impossible to miss, without taking the focus:** a floating red "Silent Speech: help" panel
+shows above every other window (it never takes the focus, so push to talk in the dashboard keeps working), the Dock
+icon bounces, and the app's window shows the notice too when it is open. Ask Spiro whether he saw the floating panel
+without looking for it. Dismiss in the panel or the window clears both and stops the bouncing.
+
+**If Claude Code pauses `fire-action.ts`** with "[Real-World Transactions]" (auto mode), that pause is right: these
+commands really act. It is a one click step for Spiro; tell him exactly: "Claude Code paused this command for safety.
+Click Approve, or switch to Ask mode in the session's permission menu and approve it." Claude never changes the
+permission mode or works around the pause itself.
 
 **P7. Disarm and finish.** Relaunch without Armed (step 3: Armed is off at every launch), then
 `npx tsx mac/fire-action.ts --action volume_up` must say `dry run`. Report every row of P6 to the lead (reply text,

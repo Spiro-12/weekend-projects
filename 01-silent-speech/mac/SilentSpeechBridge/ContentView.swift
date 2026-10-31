@@ -96,9 +96,10 @@ struct ContentView: View {
     }
 }
 
-/// Red notice for the `help` action, until Dismiss.
-private struct HelpBanner: View {
+/// Red notice for the `help` action, until Dismiss. Shown in the window and in the floating help panel.
+struct HelpBanner: View {
     let notice: HelpNotice
+    var large = false
     let dismiss: () -> Void
 
     private static let timeFormat: DateFormatter = {
@@ -111,11 +112,11 @@ private struct HelpBanner: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.title)
+                .font(large ? .largeTitle : .title)
                 .foregroundStyle(Color.red)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Help was asked for at \(HelpBanner.timeFormat.string(from: notice.time))")
-                    .font(.headline)
+                    .font(large ? .title2.bold() : .headline)
                 if !notice.detail.isEmpty {
                     Text(notice.detail)
                 }
