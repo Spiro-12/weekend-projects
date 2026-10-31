@@ -1,33 +1,37 @@
 {
   "model": "dtw-knn",
   "protocol": "loso",
-  "nClips": 120,
+  "nClips": 342,
   "labels": ["calendar", "call_back", "demo_48h", "focus_music", "help", "none", "text_mom", "volume_up"],
-  "accuracy": 0.9833333333333333,
-  "macroF1": 0.9835668103448276,
+  "accuracy": 0.9415204678362573,
+  "macroF1": 0.9385616200057774,
   "confusion": [
-    [15, 0, 0, 0, 0, 0, 0, 0],
-    [0, 15, 0, 0, 0, 0, 0, 0],
-    [0, 0, 15, 0, 0, 0, 0, 0],
-    [0, 0, 0, 15, 0, 0, 0, 0],
-    [0, 0, 0, 0, 14, 1, 0, 0],
-    [0, 0, 0, 0, 0, 15, 0, 0],
-    [0, 0, 0, 0, 0, 0, 15, 0],
-    [0, 0, 0, 0, 0, 1, 0, 14]
+    [40, 1, 0, 0, 1, 0, 3, 0],
+    [0, 44, 0, 0, 0, 1, 0, 0],
+    [0, 0, 43, 0, 0, 1, 0, 1],
+    [1, 2, 0, 40, 1, 1, 0, 0],
+    [0, 1, 0, 1, 43, 0, 0, 0],
+    [1, 1, 0, 0, 0, 25, 0, 0],
+    [0, 0, 0, 0, 0, 1, 44, 0],
+    [0, 0, 0, 0, 0, 1, 1, 43]
   ],
   "noneFalseAcceptRate": 0,
   "params": {
     "channels": ["rr.x", "rr.y", "rr.z", "ua.x", "ua.y", "ua.z"],
-    "L": 64,
+    "L": 96,
     "hpHz": 1,
-    "band": 0.1,
-    "k": 1,
-    "norm": "global",
-    "threshold": 0.5,
-    "radius": 6,
+    "band": 0.05,
+    "k": 3,
+    "norm": "clip",
+    "threshold": 0.85,
+    "budNorm": "mirror",
+    "radius": 5,
     "nSessions": 3,
-    "datasets": ["dataset.synthetic.json"]
+    "datasets": ["ss-dataset-s1-20261031-1621.json", "ss-dataset-s2-20261031-1637.json", "ss-dataset-s3-20261031-1654.json"],
+    "sources": ["airpods"],
+    "exclude": "exclude.json",
+    "nExcluded": 18
   },
-  "inferMsPerClip": 1.1150057250000023,
-  "generatedAt": "2026-10-31T02:47:04.996Z"
+  "inferMsPerClip": 12.94103380116961,
+  "generatedAt": "2026-10-31T11:43:16.224Z"
 }
