@@ -385,7 +385,7 @@ class ResultPanel {
     if (!app.model) {
       this.setState('nomodel', this.noModelKicker());
       r.label.innerHTML = `<span class="rs-w rs-calm">${this.loading ? 'One moment…' : 'Record your sentences first'}</span>`;
-      r.guess.textContent = this.loading ? '' : 'Switch to Record mode and record a few sentences with your AirPods.';
+      r.guess.textContent = this.loading ? '' : 'Switch to Record mode, record a few sentences, then press “Train & use it”.';
       r.stage.dataset.state = 'nomodel';
       return;
     }
@@ -473,7 +473,7 @@ class ResultPanel {
     this.toast.setAttribute('role', 'status');
     this.toast.setAttribute('aria-live', 'polite');
     this.toast.hidden = true;
-    this.toast.innerHTML = `<span class="rs-toast-ico" aria-hidden="true"></span><div><b></b><span></span></div><button class="rs-toast-x" aria-label="Close">×</button>`;
+    this.toast.innerHTML = `<span class="rs-toast-ico" aria-hidden="true"></span><div class="rs-toast-text"><b class="rs-toast-title"></b><span class="rs-toast-body" data-testid="result-toast-body"></span></div><button class="rs-toast-x" aria-label="Close">×</button>`;
     this.toast.querySelector('button')!.addEventListener('click', (e) => { (e.currentTarget as HTMLButtonElement).blur(); this.hideToast(); });
 
     this.alert = document.createElement('div');
@@ -508,8 +508,8 @@ class ResultPanel {
   private showToast(t: ToastText) {
     const el = this.toast;
     el.dataset.kind = t.kind;
-    el.querySelector('b')!.textContent = t.title;
-    el.querySelector('div > span')!.textContent = t.body;
+    el.querySelector('.rs-toast-title')!.textContent = t.title;
+    el.querySelector('.rs-toast-body')!.textContent = t.body;
     el.hidden = false;
     el.classList.remove('rs-in');
     void el.offsetWidth;

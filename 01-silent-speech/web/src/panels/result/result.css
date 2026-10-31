@@ -67,6 +67,7 @@
 .rs-w { display: inline-block; animation: rs-word .6s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i, 0) * 65ms); }
 .rs-calm { color: #a7afc0; font-weight: 650; font-size: .6em; letter-spacing: -.012em; }
 .rs-stage[data-state=listening] .rs-label, .rs-stage[data-state=thinking] .rs-label { opacity: .25; }
+.rs-stage[data-state=listening] :is(.rs-chip, .rs-ring, .rs-guess), .rs-stage[data-state=thinking] :is(.rs-chip, .rs-ring, .rs-guess) { opacity: .35; transition: opacity .2s; }
 .rs-guess { color: var(--muted); font-size: 15px; min-height: 22px; line-height: 1.4; }
 
 /* the action chip: ghost "Would: …", or what the Mac did */
@@ -141,8 +142,8 @@
   background: #161a25f2; color: var(--text); box-shadow: 0 20px 60px -14px #000d; backdrop-filter: blur(10px);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 .rs-toast.rs-in { animation: rs-toast-in .4s cubic-bezier(.2, .8, .2, 1) both; }
-.rs-toast > div { flex: 1; min-width: 0; font-size: 14px; line-height: 1.45; color: #c3cad8; }
-.rs-toast b { display: block; margin-bottom: 2px; font-size: 15px; color: var(--text); }
+.rs-toast-text { flex: 1; min-width: 0; font-size: 14px; line-height: 1.45; color: #c3cad8; }
+.rs-toast-title { display: block; margin-bottom: 2px; font-size: 15px; color: var(--text); }
 .rs-toast-ico { width: 10px; height: 10px; margin-top: 6px; flex: none; border-radius: 50%; background: var(--muted); }
 .rs-toast[data-kind=ok] { border-color: #3ddc9766; }
 .rs-toast[data-kind=ok] .rs-toast-ico { background: var(--good); box-shadow: 0 0 12px var(--good); }
@@ -155,10 +156,10 @@
 
 /* help: full screen red alert */
 .rs-alert { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; color: #fff;
-  background: radial-gradient(85% 75% at 50% 40%, #e3263df5 0%, #a8101ff2 55%, #5c0611f7 100%);
+  background: radial-gradient(85% 75% at 50% 40%, #e3263dfa 0%, #a8101ff8 55%, #5c0611fc 100%);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; animation: rs-fade .25s ease both; }
 .rs-alert::before { content: ""; position: absolute; inset: 0; pointer-events: none; animation: rs-alarm 1.5s ease-in-out infinite; }
-.rs-alert-in { position: relative; display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 960px; text-align: center; }
+.rs-alert-in { position: relative; display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 1180px; text-align: center; }
 .rs-alert-ico { display: grid; place-items: center; width: 88px; height: 88px; border-radius: 50%; background: #fff; color: #c8162a;
   box-shadow: 0 0 0 0 #ffffff88; animation: rs-ping 1.5s ease-out infinite; }
 .rs-alert-ico span { display: block; width: 8px; height: 40px; border-radius: 4px; background: currentColor; position: relative; top: -6px; }
