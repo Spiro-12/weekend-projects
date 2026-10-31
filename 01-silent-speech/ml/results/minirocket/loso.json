@@ -186,7 +186,27 @@
     },
     "jobs": 1,
     "timing": "single process",
-    "evalSec": 7.84,
+    "evalSec": 7.88,
+    "seedSpread": {
+      "seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "correct": [
+        261,
+        267,
+        273,
+        265,
+        264
+      ],
+      "nClips": 342,
+      "mean": 0.7777777777777777,
+      "min": 0.7631578947368421,
+      "max": 0.7982456140350878
+    },
     "permutation": {
       "n": 500,
       "seed": 0,
@@ -246,6 +266,6 @@
       }
     }
   },
-  "inferMsPerClip": 7.301643505855159,
-  "generatedAt": "2026-10-31T10:22:08.924Z"
+  "inferMsPerClip": 3.897315108173516,
+  "generatedAt": "2026-10-31T10:52:46.173Z"
 }
