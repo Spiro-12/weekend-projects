@@ -46,20 +46,36 @@ export interface PressFacts {
   msSinceMotionAtRelease: number; // how old the newest sample was when Space was let go
 }
 
+type Cut = Pick<ClipEvent, 'samples' | 'pressT' | 'releaseT' | 'padSec' | 'gapPct'>;
+
 /**
  * Catches a stalled or dead stream: the shell cuts clips by the sample clock, which stops when the
  * AirPods drop out, so a dead stream gives "valid" looking clips made of old samples.
  */
-export function signalReject(p: PressFacts, c: Pick<ClipEvent, 'samples' | 'pressT' | 'releaseT' | 'padSec'>): Reject | null {
-  const s = c.samples;
-  if (!s.length) return { code: 'nosignal', message: NO_SIGNAL };
+export function signalReject(p: PressFacts, c: Omit<Cut, 'gapPct'>): Reject | null {
+  if (!c.samples.length) return { code: 'nosignal', message: NO_SIGNAL };
   if (Math.abs(p.wallHoldSec - (c.releaseT - c.pressT)) > MAX_CLOCK_SKEW_SEC) return { code: 'nosignal', message: NO_SIGNAL };
   if (p.msSinceMotionAtRelease > STALE_AT_RELEASE_MS) return { code: 'nosignal', message: NO_SIGNAL };
-  if (s[s.length - 1].t < c.releaseT + c.padSec - COVER_TOL_SEC) return { code: 'nosignal', message: NO_SIGNAL };
+  return null;
+}
+
+/** The samples must reach press - pad and release + pad (within COVER_TOL_SEC). */
+export function coverageReject(c: Omit<Cut, 'gapPct'>): Reject | null {
+  const s = c.samples;
+  if (!s.length || s[s.length - 1].t < c.releaseT + c.padSec - COVER_TOL_SEC) return { code: 'nosignal', message: NO_SIGNAL };
   if (s[0].t > c.pressT - c.padSec + COVER_TOL_SEC) {
     return { code: 'early', message: 'Pressed too early: wait a second after the sentence shows, then hold Space.' };
   }
   return null;
+}
+
+/**
+ * Every check on one take, in order: a dead or stalled stream first (so it says "No signal", not
+ * "Too long"), then the quality checks (short, long, stall, gaps), then coverage (so a patchy
+ * stream says "patchy" rather than "No signal").
+ */
+export function takeReject(p: PressFacts, c: Cut): Reject | null {
+  return signalReject(p, c) ?? rejectReason(c) ?? coverageReject(c);
 }
 
 /** Recording real training data needs the live bridge with real (not simulated) AirPods in. */

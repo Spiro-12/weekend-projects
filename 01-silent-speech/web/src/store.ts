@@ -23,6 +23,7 @@ export type SessionMeta = Pick<Dataset, 'source' | 'subject' | 'device' | 'hz'>;
 export interface StoreHealth {
   kind: 'indexeddb' | 'memory'; // where clips are kept
   error: string | null; // last save or restore problem (sticky: some clips may be unsaved)
+  fallback?: string; // why it switched to memory only (IndexedDB never answered)
 }
 
 export interface ClipStore {
@@ -81,6 +82,7 @@ export class MemoryClipStore implements ClipStore {
   protected metas = new Map<string, ClipMeta>();
   protected kind: StoreHealth['kind'] = 'memory';
   protected error: string | null = null;
+  protected fallback: string | undefined;
   ready: Promise<void> = Promise.resolve();
   private fns = new Set<() => void>();
 
@@ -131,7 +133,7 @@ export class MemoryClipStore implements ClipStore {
     };
   }
 
-  health(): StoreHealth { return { kind: this.kind, error: this.error }; }
+  health(): StoreHealth { return { kind: this.kind, error: this.error, fallback: this.fallback }; }
   onChange(fn: () => void) { this.fns.add(fn); return () => { this.fns.delete(fn); }; }
   protected changed() { for (const f of this.fns) f(); }
 
@@ -159,6 +161,9 @@ export interface ClipBackend {
   clear(): Promise<void>;
 }
 
+/** If the backend hasn't answered the first read by then, give up on it and keep clips in memory. */
+export const OPEN_TIMEOUT_MS = 8000;
+
 /**
  * Memory first (every call is synchronous, like MemoryClipStore), then written to the backend in
  * order. Saved clips are restored on start and merged with anything added in the meantime.
@@ -167,25 +172,47 @@ export class PersistentClipStore extends MemoryClipStore {
   private backend: ClipBackend;
   private queue: Promise<void>;
   private restoring = true;
+  private offline = false; // gave up on the backend (it never answered): memory only from now on
   private touched = new Set<string>(); // ids added or removed before the restore finished: memory wins
   private clearedEarly = false;
 
-  constructor(backend: ClipBackend, kind: StoreHealth['kind'] = 'indexeddb') {
+  constructor(backend: ClipBackend, kind: StoreHealth['kind'] = 'indexeddb', openTimeoutMs = OPEN_TIMEOUT_MS) {
     super();
     this.backend = backend;
     this.kind = kind;
-    this.queue = backend.getAll().then(
-      (saved) => {
+    this.queue = new Promise<void>((done) => {
+      const timer = setTimeout(() => { // e.g. IndexedDB open hangs: don't leave the page on "Loading…"
+        if (!this.restoring) return;
+        this.offline = true;
         this.restoring = false;
-        if (this.clearedEarly) return;
-        const extra = saved.filter((r) => !this.touched.has(r.clip.id));
-        if (!extra.length) return;
-        for (const r of extra) if (r.meta) this.metas.set(r.clip.id, r.meta);
-        this.clips = [...extra.map((r) => r.clip), ...this.clips].sort(byTime);
+        this.kind = 'memory';
+        this.fallback = `browser storage did not answer in ${Math.round(openTimeoutMs / 1000)} s`;
+        console.error(`[store] ${this.fallback}; keeping clips in memory only`);
         this.changed();
-      },
-      (e) => { this.restoring = false; this.fail('restore', e); },
-    );
+        done();
+      }, openTimeoutMs);
+      backend.getAll().then(
+        (saved) => {
+          if (this.offline) return; // too late: already memory only
+          clearTimeout(timer);
+          this.restoring = false;
+          done();
+          if (this.clearedEarly) return;
+          const extra = saved.filter((r) => !this.touched.has(r.clip.id));
+          if (!extra.length) return;
+          for (const r of extra) if (r.meta) this.metas.set(r.clip.id, r.meta);
+          this.clips = [...extra.map((r) => r.clip), ...this.clips].sort(byTime);
+          this.changed();
+        },
+        (e) => {
+          if (this.offline) return;
+          clearTimeout(timer);
+          this.restoring = false;
+          this.fail('restore', e);
+          done();
+        },
+      );
+    });
     this.ready = this.queue;
   }
 
@@ -217,7 +244,7 @@ export class PersistentClipStore extends MemoryClipStore {
   }
 
   private enqueue(what: string, op: () => Promise<void>) {
-    this.queue = this.queue.then(op).catch((e) => this.fail(what, e));
+    this.queue = this.queue.then(() => (this.offline ? undefined : op())).catch((e) => this.fail(what, e));
   }
 
   private fail(what: string, e: unknown) {

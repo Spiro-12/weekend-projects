@@ -34,6 +34,8 @@
 .en-stage[data-rec="1"] .en-kicker { display: none; }
 .en-prompt { font-size: clamp(30px, 4.4vw, 54px); font-weight: 750; line-height: 1.15; margin: 14px 0 10px; overflow-wrap: anywhere; }
 .en-prompt[data-state=loading], .en-prompt[data-state=replay] { color: var(--muted); font-size: 28px; }
+.en-prompt { transition: opacity .25s; }
+.en-prompt[data-state=prompt][data-ready="0"] { opacity: .45; } /* a new sentence fades in; presses count once it's solid */
 .en-hint { color: var(--muted); font-size: 16px; }
 .en-hint kbd { font-size: 14px; }
 .en-msg { margin-top: 14px; min-height: 24px; font-size: 17px; font-weight: 600; }

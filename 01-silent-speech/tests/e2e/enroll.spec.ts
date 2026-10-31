@@ -26,6 +26,8 @@ const sessions = (page: Page) => page.evaluate(() => window.__ss.app.store.all()
 const msg = (page: Page) => page.getByTestId('enroll-msg');
 const prompt = (page: Page) => page.getByTestId('enroll-prompt');
 const clearMsg = (page: Page) => msg(page).evaluate((el) => { el.textContent = ''; });
+/** A new sentence only counts once it has been on screen for a moment (data-ready). */
+const ready = (page: Page) => expect(prompt(page)).toHaveAttribute('data-ready', '1');
 
 async function hold(page: Page, ms = 1200) {
   await page.keyboard.down('Space');
@@ -50,6 +52,7 @@ async function setup(page: Page, reps: number, pick: string[], query = '') {
   await expect(page.getByTestId('source-pill')).toHaveText(/fake · open/);
   await expect(prompt(page)).toHaveAttribute('data-state', 'prompt');
   await settings(page, reps, pick);
+  await ready(page);
 }
 
 /** Holds Space ~1.2 s per prompt, like a person would. Returns the prompts that were shown. */
@@ -57,10 +60,11 @@ async function record(page: Page, n: number): Promise<string[]> {
   const said: string[] = [];
   for (let i = 0; i < n; i++) {
     await expect(prompt(page)).toHaveAttribute('data-state', 'prompt');
+    await ready(page);
     said.push((await prompt(page).getAttribute('data-label'))!);
     const before = await stored(page);
     await hold(page);
-    await expect.poll(() => stored(page)).toBe(before + 1);
+    await expect.poll(() => stored(page), { intervals: [50] }).toBe(before + 1);
   }
   return said;
 }
@@ -116,6 +120,7 @@ async function scriptedLive(page: Page, init: Partial<LiveCtl> = {}) {
   await expect(page.getByTestId('source-pill')).toHaveText(/live · open/);
   await expect(prompt(page)).toHaveAttribute('data-state', 'prompt');
   await page.waitForTimeout(700); // some data in the buffer before the first press, like a person reading the prompt
+  await ready(page);
 }
 const live = (page: Page, p: Partial<LiveCtl>) => page.evaluate((p) => { Object.assign(window.__live!, p); }, p);
 
@@ -215,7 +220,7 @@ test('finding 1: dead or stalled AirPods stream and AirPods out are rejected wit
 
   // b) the stream stalls mid hold and only comes back after letting go
   await live(page, { on: true });
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(1100);
   await clearMsg(page);
   await page.keyboard.down('Space');
   await page.waitForTimeout(400);
@@ -228,7 +233,7 @@ test('finding 1: dead or stalled AirPods stream and AirPods out are rejected wit
   expect(await stored(page)).toBe(0);
 
   // c) the Mac says the AirPods are disconnected
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(1100);
   await live(page, { headphones: 'disconnected' });
   await expect(page.getByTestId('enroll-banner')).toContainText('Not connected to AirPods. Recording real data is off.');
   await expect(page.getByTestId('enroll-banner')).toContainText("The AirPods aren't connected");
@@ -241,7 +246,8 @@ test('finding 1: dead or stalled AirPods stream and AirPods out are rejected wit
   // d) all good again: a take saves, labeled with the prompt
   await live(page, { headphones: 'connected' });
   await expect(page.getByTestId('enroll-banner')).toBeHidden();
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(1100);
+  await ready(page);
   await hold(page);
   await expect.poll(() => stored(page)).toBe(1);
   expect(await page.evaluate(() => window.__ss.app.store.all()[0].label)).toBe(label);
@@ -269,10 +275,38 @@ test('finding 2: a quick re-press (finger slip) throws both takes away and keeps
   await page.waitForTimeout(1500);
   expect(await stored(page)).toBe(0);
 
+  // pressing again 0.7 s after letting go ("let go too early, press again to finish") is a slip too
+  await clearMsg(page);
+  await hold(page);
+  await page.waitForTimeout(700);
+  await hold(page);
+  await expect(msg(page)).toHaveText('Finger slipped, say it again.', { timeout: 5000 });
+  await page.waitForTimeout(1500);
+  expect(await stored(page)).toBe(0);
+  await expect(prompt(page)).toHaveAttribute('data-label', label!);
+
   // a normal take afterwards still gets the prompt's label
   const [said] = await record(page, 1);
   expect(said).toBe(label);
   expect(await page.evaluate(() => window.__ss.app.store.all()[0].label)).toBe(label);
+});
+
+test('round 2, finding 1: a press right as the next sentence appears is thrown away, not labeled with it', async ({ page }) => {
+  test.setTimeout(60_000);
+  await setup(page, 3, PICK);
+  await record(page, 1);
+  // the next sentence just appeared (the take landed): press at once, before it has been readable
+  await expect(prompt(page)).toHaveAttribute('data-ready', '0');
+  const next = await prompt(page).getAttribute('data-label');
+  await hold(page);
+  await expect(msg(page)).toContainText('Wait for the sentence to show', { timeout: 5000 });
+  await page.waitForTimeout(1200);
+  expect(await stored(page)).toBe(1);
+  await expect(prompt(page)).toHaveAttribute('data-label', next!); // same sentence, now readable
+  await ready(page);
+  const [said] = await record(page, 1);
+  expect(said).toBe(next);
+  expect((await page.evaluate(() => window.__ss.app.store.all().map((c) => c.label)))[1]).toBe(next);
 });
 
 // ---------- finding 3: real data only from live AirPods, never mixed with fake ----------
@@ -286,6 +320,7 @@ test('finding 3: real takes need live AirPods; simulated data goes to a separate
 
   // the Mac app switches to Simulate: practice only, its own session
   await live(page, { simulated: true });
+  await expect(page.getByTestId('enroll-banner')).toContainText('The Mac app is in Simulate mode. Real recording is off.');
   await expect(page.getByTestId('enroll-banner')).toContainText('Practice with fake data (not saved as real training data)');
   await expect(prompt(page)).toHaveAttribute('data-session', 'fake-1');
   await page.waitForTimeout(600);
@@ -308,6 +343,18 @@ test('finding 3: real takes need live AirPods; simulated data goes to a separate
   await page.getByTestId('enroll-session').press('Enter');
   await expect(page.getByTestId('enroll-note')).toContainText('are for practice');
   await expect(prompt(page)).toHaveAttribute('data-session', 's1');
+});
+
+test('round 2, finding 3: Simulate switched on while Space is held does not save the take', async ({ page }) => {
+  await scriptedLive(page);
+  await page.keyboard.down('Space');
+  await page.waitForTimeout(400);
+  await live(page, { simulated: true });
+  await page.waitForTimeout(800);
+  await page.keyboard.up('Space');
+  await expect(msg(page)).toContainText('the AirPods mode changed while you were recording', { timeout: 5000 });
+  await page.waitForTimeout(500);
+  expect(await stored(page)).toBe(0);
 });
 
 // ---------- finding 4: no prompt on screen = nothing saved ----------
@@ -347,7 +394,7 @@ test('finding 4: a press on the done screen is thrown away', async ({ page }) =>
   await setup(page, 1, ['help']);
   await record(page, 1);
   await expect(prompt(page)).toHaveAttribute('data-state', 'done');
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(1100);
   await hold(page);
   await expect(msg(page)).toContainText('is done', { timeout: 5000 });
   await page.waitForTimeout(500);
@@ -369,6 +416,32 @@ test('Recognize mode pauses recording, even when switching back while a take lan
   await expect(prompt(page)).toBeVisible();
 });
 
+test('round 2, finding 2: switching to Recognize right after letting go keeps the take', async ({ page }) => {
+  await setup(page, 3, PICK);
+  const label = await prompt(page).getAttribute('data-label');
+  await hold(page);
+  await page.getByTestId('mode-toggle').click(); // within ~0.1 s of release
+  await expect.poll(() => page.evaluate(() => window.__ss.app.mode)).toBe('classify');
+  await expect.poll(() => stored(page)).toBe(1);
+  expect(await page.evaluate(() => window.__ss.app.store.all()[0].label)).toBe(label);
+});
+
+test('round 2, finding 2: Train & use waits for the take that is landing and includes it', async ({ page }) => {
+  test.setTimeout(60_000);
+  await setup(page, 3, ['text_mom', 'call_back']);
+  await record(page, 4);
+  const train = page.getByTestId('enroll-train');
+  await expect(train).toBeEnabled();
+  await ready(page);
+  await hold(page);
+  await expect(train).toBeDisabled(); // the 5th take is still landing
+  await expect.poll(() => stored(page)).toBe(5);
+  await expect(train).toBeEnabled();
+  await train.click();
+  await expect.poll(() => page.evaluate(() => window.__ss.app.mode)).toBe('classify');
+  await expect(page.locator('[data-panel=enroll]')).toContainText('Trained on 5 recordings');
+});
+
 // ---------- finding 5: Redo while a take is landing ----------
 test('finding 5: Redo waits for the take that is landing and deletes that one', async ({ page }) => {
   test.setTimeout(60_000);
@@ -376,7 +449,7 @@ test('finding 5: Redo waits for the take that is landing and deletes that one', 
   await record(page, 1);
   const first = await page.evaluate(() => window.__ss.app.store.all()[0].id);
   const redo = page.getByTestId('enroll-redo');
-  await page.waitForTimeout(600);
+  await ready(page);
   await page.keyboard.down('Space');
   await expect(redo).toBeDisabled();
   await page.waitForTimeout(1200);
@@ -432,6 +505,22 @@ test('finding 6: a real session from another browser with the same name gets its
   expect((await exportFile(page)).ds.clips).toHaveLength(1); // s1 is still only the local take
 });
 
+test('round 2, finding 6: IndexedDB that never answers falls back to memory with a clear message', async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.addInitScript(() => {
+    IDBFactory.prototype.open = function () { return {} as IDBOpenDBRequest; }; // never fires anything
+  });
+  await page.goto('./?mode=fake');
+  await expect(prompt(page)).toHaveAttribute('data-state', 'loading');
+  await expect(prompt(page)).toHaveAttribute('data-state', 'prompt', { timeout: 12_000 });
+  await expect(page.getByTestId('enroll-alert')).toContainText("This browser's storage isn't answering");
+  await expect(page.getByTestId('enroll-saved')).toContainText('Autosave is off in this browser');
+  await ready(page);
+  await hold(page);
+  await expect.poll(() => stored(page)).toBe(1);
+  await expect(msg(page)).toContainText('Not autosaved: export before you close the page');
+});
+
 // ---------- finding 8: a failed save is loud ----------
 test('finding 8: when IndexedDB writes fail, the main area says NOT saved', async ({ page }) => {
   await page.addInitScript(() => {
@@ -448,7 +537,7 @@ test('finding 8: when IndexedDB writes fail, the main area says NOT saved', asyn
   await expect(msg(page)).toHaveAttribute('data-kind', 'bad');
   await expect(page.getByTestId('enroll-alert')).toHaveText('Recorded but NOT saved in this browser. Press Export now.');
   await expect(page.getByTestId('enroll-export-done')).toBeVisible();
-  await page.waitForTimeout(600);
+  await ready(page);
   await hold(page);
   await expect.poll(() => stored(page)).toBe(2);
   await page.waitForTimeout(300);

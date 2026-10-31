@@ -6,8 +6,8 @@ import { fakeStatus } from '../../web/src/core/synth';
 import { Evaluator } from '../../web/src/panels/enroll/accuracy';
 import { runEval } from '../../web/src/panels/enroll/eval-core';
 import {
-  Prompter, cleanSessionName, clipHz, evalSet, exportFileName, makeBlock, nextSessionName, planImport, promptText,
-  recKind, rejectReason, shortLabel, signalReject,
+  Prompter, cleanSessionName, clipHz, coverageReject, evalSet, exportFileName, makeBlock, nextSessionName, planImport,
+  promptText, recKind, rejectReason, shortLabel, signalReject, takeReject,
 } from '../../web/src/panels/enroll/logic';
 
 const tiny = JSON.parse(readFileSync(new URL('../../shared/fixtures/dataset.tiny.json', import.meta.url), 'utf8')) as Dataset;
@@ -115,12 +115,29 @@ describe('signalReject (finding 1: a stalled stream must not be saved)', () => {
   });
   it('rejects when the samples stop short of release + pad (stream died after release)', () => {
     const c = cut(100, 101.2);
-    expect(signalReject(ok, { ...c, samples: c.samples.filter((x) => x.t < 101.35) })?.code).toBe('nosignal');
-    expect(signalReject(ok, { ...c, samples: c.samples.filter((x) => x.t < 101.45) })).toBeNull(); // within 0.1 s
+    expect(coverageReject({ ...c, samples: c.samples.filter((x) => x.t < 101.35) })?.code).toBe('nosignal');
+    expect(coverageReject({ ...c, samples: c.samples.filter((x) => x.t < 101.45) })).toBeNull(); // within 0.1 s
   });
   it('rejects when there is no data before the press (pressed right as the stream started)', () => {
     const c = cut(100, 101.2);
-    expect(signalReject(ok, { ...c, samples: c.samples.filter((x) => x.t > 99.85) })?.code).toBe('early');
+    expect(coverageReject({ ...c, samples: c.samples.filter((x) => x.t > 99.85) })?.code).toBe('early');
+  });
+  it('takeReject: a dead stream that comes back mid hold says "No signal", not "Too long" (finding 4 of round 2)', () => {
+    // dead at press (sample clock stuck at 100), back 10 s later while Space is still held
+    const before = samples(16, 0.02, 99.7);
+    const after = samples(76, 0.02, 110.2);
+    const c = { samples: [...before, ...after], pressT: 100, releaseT: 111.4, padSec: 0.3, gapPct: 1.3 };
+    expect(rejectReason(c)?.code).toBe('long'); // what the old order said
+    expect(takeReject({ wallHoldSec: 1.4, msSinceMotionAtRelease: 20 }, c)).toMatchObject({ code: 'nosignal' });
+  });
+  it('takeReject: a patchy stream says "patchy", not "No signal"', () => {
+    const c = cut(100, 101.2);
+    const holey = { ...c, samples: c.samples.filter((_, i) => i % 3 === 0 && i > 3), gapPct: 60 };
+    expect(coverageReject(holey)).not.toBeNull();
+    expect(takeReject(ok, holey)?.code).toBe('gaps');
+  });
+  it('takeReject: a normal take passes every check', () => {
+    expect(takeReject(ok, { ...cut(100, 101.2), gapPct: 0 })).toBeNull();
   });
 });
 

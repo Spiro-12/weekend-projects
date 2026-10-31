@@ -7,7 +7,9 @@
 // - Each press remembers its own prompt, keyed by the press time; that is the clip's label.
 // - A press while loading, on the done screen, or without a signal is never saved.
 // - A clip from a stalled or dead stream is rejected (wall clock vs sample clock, coverage checks).
-// - Two presses less than SLIP_MS apart (a finger slip) are both thrown away.
+// - Two presses less than SLIP_MS apart (a finger slip) are both thrown away, and a new sentence
+//   must be on screen for PROMPT_READY_MS before a press counts (no label from a glimpsed prompt).
+// - The recording kind (real / practice) must be the same at press time and when the take lands.
 // - Real training data only comes from live, non simulated AirPods. Fake or simulated data goes to
 //   separate practice sessions (fake-1, fake-2, …) and is never mixed into a real session.
 import './enroll/enroll.css';
@@ -20,7 +22,7 @@ import { Evaluator, type EvalResult } from './enroll/accuracy';
 import { isNotImplemented } from './enroll/eval-core';
 import {
   NO_SIGNAL, PRACTICE_PREFIX, Prompter, REAL_PREFIX, cleanSessionName, clipHz, evalSet, exportFileName,
-  nextSessionName, planImport, promptText, recKind, rejectReason, shortLabel, signalReject,
+  nextSessionName, planImport, promptText, recKind, shortLabel, takeReject,
   MIN_CLASSES, MIN_PER_CLASS, STALE_AT_RELEASE_MS, type RecKind,
 } from './enroll/logic';
 
@@ -30,8 +32,9 @@ const DEVICE_MODEL = 'AirPods Pro 3';
 const EVAL_DEBOUNCE_MS = 600;
 const NO_CLIP_MS = 2200; // the shell gives up waiting for the release pad after 1.5 s
 const SIGNAL_STALE_MS = 1500;
-const SLIP_MS = 500; // a new press this soon after letting go = finger slip
-const SLOW_LOAD_MS = 6000;
+const SLIP_MS = 1000; // a new press this soon after letting go = finger slip (takes are held this long)
+const PROMPT_READY_MS = 600; // a new sentence must be on screen this long before a press counts
+const SLOW_LOAD_MS = 5000;
 
 const WAIT_MSG = 'Wait for the sentence to show, then hold Space.';
 const SLIP_MSG = 'Finger slipped, say it again.';
@@ -39,6 +42,9 @@ const SAVE_FAILED = 'Recorded but NOT saved in this browser. Press Export now.';
 const NO_AUTOSAVE = 'Autosave is off in this browser. Press Export before you close the page.';
 const PRACTICE_NOTE = 'Practice with fake data (not saved as real training data).';
 const OFF_BANNER = 'Not connected to AirPods. Recording real data is off.';
+const SIMULATE_BANNER = 'The Mac app is in Simulate mode. Real recording is off.';
+const STORAGE_STUCK = "This browser's storage isn't answering, so recordings are only kept on this page. Press Export before you close it.";
+const KIND_CHANGED = 'Not saved: the AirPods mode changed while you were recording. Say it again.';
 
 interface Settings {
   session: string; // real session (s1, s2, …)
@@ -165,6 +171,8 @@ class EnrollPanel {
   private s = loadSettings();
   private prompter = new Prompter();
   private promptSession = '';
+  private promptKey = ''; // session | sentence | takes so far: changes whenever a new sentence shows
+  private promptShownAt = 0;
   private prompt: string | null = null; // class id shown right now (null = loading, done, or paused)
   private restored = false;
   private loadStart = performance.now();
@@ -210,6 +218,7 @@ class EnrollPanel {
   private get session() { return this.practice ? this.s.practice : this.s.session; }
   private get source(): ClipMeta['source'] { return this.practice ? 'fake' : 'airpods'; }
   private get busy() { return !!this.open || this.inflight.size > 0; }
+  private get promptReady() { return performance.now() - this.promptShownAt >= PROMPT_READY_MS; }
   private chosen(): string[] {
     const all = this.app.classes.map((c) => c.id);
     const pick = this.s.classes ? all.filter((id) => this.s.classes!.includes(id)) : all;
@@ -305,6 +314,7 @@ class EnrollPanel {
     if (!this.prompt) {
       return this.promptState() === 'done' ? `Session ${this.session} is done. Start the next session to record more.` : WAIT_MSG;
     }
+    if (!this.promptReady) return WAIT_MSG; // only glimpsed: the person may still be saying the last one
     return null;
   }
 
@@ -378,13 +388,17 @@ class EnrollPanel {
 
   private decide(p: Press, c: ClipEvent) {
     const { store } = this.app;
+    // A take started in Record mode is kept even if Recognize was switched on while it landed
+    // (presses in Recognize mode never get a Press record).
     if (p.slipped) { this.say('bad', SLIP_MSG); return; }
-    if (!this.active) return; // switched to Recognize meanwhile
     if (p.block) { this.say('bad', `Not saved. ${p.block}`); return; }
     if (!p.label || !p.kind) { this.say('bad', `Not saved. ${WAIT_MSG}`); return; }
-    const bad = rejectReason(c) ?? signalReject({ wallHoldSec: ((p.wallUp ?? p.wallDown) - p.wallDown) / 1000, msSinceMotionAtRelease: p.motionAgeAtUp }, c);
+    const bad = takeReject({ wallHoldSec: ((p.wallUp ?? p.wallDown) - p.wallDown) / 1000, msSinceMotionAtRelease: p.motionAgeAtUp }, c);
     if (bad) { this.say('bad', `Not saved. ${bad.message}`); return; }
     if (this.status && this.status.headphones !== 'connected') { this.say('bad', `Not saved. ${NO_SIGNAL}`); return; }
+    const kindNow = this.kind;
+    if (!kindNow) { this.say('bad', `Not saved. ${NO_SIGNAL}`); return; }
+    if (kindNow !== p.kind) { this.say('bad', KIND_CHANGED); return; } // e.g. Simulate switched on mid take
     const source: ClipMeta['source'] = p.kind === 'real' ? 'airpods' : 'fake';
     const sameSession = store.all().filter((x) => x.session === p.session);
     if (sameSession.some((x) => this.sourceOf(x) !== source)) {
@@ -563,6 +577,7 @@ class EnrollPanel {
   }
 
   private train() {
+    if (this.busy) return; // a take is still landing: train once it's in
     const clips = this.pool();
     try {
       const model = ml.train(clips);
@@ -625,14 +640,14 @@ class EnrollPanel {
     const practice = kind === 'practice';
     r.banner.hidden = !active || !this.restored || src === 'replay' || !src || kind === 'real';
     r.banner.dataset.kind = practice ? 'practice' : 'off';
-    r.bannerHead.textContent = OFF_BANNER;
+    r.bannerHead.textContent = practice && src === 'live' ? SIMULATE_BANNER : OFF_BANNER;
     r.bannerSub.textContent = practice
       ? `${PRACTICE_NOTE} Practice session: ${session}.`
       : this.offReason();
 
     // alert: saving is broken
     const health = app.store.health();
-    const alert = health.error ? SAVE_FAILED : health.kind === 'memory' && mine.length ? NO_AUTOSAVE : '';
+    const alert = health.error ? SAVE_FAILED : health.fallback ? STORAGE_STUCK : health.kind === 'memory' && mine.length ? NO_AUTOSAVE : '';
     r.alert.textContent = alert;
     r.alert.hidden = !alert || !active;
 
@@ -674,7 +689,14 @@ class EnrollPanel {
         ? 'Hold <kbd>Space</kbd> for about 2 seconds without mouthing anything.'
         : 'Hold <kbd>Space</kbd> (or the bar at the top), mouth it with no sound, then let go.';
     }
+    const key = `${session}|${p}|${mine.length}`;
+    if (key !== this.promptKey) { // a new sentence: it counts once it has been on screen for a moment
+      this.promptKey = key;
+      this.promptShownAt = performance.now();
+      if (p) setTimeout(() => { if (this.promptKey === key) this.render(); }, PROMPT_READY_MS + 10);
+    }
     r.prompt.dataset.state = state;
+    r.prompt.dataset.ready = p && this.promptReady ? '1' : '0';
     r.prompt.dataset.label = p ?? '';
     r.prompt.dataset.session = session;
     r.stage.dataset.state = state;
@@ -718,7 +740,7 @@ class EnrollPanel {
     // train
     const trainable = evalSet(this.pool(), chosen);
     const train = r.train as HTMLButtonElement;
-    train.disabled = !trainable;
+    train.disabled = !trainable || busy;
     train.title = trainable ? 'Train the recognizer on these recordings and switch to Recognize mode'
       : `Record at least ${MIN_PER_CLASS} of ${MIN_CLASSES} different sentences first`;
 

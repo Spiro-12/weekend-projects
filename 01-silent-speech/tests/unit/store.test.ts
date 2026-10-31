@@ -267,6 +267,39 @@ describe('per clip meta (source, subject, device, hz saved at record time)', () 
   });
 });
 
+describe('IndexedDB that never answers (round 2, finding 6)', () => {
+  it('falls back to memory only after the timeout instead of loading forever', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const writes: string[] = [];
+    const stuck: ClipBackend = {
+      getAll: () => new Promise(() => {}), // never answers
+      put: async (rs) => { writes.push(...rs.map((r) => r.clip.id)); },
+      delete: async () => {},
+      clear: async () => {},
+    };
+    const s = new PersistentClipStore(stuck, 'indexeddb', 30);
+    const early = clip('help');
+    s.add(early); // before the timeout
+    await s.ready;
+    expect(s.health()).toMatchObject({ kind: 'memory', error: null, fallback: expect.stringContaining('did not answer') });
+    s.add(clip('none'));
+    await s.flush(); // doesn't hang
+    expect(s.all()).toHaveLength(2);
+    expect(writes).toEqual([]); // nothing is written to the stuck backend
+    err.mockRestore();
+  });
+  it('a slow but working backend is not affected', async () => {
+    const disk = new Map<string, StoredClip>();
+    const inner = memoryBackend(disk);
+    const s = new PersistentClipStore({ ...inner, getAll: async () => { await new Promise((r) => setTimeout(r, 10)); return inner.getAll(); } }, 'indexeddb', 200);
+    await s.ready;
+    s.add(clip('help'));
+    await s.flush();
+    expect(s.health()).toMatchObject({ kind: 'indexeddb', error: null });
+    expect(disk.size).toBe(1);
+  });
+});
+
 describe('createStore', () => {
   it('falls back to memory without IndexedDB (node)', async () => {
     const s = createStore();
