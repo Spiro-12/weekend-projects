@@ -7,7 +7,7 @@ from typing import Literal
 
 import numpy as np
 
-Protocol = Literal["loo", "loso"]
+Protocol = Literal["loo", "loso", "xbud"]
 Fold = tuple[np.ndarray, np.ndarray]
 
 
@@ -30,9 +30,29 @@ def loso(sessions: Sequence[str]) -> Iterator[Fold]:
         yield train, test
 
 
-def splits(protocol: Protocol, sessions: Sequence[str]) -> Iterator[Fold]:
+def xbud(sessions: Sequence[str], buds: Sequence[str], train: str = "left", test: str = "right") -> Iterator[Fold]:
+    """Cross bud: one fold, train = every `train` bud clip, test = every `test` bud clip (other buds sit out).
+    A session with clips on both sides would leak, so that is an error."""
+    if len(buds) != len(sessions):
+        raise ValueError("one bud per clip")
+    b = np.asarray(buds, dtype=object)
+    s = np.asarray(sessions, dtype=object)
+    tr, te = np.flatnonzero(b == train), np.flatnonzero(b == test)
+    if not len(tr) or not len(te):
+        raise ValueError(f"xbud needs {train} and {test} bud clips, got {sorted(set(b.tolist()))}")
+    both = set(s[tr].tolist()) & set(s[te].tolist())
+    if both:
+        raise ValueError(f"xbud: sessions {sorted(both)} have clips on both buds (would leak)")
+    yield tr, te
+
+
+def splits(protocol: Protocol, sessions: Sequence[str], buds: Sequence[str] | None = None) -> Iterator[Fold]:
     if protocol == "loo":
         return loo(len(sessions))
     if protocol == "loso":
         return loso(sessions)
+    if protocol == "xbud":
+        if buds is None:
+            raise ValueError("xbud needs the bud of every clip")
+        return xbud(sessions, buds)
     raise ValueError(f"unknown protocol {protocol!r}")

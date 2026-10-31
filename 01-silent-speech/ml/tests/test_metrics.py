@@ -47,3 +47,8 @@ def test_labels_sorted_union_of_true_and_predicted_like_js():
     assert m["confusion"][2] == [0, 1, 0, 0]  # true none -> predicted help
     # macro F1 over all 4 labels (help and none score 0), like sklearn / the JS metricsFrom
     assert m["macroF1"] == 0.5
+
+
+def test_validate_metrics_knows_xbud():
+    m = compute_metrics("x", "xbud", ["a"], [P("a")], 0.5, {}, 0)
+    assert validate_metrics(m) == []

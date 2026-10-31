@@ -11,6 +11,7 @@ import numpy as np
 from . import NONE
 from .models import Pred
 
+PROTOCOLS = ("loo", "loso", "xbud")  # xbud (cross bud) is Python only: train one bud, test the other
 METRICS_KEYS = (
     "model", "protocol", "nClips", "labels", "accuracy", "macroF1", "confusion",
     "noneFalseAcceptRate", "params", "inferMsPerClip", "generatedAt",
@@ -83,8 +84,8 @@ def validate_metrics(m: Any) -> list[str]:
     if errs:
         return errs
     num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)
-    if m["protocol"] not in ("loo", "loso"):
-        errs.append("protocol must be loo or loso")
+    if m["protocol"] not in PROTOCOLS:
+        errs.append("protocol must be loo, loso or xbud")
     for k in ("nClips", "accuracy", "macroF1", "noneFalseAcceptRate", "inferMsPerClip"):
         if not num(m[k]):
             errs.append(f"{k} must be a number")

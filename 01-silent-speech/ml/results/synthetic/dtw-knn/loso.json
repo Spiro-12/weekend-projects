@@ -1,0 +1,35 @@
+{
+  "model": "dtw-knn",
+  "protocol": "loso",
+  "nClips": 120,
+  "labels": ["calendar", "call_back", "demo_48h", "focus_music", "help", "none", "text_mom", "volume_up"],
+  "accuracy": 1,
+  "macroF1": 1,
+  "confusion": [
+    [15, 0, 0, 0, 0, 0, 0, 0],
+    [0, 15, 0, 0, 0, 0, 0, 0],
+    [0, 0, 15, 0, 0, 0, 0, 0],
+    [0, 0, 0, 15, 0, 0, 0, 0],
+    [0, 0, 0, 0, 15, 0, 0, 0],
+    [0, 0, 0, 0, 0, 15, 0, 0],
+    [0, 0, 0, 0, 0, 0, 15, 0],
+    [0, 0, 0, 0, 0, 0, 0, 15]
+  ],
+  "noneFalseAcceptRate": 0,
+  "params": {
+    "channels": ["rr.x", "rr.y", "rr.z", "ua.x", "ua.y", "ua.z"],
+    "L": 96,
+    "hpHz": 1,
+    "band": 0.05,
+    "k": 3,
+    "norm": "clip",
+    "threshold": 0.85,
+    "budNorm": "mirror",
+    "radius": 5,
+    "nSessions": 3,
+    "datasets": ["dataset.synthetic.json"],
+    "sources": ["fake"]
+  },
+  "inferMsPerClip": 2.9224039499999908,
+  "generatedAt": "2026-10-31T12:06:01.350Z"
+}

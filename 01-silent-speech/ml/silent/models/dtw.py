@@ -171,10 +171,17 @@ def as_f32(x: np.ndarray) -> np.ndarray:
     return np.asarray(x, dtype=np.float32).astype(np.float64)
 
 
+# web/src/ml/preprocess.ts DEFAULT_OPTS since Phase 2 (Track F's LOSO sweep of 768 configs on Spiro's 3 real sessions).
+# dtw-py runs with the same options by default so the two stay comparable. Phase 1 defaults: L 64, band 0.1, k 1,
+# norm global, threshold 0.5 (`PHASE1_DEFAULTS`, kept for the "settings fixed before the data" comparison).
+JS_DEFAULTS: dict[str, Any] = {"L": 96, "band": 0.05, "k": 3, "norm": "clip", "threshold": 0.85}
+PHASE1_DEFAULTS: dict[str, Any] = {"L": 64, "band": 0.1, "k": 1, "norm": "global", "threshold": 0.5}
+
+
 class DtwKnn(Model):
     name = "dtw-py"
 
-    def __init__(self, band: float = 0.1, k: int = 1, threshold: float = 0.5):
+    def __init__(self, band: float = JS_DEFAULTS["band"], k: int = JS_DEFAULTS["k"], threshold: float = JS_DEFAULTS["threshold"]):
         self.band = band
         self.k = k
         self.threshold = threshold
