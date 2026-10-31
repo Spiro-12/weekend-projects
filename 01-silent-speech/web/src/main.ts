@@ -31,7 +31,7 @@ const renderPill = () => {
   pill.textContent = `${kind} · ${conn}`;
   pill.dataset.state = conn;
   pill.dataset.kind = kind;
-  fakeSel.hidden = kind !== 'fake';
+  fakeSel.hidden = kind !== 'fake' || app.mode === 'enroll'; // in Record mode the enroll panel picks the fake sentence
 };
 app.bus.on('conn', (c) => { conn = c.state; renderPill(); });
 app.bus.on('source', renderPill);
@@ -43,6 +43,8 @@ app.bus.on('motion', () => {
   while (arrivals.length && arrivals[0] < now - 2000) arrivals.shift();
 });
 setInterval(() => {
+  const now = performance.now();
+  while (arrivals.length && arrivals[0] < now - 2000) arrivals.shift(); // also trims when data stops
   hzEl.textContent = `${(arrivals.length / 2).toFixed(1)} Hz`;
   nEl.textContent = String(app.counts.motion ?? 0);
 }, 250);
@@ -57,6 +59,7 @@ const renderMode = () => {
 };
 modeBtn.onclick = () => app.setMode(app.mode === 'enroll' ? 'classify' : 'enroll');
 app.bus.on('mode', renderMode);
+app.bus.on('mode', renderPill);
 renderMode();
 
 // ---------- push to talk ----------
@@ -77,7 +80,7 @@ pttBtn.addEventListener('pointerup', () => app.ptt(false));
 pttBtn.addEventListener('pointercancel', () => app.ptt(false));
 app.bus.on('ptt', ({ down }) => {
   pttBtn.classList.toggle('down', down);
-  document.body.classList.toggle('ptt', down);
+  document.body.classList.toggle('ptt-down', down);
 });
 
 // ---------- panels ----------

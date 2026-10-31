@@ -37,6 +37,7 @@ test('public visitor (no mode, never used the Mac app) gets a working page fast'
 
 test('Space still works right after picking a fake sentence', async ({ page }) => {
   await page.goto('./?mode=fake');
+  await page.getByTestId('mode-toggle').click(); // the fake picker only shows in Recognize mode
   const sel = page.getByTestId('fake-label');
   await sel.focus();
   await page.keyboard.press('ArrowDown'); // keyboard change keeps focus on the select unless we blur it
@@ -46,4 +47,19 @@ test('Space still works right after picking a fake sentence', async ({ page }) =
   await page.waitForTimeout(1200);
   await page.keyboard.up('Space');
   await expect.poll(() => page.evaluate(() => window.__ss.counts.clip ?? 0)).toBe(1);
+});
+
+test('fake sentence picker hides in Record mode and shows in Recognize mode', async ({ page }) => {
+  await page.goto('./?mode=fake');
+  await expect(page.getByTestId('source-pill')).toHaveText(/fake · open/);
+  await expect(page.getByTestId('fake-label')).toBeHidden();
+  await page.getByTestId('mode-toggle').click();
+  await expect(page.getByTestId('fake-label')).toBeVisible();
+});
+
+test('header rate drops to 0 when data stops', async ({ page }) => {
+  await page.goto('./?mode=fake');
+  await expect(page.getByTestId('hz-browser')).toHaveText(/2[3-7]\.\d Hz/);
+  await page.evaluate(() => window.__ss.app.source?.stop());
+  await expect(page.getByTestId('hz-browser')).toHaveText('0.0 Hz', { timeout: 4000 });
 });

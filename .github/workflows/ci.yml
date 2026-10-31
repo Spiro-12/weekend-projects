@@ -18,8 +18,8 @@ jobs:
       run:
         working-directory: 01-silent-speech
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -37,7 +37,7 @@ jobs:
     name: Mac app (compile)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: check
         run: test -f 01-silent-speech/mac/project.yml && echo "has=true" >> "$GITHUB_OUTPUT" || echo "has=false" >> "$GITHUB_OUTPUT"
       - if: steps.check.outputs.has == 'true'
@@ -50,6 +50,14 @@ jobs:
           set -o pipefail
           xcodegen
           xcodebuild -project SilentSpeechBridge.xcodeproj -target SilentSpeechBridge -configuration Debug CODE_SIGNING_ALLOWED=NO build 2>&1 | xcbeautify --renderer github-actions
+      - if: steps.check.outputs.has == 'true'
+        name: No Xcode build path (build.sh, the way Spiro's Mac builds)
+        working-directory: 01-silent-speech/mac
+        run: |
+          set -o pipefail
+          rm -rf build
+          ./build.sh 2>&1 | tee /tmp/build.log || { grep -E "error:" /tmp/build.log | head -20 | sed 's/^/::error::/'; exit 1; }
+          test -x build/Debug/SilentSpeechBridge.app/Contents/MacOS/SilentSpeechBridge
       - if: steps.check.outputs.has != 'true'
         run: echo "No Mac app yet, skipping."
 
@@ -57,7 +65,7 @@ jobs:
     name: Python bench (pytest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: check
         run: test -f 01-silent-speech/ml/pyproject.toml && echo "has=true" >> "$GITHUB_OUTPUT" || echo "has=false" >> "$GITHUB_OUTPUT"
       - if: steps.check.outputs.has == 'true'

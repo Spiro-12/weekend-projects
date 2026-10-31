@@ -1,0 +1,32 @@
+[project]
+name = "silent"
+version = "0.1.0"
+description = "Silent Speech offline model benchmark (DTW, MiniRocket, 1D CNN)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy>=2.0",
+  "scipy>=1.13",
+  "scikit-learn>=1.6",
+  "aeon>=1.0",
+  "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+# Heavy (~3 GB on Linux with the CUDA wheels). Not installed by a plain `uv sync`;
+# CNN tests skip without it. Install with: uv sync --extra cnn
+cnn = ["torch>=2.4"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+# Not a distributable package: `python -m silent.*` runs from this folder.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 140

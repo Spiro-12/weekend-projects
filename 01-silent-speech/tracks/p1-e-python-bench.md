@@ -11,7 +11,7 @@ A small `uv` Python project that loads our datasets, applies **the same preproce
 - `silent/data.py`: load one or many `ss-dataset` files, validate basic shape, merge, **dedupe by clip `id`**, session = `clip.session or dataset.session`.
 - `silent/preprocess.py`: `PROTOCOL.md` §5 **to the letter** (50 Hz grid formula (`GRID_HZ`), `filtfilt(b, a, x, padtype='odd', padlen=min(9, n-1))`, resample positions, norm stats definitions). Returns `(n, ch, L)` arrays.
 - `silent/cv.py`: LOO and LOSO splitters.
-- `silent/models/dtw.py`: own numpy DTW identical to the JS spec (dependent, squared Euclidean summed over channels, Sakoe-Chiba radius `max(1, floor(band·L + 0.5))`, total cost), kNN k=3 distance weighted (`1/(d+1e-9)`). Name it `dtw-py`. This is the cross check against the JS version.
+- `silent/models/dtw.py`: own numpy DTW identical to the JS spec (dependent, squared Euclidean summed over channels, Sakoe-Chiba radius `max(1, floor(band·L + 0.5))`, total cost), kNN, default k=1 (PROTOCOL §6; distance weighted `1/(d+1e-9)` when k > 1). Name it `dtw-py`. This is the cross check against the JS version.
 - `silent/models/minirocket.py`: aeon `MiniRocketMultivariate` (or `MultiRocketMultivariate`) + `RidgeClassifierCV`.
 - `silent/models/cnn.py`: tiny 1D CNN (2 to 3 conv blocks, global pooling), augmentation (time warp, scaling, jitter, shift), early stopping. Seeded.
 - `silent/bench.py`: `uv run python -m silent.bench --model dtw-py|minirocket|cnn --protocol loo|loso --data <files...>` → `ml/results/<model>/<protocol>.json` (the `Metrics` schema in `PROTOCOL.md` §6, `model` field = model name) + `confusion_<protocol>.png`.
