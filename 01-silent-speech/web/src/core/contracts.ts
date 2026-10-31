@@ -189,7 +189,7 @@ export interface DtwKnnModelJSON {
 
 export interface Metrics {
   model: string;
-  protocol: 'loo' | 'loso';
+  protocol: 'loo' | 'loso' | 'xbud'; // xbud: train on one bud's sessions, test on the other bud's (Python bench)
   nClips: number;
   labels: string[];
   accuracy: number;
