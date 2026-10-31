@@ -21,8 +21,8 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: ./scripts/build-site.sh
@@ -32,3 +32,15 @@ jobs:
           path: _site
       - id: deployment
         uses: actions/deploy-pages@v4
+      - name: Smoke test the live site
+        # Claude's sandbox can't open github.io, so the deploy checks itself.
+        run: |
+          url="${{ steps.deployment.outputs.page_url }}"
+          for i in $(seq 1 12); do
+            if curl -fsS "${url}01-silent-speech/" | grep -q '/weekend-projects/01-silent-speech/assets/' \
+               && curl -fsS "${url}" | grep -q 'Weekend Projects'; then
+              echo "Live site OK: ${url}"; exit 0
+            fi
+            echo "not ready yet ($i), retrying"; sleep 10
+          done
+          echo "::error title=Live site check failed::${url}01-silent-speech/ did not serve the expected page"; exit 1

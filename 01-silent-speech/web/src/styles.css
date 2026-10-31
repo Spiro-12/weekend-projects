@@ -29,5 +29,8 @@ button.ptt.down .dot { background: var(--bad); box-shadow: 0 0 12px var(--bad); 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
 .card h2 { margin: 0 0 12px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
 .card.wide { grid-column: 1 / -1; }
+/* The panel you need for the current mode goes first. */
+body[data-mode=enroll] .card[data-panel=enroll] { order: -1; }
+body[data-mode=classify] .card[data-panel=result] { order: -1; }
 .card p { line-height: 1.5; margin: 0 0 8px; }
 @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } main { padding: 12px; } }

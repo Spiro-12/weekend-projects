@@ -18,8 +18,8 @@ jobs:
       run:
         working-directory: 01-silent-speech
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -37,7 +37,7 @@ jobs:
     name: Mac app (compile)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: check
         run: test -f 01-silent-speech/mac/project.yml && echo "has=true" >> "$GITHUB_OUTPUT" || echo "has=false" >> "$GITHUB_OUTPUT"
       - if: steps.check.outputs.has == 'true'
@@ -57,7 +57,7 @@ jobs:
     name: Python bench (pytest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: check
         run: test -f 01-silent-speech/ml/pyproject.toml && echo "has=true" >> "$GITHUB_OUTPUT" || echo "has=false" >> "$GITHUB_OUTPUT"
       - if: steps.check.outputs.has == 'true'
