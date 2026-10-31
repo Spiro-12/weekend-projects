@@ -148,7 +148,8 @@ SWEPT_DTW = {"L": 96, "band": 0.05, "k": 3, "norm": "clip"}
 # settings (sweep + threshold) were chosen on the other two sessions only. Shown next to the swept rows.
 NESTED_DTW = {
     "datasets": ["ss-dataset-s1-20261031-1621.json", "ss-dataset-s2-20261031-1637.json", "ss-dataset-s3-20261031-1654.json"],
-    "accuracy": 0.882, "correct": "301.5", "nClips": 342, "perSession": {"s1": "67%", "s2": "96.6%", "s3": "98.3%"},
+    "accuracy": 0.882, "correct": "301.5", "nClips": 342, "perSession": {"s1": "67.1%", "s2": "96.6%", "s3": "98.3%"},
+    "source": "Track F review; PROTOCOL §6",
 }
 
 
@@ -307,10 +308,34 @@ def _seeds(m: dict[str, Any]) -> str:
     return f"{_pct(sp['mean'])} ({_pct(sp['min'])} to {_pct(sp['max'])})"
 
 
+def _num(x: float) -> str:
+    return f"{x:g}"
+
+
+def nested_from_file(path: Path) -> dict[str, Any] | None:
+    """Track F's nested LOSO (`eval-dtw`, results/dtw-knn/sweep/nested-real.json) in NESTED_DTW's shape. None if unreadable."""
+    try:
+        d = json.loads(path.read_text())
+        pooled = d["pooled"]
+        return {
+            "datasets": list(d["datasets"]), "accuracy": float(pooled["accuracy"]), "correct": _num(pooled["correct"]),
+            "nClips": int(pooled["nClips"]),
+            "perSession": {f["test"]: f"{_pct(f['accuracy'])} ({_num(f['correct'])}/{f['nClips']})" for f in d["folds"]},
+            "source": "Track F, `ml/results/dtw-knn/sweep/nested-real.json`",
+        }
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
 def _nested(rows: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
-    """NESTED_DTW when these LOSO rows include DTW at the swept settings on exactly that data."""
-    hit = any(_swept(m) and datasets(m) == sorted(NESTED_DTW["datasets"]) and m["nClips"] == NESTED_DTW["nClips"] for m in rows)
-    return NESTED_DTW if hit else None
+    """The honest nested number for these LOSO rows, when they include DTW at the swept settings: F's nested-real.json
+    next to the results if it is there, else NESTED_DTW; only for the data it was computed on."""
+    swept = [m for m in rows if _swept(m)]
+    found = [nested_from_file(m["_path"].parent.parent / "dtw-knn" / "sweep" / "nested-real.json") for m in swept if "_path" in m]
+    for n in [*(x for x in found if x), NESTED_DTW]:
+        if any(datasets(m) == sorted(n["datasets"]) and m["nClips"] == n["nClips"] for m in swept):
+            return n
+    return None
 
 
 def _highest_loso(rows: Sequence[dict[str, Any]]) -> list[str]:
@@ -367,7 +392,7 @@ def _loso_table(rows: Sequence[dict[str, Any]], cols: Sequence[tuple[str, str]])
             "LOSO sweep of 768 configurations over all 3 sessions (Track F, `web/src/ml/preprocess.ts`), so every session, s3",
             "included, was a test fold while they were picked (s3 is only held out of the public model's training). The honest",
             f"DTW number is **{_pct(nested['accuracy'])} ({nested['correct']}/{nested['nClips']}) LOSO with settings chosen without the test",
-            "session** (Track F review; PROTOCOL §6): per held out session "
+            f"session** ({nested['source']}): per held out session "
             + ", ".join(f"{k} {v}" for k, v in nested["perSession"].items()) + ".",
             (f"{_pct(tuned['accuracy'])} when tuned on all three sessions is about {100 * (tuned['accuracy'] - nested['accuracy']):.0f} points"
              " optimistic. Rows marked *fixed before this data* had no tuning on these recordings."),

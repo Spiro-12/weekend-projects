@@ -235,12 +235,34 @@ def test_tuned_dtw_sits_next_to_the_nested_number_and_is_not_crowned(tmp_path):
     rows = md.splitlines()
     i = next(k for k, ln in enumerate(rows) if ln.startswith("| dtw-py | 94.2% (322/342)"))
     assert rows[i + 1].startswith("| **DTW, nested** (same settings search, test session left out) | **88.2% (301.5/342)** |")
-    assert "| 67% | 96.6% | 98.3% |" in rows[i + 1]
+    assert "| 67.1% | 96.6% | 98.3% |" in rows[i + 1]
     assert "s3 is only held out of the public model's training" in md and "played no part" not in md
-    assert "per held out session s1 67%, s2 96.6%, s3 98.3%." in md and "94.2% when tuned on all three sessions is about 6 points" in md
+    assert "per held out session s1 67.1%, s2 96.6%, s3 98.3%." in md and "94.2% when tuned on all three sessions is about 6 points" in md
     assert "- Highest LOSO with settings fixed before this data: **dtw-py (phase1-settings)**, 280/342 correct (81.9%)." in md
     assert "**dtw-py** (" not in md.split("Highest LOSO")[1].split("\n")[0]  # the tuned row is never crowned
     assert ("- Tuned DTW: 88.2% with settings chosen without the test session (the honest number) vs **minirocket (L96-clip)** at 84.8% "
             "(seeds 0 to 4: 83.9% to 88.3%): DTW's lead is within that model's seed noise.") in md
     assert "It does not measure tuning optimism: the tuned 94.2% and the untuned 81.9% DTW both get" in md
     assert "p = 0.002. For that, see the nested 88.2% above." in md
+
+
+def test_nested_number_is_read_from_tracks_f_file_when_present(tmp_path):
+    from silent.report import NESTED_DTW
+
+    data = {**REAL, "datasets": NESTED_DTW["datasets"], "buds": {"s1": "right", "s2": "left", "s3": "left"},
+            "perSession": {"s1": {"correct": 88, "n": 105}, "s2": {"correct": 114, "n": 117}, "s3": {"correct": 120, "n": 120}}}
+    swept = {**data, "L": 96, "band": 0.05, "k": 3, "norm": "clip", "threshold": 0.85}
+    sweep = tmp_path / "results" / "dtw-knn" / "sweep"
+    sweep.mkdir(parents=True)
+    (sweep / "nested-real.json").write_text(json.dumps({
+        "model": "dtw-knn", "protocol": "nested-loso", "datasets": NESTED_DTW["datasets"],
+        "pooled": {"nClips": 342, "correct": 300, "accuracy": 300 / 342},
+        "folds": [{"test": "s1", "correct": 70.5, "nClips": 105, "accuracy": 70.5 / 105},
+                  {"test": "s2", "correct": 112, "nClips": 117, "accuracy": 112 / 117},
+                  {"test": "s3", "correct": 117.5, "nClips": 120, "accuracy": 117.5 / 120}],
+    }))
+    md = build(tmp_path, [fake("dtw-py", "loso", 322, swept, n=342)], ex_file(tmp_path))
+    assert "| **DTW, nested** (same settings search, test session left out) | **87.7% (300/342)** |" in md
+    assert "| 67.1% (70.5/105) | 95.7% (112/117) | 97.9% (117.5/120) |" in md
+    assert "(Track F, `ml/results/dtw-knn/sweep/nested-real.json`)" in md
+    assert "Skipped files" not in md  # the sweep folder's JSON files are not Metrics and are not read as results
