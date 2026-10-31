@@ -161,7 +161,8 @@ test('records 3 sentences × 3 takes as fake practice, exports a valid file, and
   expect(ds.classes).toEqual(classes);
   expect(ds.clips.map((c) => c.label)).toEqual(said);
   for (const c of ds.clips) {
-    expect(Object.keys(c).sort()).toEqual(['id', 'label', 'padSec', 'pressT', 'quality', 'releaseT', 'rep', 'samples', 'session', 'startedAt']);
+    expect(Object.keys(c).sort()).toEqual(['id', 'label', 'loc', 'padSec', 'pressT', 'quality', 'releaseT', 'rep', 'samples', 'session', 'startedAt']);
+    expect(['left', 'right', 'default', 'unknown']).toContain(c.loc);
     expect(c.quality.nSamples).toBe(c.samples.length);
     expect(c.samples[0].t).toBeLessThanOrEqual(c.pressT - c.padSec + 0.1);
     expect(c.samples.at(-1)!.t).toBeGreaterThanOrEqual(c.releaseT + c.padSec - 0.1);

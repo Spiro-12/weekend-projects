@@ -12,6 +12,7 @@ export const DEFAULT_OPTS: Readonly<Required<DtwKnnOptions>> = Object.freeze({
   k: 1, // 1 beats 3 with few takes per class (first real AirPods data: LOO 94% vs 71%)
   norm: 'global',
   threshold: 0.5,
+  budNorm: 'mirror', // PROTOCOL §5 step 0 (Track F implements the effect)
 });
 
 const CHANNEL_INDEX: Record<Channel, ['rr' | 'ua', number]> = {
@@ -29,6 +30,7 @@ export function resolveOpts(o: DtwKnnOptions = {}): Required<DtwKnnOptions> {
     k: o.k ?? DEFAULT_OPTS.k,
     norm: o.norm ?? DEFAULT_OPTS.norm,
     threshold: o.threshold ?? DEFAULT_OPTS.threshold,
+    budNorm: o.budNorm ?? DEFAULT_OPTS.budNorm,
   };
   if (r.channels.length === 0) throw new Error('ml: channels must not be empty');
   for (const c of r.channels) if (!(c in CHANNEL_INDEX)) throw new Error(`ml: unknown channel ${String(c)}`);
@@ -38,6 +40,7 @@ export function resolveOpts(o: DtwKnnOptions = {}): Required<DtwKnnOptions> {
   if (!(r.hpHz < GRID_HZ / 2)) throw new Error(`ml: hpHz must be below ${GRID_HZ / 2} Hz (got ${r.hpHz})`);
   if (r.norm !== 'global' && r.norm !== 'clip') throw new Error(`ml: unknown norm ${String(r.norm)}`);
   if (!Number.isFinite(r.threshold)) throw new Error('ml: threshold must be a number');
+  if (r.budNorm !== 'mirror' && r.budNorm !== 'none') throw new Error(`ml: unknown budNorm ${String(r.budNorm)}`);
   return r;
 }
 

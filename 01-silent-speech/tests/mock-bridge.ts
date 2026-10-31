@@ -1,6 +1,6 @@
 // Mock of the Mac app ("SilentSpeechBridge"). Speaks PROTOCOL.md v1 over ws://localhost:PORT.
 // It says app: 'MockBridge' in hello, so tests can make sure they never talk to the real Mac app.
-// CLI: npx tsx tests/mock-bridge.ts [--port 18765] [--allow-origin http://localhost:4201] [--armed] [--drop 0.05] [--bad 50] [--seed 7] [--every 4]
+// CLI: npx tsx tests/mock-bridge.ts [--real] [--token <hex>] [--port 18765] [--allow-origin http://localhost:4201] [--armed] [--drop 0.05] [--bad 50] [--seed 7] [--every 4]
 // Programmatic: const b = await startMockBridge({ port: 0 }); b.port is the real port; await b.close();
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
@@ -23,6 +23,8 @@ export interface MockBridgeOpts {
   allowOrigins?: string[]; // added to ALLOWED_ORIGINS
   allowNoOrigin?: boolean; // like the Mac app's dev toggle; default false
   sensitiveCooldownMs?: number; // default 30000
+  real?: boolean; // report simulated:false, like the real app with AirPods (for tests of the real-data paths)
+  token?: string; // if set, actions must carry this pairing token, else error 'unpaired' (like the Mac app)
   hz?: number;
   armed?: boolean;
   dropRate?: number;
@@ -57,7 +59,7 @@ export async function startMockBridge(o: MockBridgeOpts = {}): Promise<MockBridg
   const lastRun = new Map<string, number>();
   const send = (ws: WebSocket, m: ServerMsg | string) => ws.readyState === ws.OPEN && ws.send(typeof m === 'string' ? m : JSON.stringify(m));
   const broadcast = (m: ServerMsg | string) => wss.clients.forEach((ws) => send(ws, m));
-  const status = () => fakeStatus({ armed, clients: wss.clients.size, simulated: true, hz });
+  const status = () => fakeStatus({ armed, clients: wss.clients.size, simulated: !o.real, hz });
 
   wss.on('connection', (ws) => {
     send(ws, { ...fakeHello(actions, armed), app: MOCK_APP_NAME });
@@ -70,6 +72,8 @@ export async function startMockBridge(o: MockBridgeOpts = {}): Promise<MockBridg
       if (isObj && (obj as { type?: unknown }).type !== 'action') return; // not an action: ignore
       const req = parseClientMsg(text);
       if (!req) return send(ws, { type: 'error', code: 'bad_json', message: 'could not parse message' } satisfies ErrorMsg);
+      if (o.token !== undefined && req.token !== o.token)
+        return send(ws, { type: 'error', code: 'unpaired', message: 'wrong or missing pairing token', id: req.id } satisfies ErrorMsg);
       if (!actions.includes(req.action))
         return send(ws, { type: 'error', code: 'unknown_action', message: `unknown action ${req.action}`, id: req.id } satisfies ErrorMsg);
       const now = Date.now();
@@ -123,7 +127,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const allow: string[] = [];
   a.forEach((x, i) => { if (x === '--allow-origin' && a[i + 1]) allow.push(a[i + 1]); });
   startMockBridge({
-    port: num('--port'), allowOrigins: allow, allowNoOrigin: a.includes('--allow-no-origin'), armed: a.includes('--armed'), dropRate: num('--drop'), badEvery: num('--bad'),
+    port: num('--port'), allowOrigins: allow, token: val('--token'), real: a.includes('--real'), allowNoOrigin: a.includes('--allow-no-origin'), armed: a.includes('--armed'), dropRate: num('--drop'), badEvery: num('--bad'),
     seed: num('--seed'), utterEvery: num('--every'),
   }).then((b) => console.log(`mock bridge on ws://127.0.0.1:${b.port}`));
 }

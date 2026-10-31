@@ -43,7 +43,7 @@ export function parseServerMsg(raw: unknown): ServerMsg | null {
       return isStr(m.id) && isStr(m.action) && isBool(m.ok) && isBool(m.dryRun) && isStr(m.message)
         && isNum(m.ms) && (m.error === undefined || isStr(m.error)) ? (m as unknown as ServerMsg) : null;
     case 'error':
-      return oneOf(m.code, ['bad_json', 'unknown_action', 'cooldown']) && isStr(m.message)
+      return oneOf(m.code, ['bad_json', 'unknown_action', 'cooldown', 'unpaired']) && isStr(m.message)
         && (m.id === undefined || isStr(m.id)) ? (m as unknown as ServerMsg) : null;
     default:
       return null;
@@ -70,7 +70,7 @@ export function parseServerFrame(raw: unknown): ServerFrame {
 export function parseClientMsg(raw: unknown): ClientMsg | null {
   const m = toObj(raw);
   if (!m || m.type !== 'action') return null;
-  return isStr(m.id) && isStr(m.action) && isStr(m.label) && isNum(m.confidence) ? (m as unknown as ClientMsg) : null;
+  return isStr(m.id) && isStr(m.action) && isStr(m.label) && isNum(m.confidence) && isStr(m.token) ? (m as unknown as ClientMsg) : null;
 }
 
 /** Returns a list of problems. Empty list means valid. */
@@ -93,6 +93,7 @@ export function validateDataset(x: unknown): string[] {
     else if (!labels.has(c.label)) errs.push(`clips[${i}] unknown label ${c.label}`);
     if (!isNum(c.rep) || !isNum(c.pressT) || !isNum(c.releaseT) || !isNum(c.padSec)) errs.push(`clips[${i}] numbers missing`);
     if (!isStr(c.startedAt)) errs.push(`clips[${i}] startedAt missing`);
+    if (c.loc !== undefined && !oneOf(c.loc, ['left', 'right', 'default', 'unknown'])) errs.push(`clips[${i}] loc invalid`);
     if (!isObj(c.quality) || !isNum(c.quality.gapPct) || !isNum(c.quality.nSamples)) errs.push(`clips[${i}] quality missing`);
     if (!Array.isArray(c.samples) || c.samples.length === 0 || !c.samples.every(isMotionSample))
       errs.push(`clips[${i}] samples invalid`);

@@ -109,6 +109,16 @@ const store = { // localStorage throws for visitors who block site data
 };
 app.bus.on('hello', () => { if (app.source?.kind === 'live') store.set(LIVE_FLAG, '1'); });
 
+// Pairing: the Mac app opens this page with #pair=<token>. Keep it, then remove it from the address bar.
+const PAIR_KEY = 'ss.pair';
+const pairMatch = /(?:^#|&)pair=([0-9a-f]{16,128})(?:&|$)/i.exec(location.hash);
+if (pairMatch) {
+  store.set(PAIR_KEY, pairMatch[1].toLowerCase());
+  store.set(LIVE_FLAG, '1'); // came from the Mac app: probe live next time too
+  history.replaceState(null, '', location.pathname + location.search);
+}
+app.pairToken = store.get(PAIR_KEY);
+
 async function pickSource() {
   const forced = params.mode as SourceKind | undefined;
   if (forced && app.sources.has(forced)) return app.setSource(forced, params);

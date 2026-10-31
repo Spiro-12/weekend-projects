@@ -17,12 +17,12 @@ Mac → browser:
 | `status` | every 1 s + on change | `headphones (connected/disconnected/unavailable), auth (authorized/denied/notDetermined/restricted), loc (left/right/default/unknown), hz, gapPct, clients, armed, simulated` |
 | `motion` | every sample (~25 to 50 Hz, whatever the AirPods give; not batched) | `seq, t, q[w,x,y,z], rr[3] rad/s, ua[3] g, g?[3]` |
 | `actionResult` | reply to `action` | `id, action, ok, dryRun, message, error?, ms` |
-| `error` | bad request | `code (bad_json/unknown_action/cooldown), message, id?` |
+| `error` | bad request | `code (bad_json/unknown_action/cooldown/unpaired), message, id?` |
 
 Browser → Mac:
 | type | fields |
 |---|---|
-| `action` | `id, action, label, confidence` |
+| `action` | `id, action, label, confidence, token` |
 
 Rules:
 - `seq` goes up by 1 per sample. A jump = dropped samples. `t` = `CMLogItem.timestamp` (seconds since boot). Simulate mode uses `ProcessInfo.processInfo.systemUptime` (same clock) and keeps `seq` counting.
@@ -34,6 +34,7 @@ Rules:
   - Origin (header name compared case insensitively) must be one of `https://spiro-12.github.io`, `http://localhost:5173`, `http://localhost:4173`, `http://127.0.0.1:5173`, `http://127.0.0.1:4173`. Others are rejected at the handshake.
   - **Missing Origin is rejected** unless the app's "Allow non browser clients" dev toggle is on (off by default).
   - "Armed" is off by default.
+- **Pairing (Phase 2):** on first launch the Mac app creates `~/.silentspeech/token` (32 random lowercase hex, file mode 0600). Its "Open dashboard" link is `https://spiro-12.github.io/weekend-projects/01-silent-speech/?mode=live#pair=<token>`. The dashboard stores the token in `localStorage['ss.pair']`, removes the hash from the address bar, and sends it as `token` in every `action`. The Mac app compares it in constant time; a wrong or empty token → `error unpaired` (checked before anything else about the action). Motion streaming needs no token. The token never goes in git or chat.
 - `action` must be in `hello.actions`. Not armed → reply `ok:true, dryRun:true`, do nothing. Cooldown per action: 3 s, but **30 s for actions that message people** (`text_mom`, `call_back`, `help`) → `error cooldown`.
 - **The Mac replies to every `action` within 1 s.** Long actions (e.g. `calendar`) reply right away with `ok:true, message:"Working on it"` and finish in the background.
 - The mock bridge (`tests/mock-bridge.ts`) follows all of this and says `app: "MockBridge"` in `hello`. Tests that send actions must check that first, so they can never fire the real Mac app.
@@ -50,12 +51,16 @@ One file per recording sitting, saved to `data/raw/`.
     "quality": { "gapPct": 0, "nSamples": 78 }, "samples": [ /* MotionSample */ ] }] }
 ```
 `clip.session` overrides the file's `session` (lets one file hold several sessions, like the synthetic fixture). Samples span `pressT - padSec` to `releaseT + padSec`.
+**`clip.loc`** (optional, Phase 2): which bud had the sensor for this clip (`status.loc` at record time). Missing → use the file's `device.loc`. The Record panel writes it on export.
+
+**Exclusion list** `data/raw/exclude.json`: `{ "format": "ss-exclude", "v": 1, "reason": "...", "ids": ["<clip id>", ...] }`. Every training and evaluation script takes `--exclude <file>` and skips those clip ids. Raw recordings are never edited.
 
 ## 4. Replay file `ss-session` v1
 Continuous recording for visitor replay: `hello, status, samples[], events[] (ptt / prediction / action), truth[] {t0, t1, label}`. Replay re runs the current model on each push to talk window and marks it right or wrong against `truth`.
 
 ## 5. Preprocessing spec v1 (JS and Python must match exactly)
 Input clips have at least 10 samples (shorter ones are rejected at recording).
+0. **Bud normalization** (`budNorm`, default `'mirror'`): if the clip's bud is `right` (`clip.loc`, else the dataset's `device.loc`; at predict time `ctx.loc` from `status.loc`), mirror every sample into the left-bud frame: `rr → [rr.x, −rr.y, −rr.z]`, `ua → [−ua.x, ua.y, ua.z]` (a sagittal reflection: ua is a vector, rr a pseudo vector). `left`, `default`, `unknown` → unchanged. `'none'` turns this off. (Real data: right-bud s1 on a left-bud model 34% raw → 63% mirrored.)
 `hz` in datasets/status is the measured input rate (25 or 50). Preprocessing doesn't depend on it.
 1. **Uniform grid at `GRID_HZ = 50`:** sort by `t`, drop duplicate `t`. Grid `t_k = t_0 + k/50` for `k = 0 .. floor((t_last - t_0) * 50 + 1e-9)` (includes the last point when it lands on the grid). Linear interpolation per channel. (50 Hz because the first real test showed AirPods Pro 3 stream at ~50 Hz; 25 Hz input just gets upsampled, which is harmless.)
 2. **Channels** `rr.x rr.y rr.z ua.x ua.y ua.z` (configurable, in that order).
@@ -68,6 +73,7 @@ Input clips have at least 10 samples (shorter ones are rejected at recording).
 ## 6. Classifier (`web/src/ml/index.ts`)
 - DTW: dependent multivariate (one warp path for all channels), squared Euclidean local cost summed over channels, Sakoe-Chiba band radius `r = max(1, floor(band × L + 0.5))` (default band 0.1 → r = 6 at L = 64). Returns the total accumulated cost (no normalization).
 - kNN, default **k = 1** (with only 5 to 15 reps per class, voting over 3 neighbours hurt: first real AirPods data 71% → 94% with k = 1; synthetic LOSO 96.7% → 98.3%). Distance weighted when k > 1. `confidence` in [0, 1] and must drop when a clip is far from every template (not only relative to other classes), so small or partial models don't accept random motion. `top` = up to 3 labels by score. `accepted = label !== 'none' && confidence >= threshold` (default 0.5, tuned in Phase 2).
+- `predict(samples, ctx?)`: `ctx.loc` is the streaming bud (the shell passes `status.loc`); used by bud normalization.
 - API: `train(clips, opts) → DtwKnnModel`, `loadModel(json)`, `evaluate(clips, opts, 'loo'|'loso') → Metrics`, `preprocess`, `dtw`. Any other winning model implements the same `Classifier` interface.
 - Datasets are merged and **deduplicated by clip `id`** before training or evaluation (JS and Python).
 - `Metrics` (also written by Python) → `ml/results/<model>/<protocol>.json`: `model, protocol, nClips, labels, accuracy, macroF1, confusion (rows true, cols predicted), noneFalseAcceptRate, params, inferMsPerClip, generatedAt`.

@@ -129,7 +129,7 @@ export class MemoryClipStore implements ClipStore {
       device: { ...meta.device },
       hz: meta.hz,
       classes: meta.classes.map((c) => ({ ...c })),
-      clips: this.clips.filter(filter).map((c) => ({ ...c, session: c.session ?? meta.session })),
+      clips: this.clips.filter(filter).map((c) => ({ ...c, session: c.session ?? meta.session, loc: c.loc ?? this.meta(c.id)?.device.loc })),
     };
   }
 

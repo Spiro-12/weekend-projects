@@ -110,4 +110,25 @@ describe('App push to talk', () => {
     expect(app.counts.clip).toBe(1);
     err.mockRestore();
   });
+
+  it('actions carry the pairing token (empty when unpaired)', async () => {
+    const app = new App(classes as ClassDef[], createStore());
+    const seen: string[] = [];
+    app.source = { kind: 'live', start: async () => {}, stop: () => {}, sendAction: async (r) => { seen.push(r.token); return { type: 'actionResult', id: r.id, action: r.action, ok: true, dryRun: true, message: '', ms: 0 }; } };
+    await app.sendAction({ action: 'volume_up', label: 'volume_up', confidence: 0.9 });
+    app.pairToken = 'abcdef0123456789abcdef0123456789';
+    await app.sendAction({ action: 'volume_up', label: 'volume_up', confidence: 0.9 });
+    expect(seen).toEqual(['', 'abcdef0123456789abcdef0123456789']);
+  });
+
+  it('predict gets the streaming bud from status', () => {
+    const app = new App(classes as ClassDef[], createStore());
+    const ctxs: unknown[] = [];
+    app.setModel({ name: 'x', labels: ['a'], predict: (_s, ctx) => { ctxs.push(ctx); return { label: 'a', confidence: 1, accepted: true, top: [], ms: 0 }; } });
+    app.setMode('classify');
+    app.bus.emit('status', { type: 'status', headphones: 'connected', auth: 'authorized', loc: 'right', hz: 50, gapPct: 0, clients: 1, armed: false, simulated: false });
+    const synth = new MotionSynth(9);
+    feed(app, synth, 0, 1); app.ptt(true); feed(app, synth, 1, 2); app.ptt(false); feed(app, synth, 2, 3);
+    expect(ctxs).toEqual([{ loc: 'right' }]);
+  });
 });

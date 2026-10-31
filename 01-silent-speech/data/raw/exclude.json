@@ -1,0 +1,25 @@
+{
+ "format": "ss-exclude",
+ "v": 1,
+ "reason": "Spiro mouthed the words 'stay still' during these 'none' takes (old prompt wording), so they contain speech. All of s1's none takes and s2 takes #3, #13, #17 by recording order. Found by jaw band energy (sentence level, not still or nod level) and confirmed by Spiro.",
+ "ids": [
+  "s1-mvw4a78w-9",
+  "s1-mvw4cj78-y",
+  "s1-mvw4dbas-18",
+  "s1-mvw4e2h0-1i",
+  "s1-mvw4fq3r-26",
+  "s1-mvw4h6sp-2q",
+  "s1-mvw4i65j-34",
+  "s1-mvw4j0sz-3g",
+  "s1-mvw4ka3n-3w",
+  "s1-mvw4l8oj-48",
+  "s1-mvw4mw49-4w",
+  "s1-mvw4o3cn-5c",
+  "s1-mvw4phmg-5u",
+  "s1-mvw4radj-66",
+  "s1-mvw4s6fl-6g",
+  "s2-mvw4v0h7-70",
+  "s2-mvw4wozp-7k",
+  "s2-mvw4xa22-7s"
+ ]
+}

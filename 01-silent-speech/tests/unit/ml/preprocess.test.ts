@@ -95,7 +95,7 @@ describe('preprocess', () => {
   });
 
   it('resolves defaults and rejects bad options', () => {
-    expect(resolveOpts()).toEqual({ channels: DEFAULT_CHANNELS, L: 64, hpHz: 1, band: 0.1, k: 1, norm: 'global', threshold: 0.5 });
+    expect(resolveOpts()).toEqual({ channels: DEFAULT_CHANNELS, L: 64, hpHz: 1, band: 0.1, k: 1, norm: 'global', threshold: 0.5, budNorm: 'mirror' });
     expect(() => resolveOpts({ L: 1 })).toThrow();
     expect(() => resolveOpts({ k: 0 })).toThrow();
     expect(() => resolveOpts({ channels: [] })).toThrow();

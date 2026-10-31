@@ -234,7 +234,7 @@ class EnrollPanel {
     return this.app.store.all().filter((c) => chosen.includes(c.label) && this.sourceOf(c) === this.source);
   }
   private sentence(id: string) { return this.app.classes.find((c) => c.id === id)?.sentence ?? id; }
-  private label(id: string) { return id === NONE ? 'Stay still (no sentence)' : this.sentence(id); }
+  private label(id: string) { return id === NONE ? 'Mouth closed (say nothing)' : this.sentence(id); }
 
   private save() {
     try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.s)); } catch { /* storage blocked: settings just won't stick */ }

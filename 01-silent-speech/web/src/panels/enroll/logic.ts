@@ -162,7 +162,7 @@ export const shortLabel = (id: string) => id.split('_')[0].slice(0, 5);
 
 /** What the person should see as the prompt for a class. */
 export function promptText(id: string, sentence: string): string {
-  return id === NONE ? 'Stay still. Maybe swallow or nod.' : sentence;
+  return id === NONE ? "Keep your mouth closed and still. Don't say anything." : sentence;
 }
 
 // ---------- dataset helpers ----------

@@ -147,7 +147,7 @@ test('no answer: times out after 5 s, and a duplicate request id is refused with
     const t0 = Date.now();
     const [first, dup] = await page.evaluate(() => {
       const src = window.__ss.app.source!;
-      const req = { type: 'action' as const, id: 'same-id', action: 'volume_up', label: 'volume_up', confidence: 0.9 };
+      const req = { type: 'action' as const, id: 'same-id', action: 'volume_up', label: 'volume_up', confidence: 0.9, token: '' };
       return Promise.all([src.sendAction!(req), src.sendAction!(req)]);
     });
     expect(dup).toMatchObject({ ok: false, error: 'duplicate_id', id: 'same-id' });

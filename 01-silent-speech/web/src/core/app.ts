@@ -89,6 +89,8 @@ export class App {
   fakeLabel: string | null = null;
   lastHello: HelloMsg | null = null;
   lastStatus: StatusMsg | null = null;
+  /** Pairing token for actions (from the Mac app's #pair= link, kept in localStorage by the shell). */
+  pairToken: string | null = null;
   ring: MotionSample[] = [];
   pttDown = false;
   private pressT: number | null = null; // null = pressed before any sample arrived
@@ -174,7 +176,7 @@ export class App {
     this.bus.emit('clip', clip);
     if (this.mode === 'classify' && this.model) {
       try {
-        const pred = this.model.predict(samples);
+        const pred = this.model.predict(samples, { loc: this.lastStatus?.loc });
         this.bus.emit('prediction', { ...pred, clipId: clip.id });
       } catch (e) {
         console.error('[model] predict failed', e);
@@ -183,8 +185,8 @@ export class App {
   }
 
   /** Asks the source to run an action. Sources without sendAction get a simulated result. */
-  async sendAction(r: Omit<ActionRequestMsg, 'type' | 'id'>): Promise<ActionResultMsg> {
-    const req: ActionRequestMsg = { type: 'action', id: newId('act'), ...r };
+  async sendAction(r: Omit<ActionRequestMsg, 'type' | 'id' | 'token'>): Promise<ActionResultMsg> {
+    const req: ActionRequestMsg = { type: 'action', id: newId('act'), ...r, token: this.pairToken ?? '' };
     const res: ActionResultMsg = this.source?.sendAction
       ? await this.source.sendAction(req)
       : { type: 'actionResult', id: req.id, action: req.action, ok: true, dryRun: true, message: `Simulated: ${req.label}`, ms: 0 };

@@ -121,7 +121,7 @@ describe('train / predict', () => {
     const json = model.toJSON();
     expect(json.kind).toBe('dtw-knn');
     expect(json.v).toBe(1);
-    expect(json.opts).toEqual({ channels: ['rr.x', 'rr.y', 'rr.z', 'ua.x', 'ua.y', 'ua.z'], L: 64, hpHz: 1, band: 0.1, k: 1, norm: 'global', threshold: 0.5 });
+    expect(json.opts).toEqual({ channels: ['rr.x', 'rr.y', 'rr.z', 'ua.x', 'ua.y', 'ua.z'], L: 64, hpHz: 1, band: 0.1, k: 1, norm: 'global', threshold: 0.5, budNorm: 'mirror' });
     expect(json.norm.mean.length).toBe(6);
     expect(json.templates.length).toBe(80);
     expect(json.templates[0].x.length).toBe(6);
