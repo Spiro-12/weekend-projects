@@ -379,6 +379,10 @@ def _real_section(group: Sequence[dict[str, Any]], out_path: Path, ids: Sequence
     lucky = [m for m in by["loso"] if "permutation" in m["params"]]
     if lucky:
         lines += ["#### Luck test", "", *_luck_table(lucky, out_path)]
+        skipped = [m["model"] for m in by["loso"] if "permutation" not in m["params"] and m["model"] != "dtw-knn"]  # dtw-knn = dtw-py
+        if skipped:
+            lines += [f"Not run for {', '.join(skipped)} (each shuffle means retraining every fold; the cheap exact shortcut exists only for",
+                      "dtw-py and minirocket).", ""]
     if by["loo"]:
         lines += [
             "#### Leave one clip out",

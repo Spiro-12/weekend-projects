@@ -102,6 +102,7 @@ def test_real_section_comes_first_with_counts_buds_folds_xbud_and_luck(tmp_path)
     assert "| dtw-py | 30.0% (3/10) | 60.0% (6/10) | +30.0 |" in real
     assert "| dtw-py | 70.0% (7/10) | 12.0% (2.1) | 30.0% | 0 of 500 | 0.002 |" in real
     assert "![dtw-py luck test](results/dtw-py/luck_loso.png)" in real
+    assert "Not run for cnn (each shuffle" in real
     assert "#### Leave one clip out" in real and "| dtw-py | 90.0% (9/10) | " in real
     assert real.index("(the headline)") < real.index("#### Cross bud") < real.index("#### Luck test") < real.index("#### Leave one clip out")
     assert "Warning" not in md
