@@ -5,7 +5,6 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { buildReplay, DEFAULT_SEED, metaFor, pickTakes } from '../../scripts/build-replay';
 import { App, PAD_SEC, type ClipEvent } from '../../web/src/core/app';
 import type { ClassDef, Dataset, DatasetClip, MotionSample, Session } from '../../web/src/core/contracts';
-import { NONE } from '../../web/src/core/contracts';
 import { mulberry32 } from '../../web/src/core/rng';
 import { validateSession } from '../../web/src/core/validate';
 import type { ReplayMeta } from '../../web/src/sources/replay';
