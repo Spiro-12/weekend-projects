@@ -123,6 +123,7 @@ describe('decideAction: the strict rule', () => {
     const tokens = ['tok', '', null];
     const lasts = [null, NOW - 3000, NOW - 2999, NOW + 5, NaN];
     let n = 0, sent = 0;
+    const wrong: unknown[] = [];
     for (const mode of modes) for (const source of sources) for (const connOpen of [true, false])
     for (const h of hellos) for (const st of statuses) for (const ownModel of [true, false]) for (const pred of preds)
     for (const action of actions) for (const token of tokens) for (const lastSentAt of lasts) for (const inflight of [true, false]) {
@@ -144,12 +145,17 @@ describe('decideAction: the strict rule', () => {
       const firstFail = checks.find(([, pass]) => !pass)?.[0];
       const d = decideAction(x);
       n++;
-      if (!firstFail) { sent++; expect(d).toEqual({ send: true, action }); } else expect(d).toEqual({ send: false, reason: firstFail });
+      if (!firstFail) sent++;
+      const right = firstFail
+        ? d.send === false && d.reason === firstFail && Object.keys(d).length === 2
+        : d.send === true && d.action === action && Object.keys(d).length === 2;
+      if (!right && wrong.length < 5) wrong.push({ x, d, firstFail });
     }
+    expect(wrong).toEqual([]);
     expect(n).toBe(259_200);
     expect(sent).toBeGreaterThan(0);
     expect(BLOCK_REASONS).toHaveLength(12);
-  });
+  }, 60_000);
 });
 
 describe('ActionGuard: at most one send, 3 s apart, never a retry', () => {
