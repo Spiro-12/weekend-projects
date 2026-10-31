@@ -78,7 +78,7 @@ Input clips have at least 10 samples (shorter ones are rejected at recording).
 - `predict(samples, ctx?)`: `ctx.loc` is the streaming bud (the shell passes `status.loc`); used by bud normalization.
 - API: `train(clips, opts) → DtwKnnModel`, `loadModel(json)`, `evaluate(clips, opts, 'loo'|'loso') → Metrics`, `preprocess`, `dtw`. Any other winning model implements the same `Classifier` interface.
 - Datasets are merged and **deduplicated by clip `id`** before training or evaluation (JS and Python).
-- `Metrics` (also written by Python) → `ml/results/<model>/<protocol>.json`: `model, protocol, nClips, labels, accuracy, macroF1, confusion (rows true, cols predicted), noneFalseAcceptRate, params, inferMsPerClip, generatedAt`.
+- `Metrics` (also written by Python) → `ml/results/<model>/<protocol>.json` for real data (`protocol`: `loo`, `loso`, or `xbud` = train on one bud's sessions and test on the other bud's), `ml/results/<model>--<variant>/` for variants (e.g. `--phase1-settings`), `ml/results/synthetic/<model>/` for the synthetic fixture: `model, protocol, nClips, labels, accuracy, macroF1, confusion (rows true, cols predicted), noneFalseAcceptRate, params, inferMsPerClip, generatedAt`.
 
 ## 7. App shell (`web/src/core/app.ts`)
 - Panels: `web/src/panels/*.ts` default export `Panel { id, order, title, mount(el, app) }`. Auto mounted in `order`. Add class `wide` to `el.closest('.card')` for full width.
