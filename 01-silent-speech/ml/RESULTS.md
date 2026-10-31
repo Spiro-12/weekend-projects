@@ -7,9 +7,9 @@ fixture). Don't edit by hand. Rerun: `uv run python -m silent.bench --real --mod
 - **LOSO** = leave one session out (train on the other sessions, test on a new one: closest to real use, so the
   number that matters). **LOO** = leave one clip out. **Cross bud** = train on one AirPod, test on the other.
 - **None false accept** = share of true `none` clips the model accepted as an action (label is not `none` and
-  confidence >= the 0.5 threshold). Each model family has its own confidence scale (DTW: vote x separation,
-  MiniRocket: mapped ridge scores, CNN: softmax), so at a fixed 0.5 this column is **not comparable across
-  model families**.
+  confidence >= that row's threshold: DTW at its defaults 0.85; DTW Phase 1 settings, MiniRocket and CNN 0.5).
+  Each model family has its own confidence scale (DTW: vote x separation, MiniRocket: mapped ridge scores,
+  CNN: softmax), so this column is **not comparable across model families**.
 - **Infer ms** = per clip, preprocessing + predict, one clip at a time. `~` = rough (folds ran in parallel
   processes). JS (`dtw-knn`) is timed by its own runner. The machine was shared with other jobs: rough either way.
 - Norm stats and models are always fit on the training fold only; every test clip is predicted on its own.
@@ -41,21 +41,25 @@ Train on the other sessions, test on a whole new one: the closest thing to real 
 |---|---:|---:|---:|---:|---:|---:|---|---:|---:|
 | dtw-knn (JS) | 94.2% (322/342) | 0.939 | ? | ? | ? | no randomness | picked on these folds (sweep) | 0.0% (0/27) | 12.9 |
 | dtw-py | 94.2% (322/342) | 0.939 | 83.8% (88/105) | 97.4% (114/117) | 100.0% (120/120) | no randomness | picked on these folds (sweep) | 0.0% (0/27) | 93.9 |
+| **DTW, nested** (same settings search, test session left out) | **88.2% (301.5/342)** | | 67% | 96.6% | 98.3% | no randomness | chosen without the test session | | |
 | dtw-py (phase1-settings) | 81.9% (280/342) | 0.820 | 64.8% (68/105) | 94.0% (110/117) | 85.0% (102/120) | no randomness | fixed before this data | 3.7% (1/27) | 52.3 |
 | minirocket | 76.3% (261/342) | 0.776 | 49.5% (52/105) | 92.3% (108/117) | 84.2% (101/120) | 77.8% (76.3% to 79.8%) | fixed before this data | 0.0% (0/27) | 3.9 |
 | minirocket (L96-clip) | 84.8% (290/342) | 0.854 | 64.8% (68/105) | 95.7% (112/117) | 91.7% (110/120) | 85.4% (83.9% to 88.3%) | preprocessing from the DTW sweep | 3.7% (1/27) | 6.0 |
 | cnn | 76.6% (262/342) | 0.780 | 51.4% (54/105) | 91.5% (107/117) | 84.2% (101/120) | 77.3% (74.9% to 81.3%) | fixed before this data | 3.7% (1/27) | 2.1 |
 | cnn (L96-clip) | 79.2% (271/342) | 0.798 | 54.3% (57/105) | 92.3% (108/117) | 88.3% (106/120) | 80.8% (78.9% to 83.6%) | preprocessing from the DTW sweep | 3.7% (1/27) | 2.4 |
 
-**Settings picked on these folds:** the DTW defaults (L 96, band 0.05, k 3, clip norm, threshold 0.85) were chosen
-by a LOSO sweep of 768 configurations on these same 3 sessions (Track F, `web/src/ml/preprocess.ts`), so those
-rows are a little optimistic (the best of many tries). Rows marked *fixed before this data* had no such tuning.
-The honest check is a session that played no part in choosing anything (the s3 hold out replay of the public model).
+**Settings picked on these folds:** the DTW defaults (L 96, band 0.05, k 3, clip norm, threshold 0.85) were chosen by a
+LOSO sweep of 768 configurations over all 3 sessions (Track F, `web/src/ml/preprocess.ts`), so every session, s3
+included, was a test fold while they were picked (s3 is only held out of the public model's training). The honest
+DTW number is **88.2% (301.5/342) LOSO with settings chosen without the test
+session** (Track F review; PROTOCOL §6): per held out session s1 67%, s2 96.6%, s3 98.3%.
+94.2% when tuned on all three sessions is about 6 points optimistic. Rows marked *fixed before this data* had no tuning on these recordings.
 
 Accuracy is the first seed (0), fixed before the run. MiniRocket and the CNN are random (kernels, weights), so the
 seed column shows the same LOSO with other seeds: differences of a few points between models are within that spread.
 
-- Highest LOSO on `ss-dataset-s1-20261031-1621.json`, `ss-dataset-s2-20261031-1637.json`, `ss-dataset-s3-20261031-1654.json`: **dtw-knn (JS)** and **dtw-py** (tie), 322/342 correct (94.2%).
+- Highest LOSO with settings fixed before this data: **dtw-py (phase1-settings)**, 280/342 correct (81.9%).
+- Tuned DTW: 88.2% with settings chosen without the test session (the honest number) vs **minirocket (L96-clip)** at 84.8% (seeds 0 to 4: 83.9% to 88.3%): DTW's lead is within that model's seed noise.
 
 #### Cross bud
 
@@ -89,6 +93,9 @@ p value = (1 + shuffles that reached the real accuracy) / (shuffles + 1). Idea f
 ![dtw-py (phase1-settings) luck test](results/dtw-py--phase1-settings/luck_loso.png)
 
 ![minirocket luck test](results/minirocket/luck_loso.png)
+
+The luck test shows the models are far above chance. It does not measure tuning optimism: the tuned 94.2% and the untuned 81.9% DTW both get
+p = 0.002. For that, see the nested 88.2% above.
 
 Not run for minirocket (L96-clip), cnn, cnn (L96-clip) (each shuffle means retraining every fold; the cheap exact shortcut exists only for
 dtw-py and minirocket).

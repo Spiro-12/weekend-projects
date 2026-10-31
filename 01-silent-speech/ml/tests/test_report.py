@@ -63,7 +63,7 @@ def test_synthetic_only_banner_counts_and_comparable_cross_check(tmp_path):
     real, synth = md.split("## Synthetic fixture (not real AirPods data)")
     assert "## Real AirPods data" in real and "No real data results yet" in real and "synthetic*" not in real
     assert synth.strip().startswith("> **Synthetic fixture, not real AirPods data.**")
-    assert "not comparable across\n  model families" in md
+    assert "not comparable across model families" in md and "DTW at its defaults 0.85" in md
     rows = [ln for ln in synth.splitlines() if ln.startswith(("| dtw", "| cnn", "| minirocket"))][:4]
     assert [r.split("|")[1].strip() for r in rows] == ["dtw-knn", "dtw-py", "minirocket", "cnn"]  # JS first, then ours
     assert "| dtw-knn | LOSO | 90.0% (9/10) | 0.899 | 0.0% | 2.0 | `dataset.synthetic.json` (*synthetic*) |" in md  # reads JS `datasets`
@@ -98,7 +98,7 @@ def test_real_section_comes_first_with_counts_buds_folds_xbud_and_luck(tmp_path)
     assert "| Model | Accuracy | Macro F1 | test s1 (right bud) | test s2 (left bud) | Settings | None false accept | Infer ms/clip |" in real
     assert "| dtw-py | 70.0% (7/10) | " in real and " | 80.0% (4/5) | 60.0% (3/5) | fixed before this data | 20.0% (1/5) | 2.0 |" in real
     assert "Settings picked on these folds" not in real  # Phase 1 DTW settings (REAL): no sweep note
-    assert "- Highest LOSO on `s1.json`, `s2.json`: **cnn**, 8/10 correct (80.0%)." in real
+    assert "- Highest LOSO with settings fixed before this data: **cnn**, 8/10 correct (80.0%)." in real
     assert "Train on every left bud clip (s2), test on every right bud clip (s1)." in real
     assert "| dtw-py | 30.0% (3/10) | 60.0% (6/10) | +30.0 |" in real
     assert "| dtw-py | 70.0% (7/10) | 12.0% (2.1) | 30.0% | 0 of 500 | 0.002 |" in real
@@ -212,3 +212,35 @@ def test_js_exclusion_by_name_and_count():
     assert report.exclusion_problem(m, IDS, "other.json") == "made with a different exclusion list"
     m0 = fake("dtw-knn", "loso", 9, {**JS_SYNTH, "datasets": ["s1.json"]})
     assert report.exclusion_problem(m0, IDS) == "made without the exclusion list"
+
+
+def test_tuned_dtw_sits_next_to_the_nested_number_and_is_not_crowned(tmp_path):
+    from silent.report import NESTED_DTW
+
+    data = {**REAL, "datasets": NESTED_DTW["datasets"], "data": [f"data/raw/{x}" for x in NESTED_DTW["datasets"]],
+            "buds": {"s1": "right", "s2": "left", "s3": "left"},
+            "perSession": {"s1": {"correct": 88, "n": 105}, "s2": {"correct": 114, "n": 117}, "s3": {"correct": 120, "n": 120}}}
+    swept = {**data, "L": 96, "band": 0.05, "k": 3, "norm": "clip", "threshold": 0.85,
+             "permutation": {"n": 500, "nClips": 342, "realCorrect": 322, "realAccuracy": 322 / 342, "shuffledMean": 0.125, "shuffledStd": 0.03,
+                             "shuffledMin": 0.05, "shuffledMax": 0.23, "atLeastReal": 0, "pValue": 1 / 501, "shuffledCorrectHistogram": {"40": 500}}}
+    phase1 = {**data, "variant": "phase1-settings",
+              "permutation": {**swept["permutation"], "realCorrect": 280, "realAccuracy": 280 / 342}}
+    spread = {"seeds": [0, 1, 2, 3, 4], "correct": [290, 287, 294, 302, 287], "nClips": 342, "mean": 0.854, "min": 287 / 342, "max": 302 / 342}
+    mr = {**data, "L": 96, "norm": "clip", "variant": "L96-clip", "seedSpread": spread}
+    md = build(tmp_path, [
+        fake("dtw-py", "loso", 322, swept, n=342),
+        fake("dtw-py", "loso", 280, phase1, n=342),
+        fake("minirocket", "loso", 290, mr, n=342),
+    ], ex_file(tmp_path))
+    rows = md.splitlines()
+    i = next(k for k, ln in enumerate(rows) if ln.startswith("| dtw-py | 94.2% (322/342)"))
+    assert rows[i + 1].startswith("| **DTW, nested** (same settings search, test session left out) | **88.2% (301.5/342)** |")
+    assert "| 67% | 96.6% | 98.3% |" in rows[i + 1]
+    assert "s3 is only held out of the public model's training" in md and "played no part" not in md
+    assert "per held out session s1 67%, s2 96.6%, s3 98.3%." in md and "94.2% when tuned on all three sessions is about 6 points" in md
+    assert "- Highest LOSO with settings fixed before this data: **dtw-py (phase1-settings)**, 280/342 correct (81.9%)." in md
+    assert "**dtw-py** (" not in md.split("Highest LOSO")[1].split("\n")[0]  # the tuned row is never crowned
+    assert ("- Tuned DTW: 88.2% with settings chosen without the test session (the honest number) vs **minirocket (L96-clip)** at 84.8% "
+            "(seeds 0 to 4: 83.9% to 88.3%): DTW's lead is within that model's seed noise.") in md
+    assert "It does not measure tuning optimism: the tuned 94.2% and the untuned 81.9% DTW both get" in md
+    assert "p = 0.002. For that, see the nested 88.2% above." in md

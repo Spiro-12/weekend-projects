@@ -144,6 +144,12 @@ def _ms(m: dict[str, Any]) -> str:
 # Track F picked the JS defaults (web/src/ml/preprocess.ts DEFAULT_OPTS) with a LOSO sweep of 768 configurations on
 # Spiro's 3 real sessions, so a DTW result at exactly these settings on that data is a little optimistic.
 SWEPT_DTW = {"L": 96, "band": 0.05, "k": 3, "norm": "clip"}
+# The honest DTW number for that data (Track F review, PROTOCOL §6): nested LOSO, i.e. for each held out session the
+# settings (sweep + threshold) were chosen on the other two sessions only. Shown next to the swept rows.
+NESTED_DTW = {
+    "datasets": ["ss-dataset-s1-20261031-1621.json", "ss-dataset-s2-20261031-1637.json", "ss-dataset-s3-20261031-1654.json"],
+    "accuracy": 0.882, "correct": "301.5", "nClips": 342, "perSession": {"s1": "67%", "s2": "96.6%", "s3": "98.3%"},
+}
 
 
 def _variant(m: dict[str, Any]) -> str | None:
@@ -301,6 +307,36 @@ def _seeds(m: dict[str, Any]) -> str:
     return f"{_pct(sp['mean'])} ({_pct(sp['min'])} to {_pct(sp['max'])})"
 
 
+def _nested(rows: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
+    """NESTED_DTW when these LOSO rows include DTW at the swept settings on exactly that data."""
+    hit = any(_swept(m) and datasets(m) == sorted(NESTED_DTW["datasets"]) and m["nClips"] == NESTED_DTW["nClips"] for m in rows)
+    return NESTED_DTW if hit else None
+
+
+def _highest_loso(rows: Sequence[dict[str, Any]]) -> list[str]:
+    """Highest LOSO among rows with settings fixed before this data (nothing picked on these folds, not even borrowed
+    preprocessing); tuned rows are only compared through their honest nested number."""
+    fair = [m for m in rows if _settings_origin(m) == "fixed before this data"]
+    lines = []
+    if fair:
+        top = max(correct(m) for m in fair)
+        winners = [m for m in fair if correct(m) == top]
+        names = " and ".join(f"**{_model(m)}**" for m in winners) + (" (tie)" if len(winners) > 1 else "")
+        lines.append(f"- Highest LOSO with settings fixed before this data: {names}, {top}/{winners[0]['nClips']} correct "
+                     f"({_pct(winners[0]['accuracy'])}).")
+    nested = _nested(rows)
+    if nested:
+        borrowed = [m for m in rows if _settings_origin(m) == "preprocessing from the DTW sweep" and m["params"].get("seedSpread")]
+        best = max(borrowed, key=lambda m: m["params"]["seedSpread"]["max"], default=None)
+        line = f"- Tuned DTW: {_pct(nested['accuracy'])} with settings chosen without the test session (the honest number)"
+        if best is not None:
+            sp = best["params"]["seedSpread"]
+            line += (f" vs **{_model(best)}** at {_pct(best['accuracy'])} (seeds {sp['seeds'][0]} to {sp['seeds'][-1]}: "
+                     f"{_pct(sp['min'])} to {_pct(sp['max'])}): DTW's lead is within that model's seed noise")
+        lines.append(line + ".")
+    return lines
+
+
 def _loso_table(rows: Sequence[dict[str, Any]], cols: Sequence[tuple[str, str]]) -> list[str]:
     seeds = next((m["params"]["seedSpread"]["seeds"] for m in rows if m["params"].get("seedSpread")), None)
     seed_col = [f"Seeds {seeds[0]} to {seeds[-1]}: mean (range)"] if seeds else []
@@ -309,6 +345,7 @@ def _loso_table(rows: Sequence[dict[str, Any]], cols: Sequence[tuple[str, str]])
         + "".join(f"{c} | " for c in seed_col) + "Settings | None false accept | Infer ms/clip |"
     )
     lines = [head, "|---|---:|---:|" + "---:|" * (len(cols) + len(seed_col)) + "---|---:|---:|"]
+    nested = _nested(rows)
     for m in rows:
         per = m["params"].get("perSession") or {}
         cells = [_frac(per[s]["correct"], per[s]["n"]) if s in per else "?" for s, _ in cols] + ([_seeds(m)] if seeds else [])
@@ -316,13 +353,30 @@ def _loso_table(rows: Sequence[dict[str, Any]], cols: Sequence[tuple[str, str]])
             f"| {_model(m)} | {_frac(correct(m), m['nClips'])} | {m['macroF1']:.3f} | " + " | ".join(cells)
             + f" | {_settings_origin(m)} | {_nfa(m)} | {_ms(m)} |"
         )
-    if any(_swept(m) for m in rows):
+        if nested and m is [r for r in rows if _swept(r)][-1]:  # the honest number right under the tuned DTW rows
+            ncells = [nested["perSession"].get(s, "?") for s, _ in cols] + (["no randomness"] if seeds else [])
+            lines.append(
+                f"| **DTW, nested** (same settings search, test session left out) | **{_pct(nested['accuracy'])} ({nested['correct']}/"
+                f"{nested['nClips']})** | | " + " | ".join(ncells) + " | chosen without the test session | | |"
+            )
+    if nested:
+        tuned = next(m for m in rows if _swept(m))
         lines += [
             "",
-            "**Settings picked on these folds:** the DTW defaults (L 96, band 0.05, k 3, clip norm, threshold 0.85) were chosen",
-            "by a LOSO sweep of 768 configurations on these same 3 sessions (Track F, `web/src/ml/preprocess.ts`), so those",
-            "rows are a little optimistic (the best of many tries). Rows marked *fixed before this data* had no such tuning.",
-            "The honest check is a session that played no part in choosing anything (the s3 hold out replay of the public model).",
+            "**Settings picked on these folds:** the DTW defaults (L 96, band 0.05, k 3, clip norm, threshold 0.85) were chosen by a",
+            "LOSO sweep of 768 configurations over all 3 sessions (Track F, `web/src/ml/preprocess.ts`), so every session, s3",
+            "included, was a test fold while they were picked (s3 is only held out of the public model's training). The honest",
+            f"DTW number is **{_pct(nested['accuracy'])} ({nested['correct']}/{nested['nClips']}) LOSO with settings chosen without the test",
+            "session** (Track F review; PROTOCOL §6): per held out session "
+            + ", ".join(f"{k} {v}" for k, v in nested["perSession"].items()) + ".",
+            (f"{_pct(tuned['accuracy'])} when tuned on all three sessions is about {100 * (tuned['accuracy'] - nested['accuracy']):.0f} points"
+             " optimistic. Rows marked *fixed before this data* had no tuning on these recordings."),
+        ]
+    elif any(_swept(m) for m in rows):
+        lines += [
+            "",
+            "**Settings picked on these folds:** the DTW defaults (L 96, band 0.05, k 3, clip norm, threshold 0.85) were chosen by a",
+            "LOSO sweep over these same sessions (Track F), so those rows are optimistic (the best of many tries).",
         ]
     if seeds:
         lines += [
@@ -419,7 +473,7 @@ def _real_section(group: Sequence[dict[str, Any]], out_path: Path, ids: Sequence
             "Train on the other sessions, test on a whole new one: the closest thing to real use. Each test column is one fold.",
             "",
             *_loso_table(by["loso"], _session_cols(by["loso"])),
-            *_highest(by["loso"], ("loso",)),
+            *_highest_loso(by["loso"]),
             "",
         ]
     if by["xbud"]:
@@ -427,6 +481,17 @@ def _real_section(group: Sequence[dict[str, Any]], out_path: Path, ids: Sequence
     lucky = [m for m in by["loso"] if "permutation" in m["params"]]
     if lucky:
         lines += ["#### Luck test", "", *_luck_table(lucky, out_path)]
+        tuned = [m for m in lucky if _swept(m)]
+        fixed = [m for m in lucky if m["model"] == "dtw-py" and not _swept(m)]
+        if tuned:
+            both = f"the tuned {_pct(tuned[0]['accuracy'])}" + (f" and the untuned {_pct(fixed[0]['accuracy'])}" if fixed else "")
+            ps = sorted({f"{m['params']['permutation']['pValue']:.3f}" for m in tuned + fixed})
+            nested = _nested(by["loso"])
+            lines += [
+                f"The luck test shows the models are far above chance. It does not measure tuning optimism: {both} DTW both get",
+                f"p = {' / '.join(ps)}." + (f" For that, see the nested {_pct(nested['accuracy'])} above." if nested else ""),
+                "",
+            ]
         skipped = [_model(m) for m in by["loso"] if "permutation" not in m["params"] and m["model"] != "dtw-knn"]  # dtw-knn = dtw-py
         if skipped:
             lines += [f"Not run for {', '.join(skipped)} (each shuffle means retraining every fold; the cheap exact shortcut exists only for",
@@ -460,9 +525,9 @@ def render(
         "- **LOSO** = leave one session out (train on the other sessions, test on a new one: closest to real use, so the",
         "  number that matters). **LOO** = leave one clip out. **Cross bud** = train on one AirPod, test on the other.",
         "- **None false accept** = share of true `none` clips the model accepted as an action (label is not `none` and",
-        "  confidence >= the 0.5 threshold). Each model family has its own confidence scale (DTW: vote x separation,",
-        "  MiniRocket: mapped ridge scores, CNN: softmax), so at a fixed 0.5 this column is **not comparable across",
-        "  model families**.",
+        "  confidence >= that row's threshold: DTW at its defaults 0.85; DTW Phase 1 settings, MiniRocket and CNN 0.5).",
+        "  Each model family has its own confidence scale (DTW: vote x separation, MiniRocket: mapped ridge scores,",
+        "  CNN: softmax), so this column is **not comparable across model families**.",
         "- **Infer ms** = per clip, preprocessing + predict, one clip at a time. `~` = rough (folds ran in parallel",
         "  processes). JS (`dtw-knn`) is timed by its own runner. The machine was shared with other jobs: rough either way.",
         "- Norm stats and models are always fit on the training fold only; every test clip is predicted on its own.",
