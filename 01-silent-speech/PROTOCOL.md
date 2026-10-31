@@ -7,7 +7,8 @@ Source of truth for types: `web/src/core/contracts.ts`. Validators: `web/src/cor
 ## 1. Classes
 `shared/classes.json`: `[{ id, sentence, action }]`. Ids are fixed; sentence wording can change. `none` has `action: null`.
 
-## 2. WebSocket (`ws://localhost:8765`, JSON text frames)
+## 2. WebSocket (`ws://127.0.0.1:8765`, JSON text frames)
+The Mac app binds **IPv4 loopback only** (127.0.0.1:8765), so the dashboard defaults to `ws://127.0.0.1:8765` (not `localhost`, which may resolve to ::1 first).
 
 Mac → browser:
 | type | when | fields |
