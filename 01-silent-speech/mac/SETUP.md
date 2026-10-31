@@ -255,12 +255,15 @@ Script for Spiro while testing: "Keep both AirPods in. You'll hear a sentence, t
 calendar, and get 3 texts from yourself. After each one, tell me yes or no: did it happen?" For 4, also ask what he
 heard and whether it matches his calendar; for 7, whether he heard the alert and saw the red notice.
 
-**Help (row 7) must be impossible to miss:** the app comes to the front, its window opens (even if it was closed),
-a floating red "Silent Speech: help" panel shows above every other window, and the Dock icon bounces. Ask Spiro
-whether he saw the floating panel without looking for it. Dismiss in the panel or the window clears both.
+**Help (row 7) must be impossible to miss, without taking the focus:** a floating red "Silent Speech: help" panel
+shows above every other window (it never takes the focus, so push to talk in the dashboard keeps working), the Dock
+icon bounces, and the app's window shows the notice too when it is open. Ask Spiro whether he saw the floating panel
+without looking for it. Dismiss in the panel or the window clears both and stops the bouncing.
 
-**Claude Code's auto mode** may block `fire-action.ts` with "[Real-World Transactions]". That block is right: these
-commands really act. Switch to Ask mode and let Spiro approve the command by clicking; never work around the block.
+**If Claude Code pauses `fire-action.ts`** with "[Real-World Transactions]" (auto mode), that pause is right: these
+commands really act. It is a one click step for Spiro; tell him exactly: "Claude Code paused this command for safety.
+Click Approve, or switch to Ask mode in the session's permission menu and approve it." Claude never changes the
+permission mode or works around the pause itself.
 
 **P7. Disarm and finish.** Relaunch without Armed (step 3: Armed is off at every launch), then
 `npx tsx mac/fire-action.ts --action volume_up` must say `dry run`. Report every row of P6 to the lead (reply text,

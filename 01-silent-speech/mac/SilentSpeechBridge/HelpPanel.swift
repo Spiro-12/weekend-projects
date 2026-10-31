@@ -1,5 +1,6 @@
 // The help notice as a floating panel above every app's windows and on every Space, so it can't be missed even when
 // the app's own window is behind other windows or closed. Not modal: nothing waits for it, the server keeps running.
+// Non activating: showing it or clicking Dismiss never takes the focus from the dashboard in Chrome.
 import AppKit
 import SwiftUI
 
@@ -26,7 +27,7 @@ final class HelpPanel {
         let hosting = NSHostingView(rootView: HelpPanelView(runner: runner))
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 180),
-            styleMask: [.titled, .utilityWindow],
+            styleMask: [.titled, .utilityWindow, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -34,6 +35,7 @@ final class HelpPanel {
         panel.level = .statusBar // above the normal and floating windows of every app
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = true // a click on Dismiss does not make it the key window
         panel.isReleasedWhenClosed = false
         panel.contentView = hosting
         panel.setContentSize(hosting.fittingSize)

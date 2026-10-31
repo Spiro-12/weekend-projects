@@ -41,7 +41,6 @@ private struct MainWindowContent: View {
         ContentView(motion: bridge.motion, server: bridge.server, runner: bridge.runner, pairing: bridge.pairing, log: bridge.log)
             .onAppear {
                 let open = openWindow
-                bridge.openMainWindow = { open(id: "main") }
                 appDelegate.onReopen = { open(id: "main") }
             }
             .onDisappear {
@@ -57,9 +56,8 @@ final class BridgeModel: ObservableObject {
     let runner: ActionRunner
     let motion: MotionStreamer
     let server: WebSocketServer
-    /// Opens (or brings forward) the main window, also after it was closed. Set by the window when it appears.
-    var openMainWindow: (() -> Void)?
     private let helpPanel: HelpPanel
+    private var helpAttention: Int?
     private var activity: NSObjectProtocol?
 
     init() {
@@ -77,17 +75,20 @@ final class BridgeModel: ObservableObject {
         // they run, so switching Armed off cancels them.
         runner.isArmed = { [weak server] in server?.armed ?? false }
         runner.armedGeneration = { [weak server] in server?.armedGeneration ?? -1 }
-        // Help must be impossible to miss: the app comes forward, its window opens, a floating panel shows on top of
-        // everything, and the Dock icon bounces. Dismiss (window or panel) hides the panel.
+        // Help must be impossible to miss, without taking the focus from the dashboard (push to talk keeps working):
+        // a floating panel on top of everything that never activates the app, the Dock icon bouncing, and the
+        // notice in the window. Dismiss (window or panel) hides the panel and stops the bouncing.
         let helpPanel = HelpPanel(runner: runner)
         self.helpPanel = helpPanel
         runner.onHelpNotice = { [weak self] raised in
             guard let self = self else { return }
+            if let request = self.helpAttention {
+                NSApplication.shared.cancelUserAttentionRequest(request)
+                self.helpAttention = nil
+            }
             if raised {
-                NSApplication.shared.activate()
-                self.openMainWindow?()
                 self.helpPanel.show()
-                NSApplication.shared.requestUserAttention(.criticalRequest)
+                self.helpAttention = NSApplication.shared.requestUserAttention(.criticalRequest)
             } else {
                 self.helpPanel.hide()
             }

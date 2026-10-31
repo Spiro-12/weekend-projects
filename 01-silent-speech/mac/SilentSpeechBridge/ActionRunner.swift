@@ -241,11 +241,24 @@ final class ActionRunner: ObservableObject {
         if action == "help" { setHelpDetail("The text did not go out: cancelled (\(why))") }
     }
 
-    /// One armed request on its way through background steps.
-    struct Ticket {
+    /// One armed request on its way through background steps. A class on purpose: every pending step of the
+    /// request (each scheduled closure) holds it, so it goes away only when the whole sequence has ended, and then
+    /// `deinit` runs `onEnd` (on the main queue). prepareApp uses that to keep the app busy until the very end.
+    final class Ticket {
         let action: String
         let generation: Int
         let started: TimeInterval
+        var onEnd: (() -> Void)?
+
+        init(action: String, generation: Int, started: TimeInterval) {
+            self.action = action
+            self.generation = generation
+            self.started = started
+        }
+
+        deinit {
+            if let onEnd = onEnd { DispatchQueue.main.async(execute: onEnd) }
+        }
     }
 
     private func makeTicket(_ action: String) -> Ticket {
@@ -356,7 +369,7 @@ final class ActionRunner: ObservableObject {
             NSSound.beep()
         }
         helpNotice = HelpNotice(time: Date(), detail: "")
-        NSApplication.shared.activate()
+        // No activate(): the dashboard in Chrome must keep the focus (push to talk). The floating panel shows anyway.
         onHelpNotice?(true)
         log.add("Help: alert sound played, notice shown in the window and a floating panel")
     }
@@ -377,21 +390,21 @@ final class ActionRunner: ObservableObject {
 
     /// Gets another app ready for AppleScript without blocking the main thread: opens it with NSWorkspace if it
     /// is not running, then asks for the Automation permission on a background queue (the popup waits there; motion
-    /// and status keep flowing). While this runs the app counts as waited on (`someoneWaits`). Calls `ready` on the
+    /// and status keep flowing). The app counts as busy (`someoneWaits`) until the request's whole sequence has
+    /// ended (the ticket is gone: see `Ticket`), so two sequences for one app never overlap. Calls `ready` on the
     /// main queue only when the permission is given and the request may still run (`mayRun`); otherwise logs why not.
     private func prepareApp(_ ticket: Ticket, bundleID: String, appName: String, launchWait: TimeInterval,
                             ready: @escaping () -> Void) {
         let action = ticket.action
         let since = ProcessInfo.processInfo.systemUptime
         waitingApps[bundleID] = since
-        let finish: () -> Void = { [weak self] in
+        ticket.onEnd = { [weak self] in
             if self?.waitingApps[bundleID] == since { self?.waitingApps[bundleID] = nil }
         }
         let askPermission: () -> Void = { [weak self] in
             DispatchQueue.global(qos: .userInitiated).async {
                 let permission = Automation.askPermission(bundleID)
                 DispatchQueue.main.async {
-                    finish()
                     guard let self = self else { return }
                     switch permission {
                     case .allowed:
@@ -414,7 +427,6 @@ final class ActionRunner: ObservableObject {
             return
         }
         guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
-            finish()
             logFailed(action, "\(appName) is not installed on this Mac")
             return
         }
@@ -426,15 +438,11 @@ final class ActionRunner: ObservableObject {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if let problem = problem {
-                    finish()
                     self.logFailed(action, "Could not open \(appName): \(problem)")
                     return
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + launchWait) {
-                    guard self.mayRun(ticket) else {
-                        finish()
-                        return
-                    }
+                    guard self.mayRun(ticket) else { return }
                     askPermission()
                 }
             }
@@ -671,16 +679,17 @@ final class ActionRunner: ObservableObject {
                     self.logFailed(action, failure.explained(app: "Spotify"))
                     return
                 }
-                // Check that it really plays (Spotify ignores play when nobody is logged in). Read only.
+                // Check that it really plays (Spotify ignores play when nobody is logged in). Read only. Uses the
+                // ticket, so Spotify stays busy until this check is done.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                     guard let self = self else { return }
                     switch ActionRunner.runScript(state) {
                     case .success(let text) where text == "playing":
-                        self.logDone(action, "Spotify is playing")
+                        self.logDone(ticket.action, "Spotify is playing")
                     case .success(let text):
-                        self.logFailed(action, "Spotify did not start (player state: \(logSafeName(text))). Is Spotify logged in?")
+                        self.logFailed(ticket.action, "Spotify did not start (player state: \(logSafeName(text))). Is Spotify logged in?")
                     case .failure(let failure):
-                        self.logFailed(action, failure.explained(app: "Spotify"))
+                        self.logFailed(ticket.action, failure.explained(app: "Spotify"))
                     }
                 }
             }
