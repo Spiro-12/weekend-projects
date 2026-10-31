@@ -117,6 +117,7 @@ export class DtwKnn implements DtwKnnModel {
   private pushFlat(label: string, x: Float32Array): void {
     if (typeof label !== 'string' || !label) throw new Error('ml: template without a label');
     if (x.length !== this.opts.L * this.C) throw new Error('ml: template has the wrong shape');
+    for (let i = 0; i < x.length; i++) if (!Number.isFinite(x[i])) throw new Error('ml: template has a non finite value');
     this.tpl.push({ label, x });
     this.nnSame.push(Infinity);
     if (this.nnKnown) this.linkNearest(this.tpl.length - 1);

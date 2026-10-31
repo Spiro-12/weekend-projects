@@ -16,6 +16,8 @@ Made by `uv run python -m silent.report` from `ml/results/*/*.json`. Don't edit 
 
 | Model | Protocol | Accuracy | Macro F1 | None false accept | Infer ms/clip | Data |
 |---|---|---:|---:|---:|---:|---|
+| dtw-knn | LOO | 98.3% (118/120) | 0.984 | 0.0% | 1.6 | `dataset.synthetic.json` (*synthetic*) |
+| dtw-knn | LOSO | 98.3% (118/120) | 0.984 | 0.0% | 1.1 | `dataset.synthetic.json` (*synthetic*) |
 | dtw-py | LOO | 98.3% (118/120) | 0.984 | 0.0% | 13.6 | `dataset.synthetic.json` (*synthetic*) |
 | dtw-py | LOSO | 98.3% (118/120) | 0.984 | 0.0% | 7.1 | `dataset.synthetic.json` (*synthetic*) |
 | minirocket | LOO | 98.3% (118/120) | 0.983 | 0.0% | 2.9 | `dataset.synthetic.json` (*synthetic*) |
@@ -23,16 +25,49 @@ Made by `uv run python -m silent.report` from `ml/results/*/*.json`. Don't edit 
 | cnn | LOO | 98.3% (118/120) | 0.984 | 0.0% | 1.0 | `dataset.synthetic.json` (*synthetic*) |
 | cnn | LOSO | 97.5% (117/120) | 0.975 | 0.0% | 0.6 | `dataset.synthetic.json` (*synthetic*) |
 
-- Highest LOO on `dataset.synthetic.json`: **dtw-py** and **minirocket** and **cnn** (tie), 118/120 correct (98.3%).
+- Highest LOO on `dataset.synthetic.json`: **dtw-knn** and **dtw-py** and **minirocket** and **cnn** (tie), 118/120 correct (98.3%).
 - Highest LOSO on `dataset.synthetic.json`: **minirocket**, 119/120 correct (99.2%).
 
 ## JS vs Python DTW cross check
 
-Needs both `results/dtw-knn/` (JS, `scripts/eval-dtw.ts`) and `results/dtw-py/` for the same protocol.
+Same data and the same settings (L, band, k, norm, channels, hpHz, threshold) are checked first.
+
+| Protocol | Data | Accuracy JS | Accuracy Python | Gap (points) | None FA JS | None FA Python | Within 5? |
+|---|---|---:|---:|---:|---:|---:|---|
+| LOO | `dataset.synthetic.json` | 98.3% | 98.3% | 0.0 | 0.0% | 0.0% | yes, same confusion matrix |
+| LOSO | `dataset.synthetic.json` | 98.3% | 98.3% | 0.0 | 0.0% | 0.0% | yes, same confusion matrix |
 
 ## Confusion matrices
 
 Rows = true label, columns = predicted.
+
+### dtw-knn
+
+**LOO**
+
+| true \ pred | calendar | call_back | demo_48h | focus_music | help | none | text_mom | volume_up |
+|---|---|---|---|---|---|---|---|---|
+| **calendar** | 15 | . | . | . | . | . | . | . |
+| **call_back** | . | 15 | . | . | . | . | . | . |
+| **demo_48h** | . | . | 15 | . | . | . | . | . |
+| **focus_music** | . | . | . | 15 | . | . | . | . |
+| **help** | . | . | . | . | 14 | 1 | . | . |
+| **none** | . | . | . | . | . | 15 | . | . |
+| **text_mom** | . | . | . | . | . | . | 15 | . |
+| **volume_up** | . | . | . | . | . | 1 | . | 14 |
+
+**LOSO**
+
+| true \ pred | calendar | call_back | demo_48h | focus_music | help | none | text_mom | volume_up |
+|---|---|---|---|---|---|---|---|---|
+| **calendar** | 15 | . | . | . | . | . | . | . |
+| **call_back** | . | 15 | . | . | . | . | . | . |
+| **demo_48h** | . | . | 15 | . | . | . | . | . |
+| **focus_music** | . | . | . | 15 | . | . | . | . |
+| **help** | . | . | . | . | 14 | 1 | . | . |
+| **none** | . | . | . | . | . | 15 | . | . |
+| **text_mom** | . | . | . | . | . | . | 15 | . |
+| **volume_up** | . | . | . | . | . | 1 | . | 14 |
 
 ### dtw-py
 

@@ -48,7 +48,11 @@ export function twoNearestSameClass(labels: string[], raws: Float64Array[][], o:
 /**
  * Every held out prediction, in clip order (after dedupe).
  * exactLoo: rebuild each LOO fold's dRef from scratch (slow, O(N^3); for tests). LOSO is always exact.
+ * Small sets (<= EXACT_LOO_MAX clips) always use the exact path: it is cheap there and the shortcut's
+ * confidence error is largest on tiny data (up to ~0.1 on a 15 clip pilot at L = 48).
  */
+export const EXACT_LOO_MAX = 60;
+
 export function crossValidate(clips: Clip[], opts: DtwKnnOptions, protocol: 'loo' | 'loso', exactLoo = false): FoldResult[] {
   const o = resolveOpts(opts);
   const cs = dedupeById(clips);
@@ -59,7 +63,7 @@ export function crossValidate(clips: Clip[], opts: DtwKnnOptions, protocol: 'loo
   // Steps 1..4 don't depend on the fold, so run them once. Step 5 (norm) is refit per fold.
   const raws = cs.map((c) => preprocessRaw(c.samples, o));
   const labels = cs.map((c) => c.label);
-  const near = protocol === 'loo' && !exactLoo ? twoNearestSameClass(labels, raws, o) : null;
+  const near = protocol === 'loo' && !exactLoo && cs.length > EXACT_LOO_MAX ? twoNearestSameClass(labels, raws, o) : null;
   const out: FoldResult[] = new Array(cs.length);
   const foldNn = new Float64Array(cs.length);
   for (const f of folds) {
