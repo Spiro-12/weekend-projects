@@ -3,7 +3,9 @@
 import AVFoundation
 import Foundation
 
-final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
+// The macOS 26 SDK makes AVSpeechSynthesizerDelegate imply Sendable. @unchecked is honest here: every stored
+// property is only touched on the main queue (speak is called there, the delegate callbacks hop there).
+final class Speaker: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable {
     private let synthesizer = AVSpeechSynthesizer()
     /// Utterances that are queued or speaking, with what to call when each one ends (true = spoken to the end).
     private var waiting: [(utterance: AVSpeechUtterance, then: (Bool) -> Void)] = []
