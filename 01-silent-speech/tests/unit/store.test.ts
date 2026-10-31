@@ -233,7 +233,7 @@ describe('per clip meta (source, subject, device, hz saved at record time)', () 
   it('import takes the meta from the file header', () => {
     const s = new MemoryClipStore();
     s.load(tiny);
-    expect(s.meta(tiny.clips[0].id)).toEqual({ source: 'fake', subject: 'synthetic', device: tiny.device, hz: 25 });
+    expect(s.meta(tiny.clips[0].id)).toEqual({ source: 'fake', subject: 'synthetic', device: tiny.device, hz: 25, origin: 'imported' });
   });
 
   it('export aggregates it into the header and keeps it out of the clips', () => {
