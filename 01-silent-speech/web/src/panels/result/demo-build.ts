@@ -11,8 +11,9 @@ const defaultWorker = () => new Worker(new URL('./demo-worker.ts', import.meta.u
 
 /** Never rejects. */
 export function buildDemoModelJSON(
-  classes: ClassDef[], o: { makeWorker?: () => Worker; timeoutMs?: number } = {},
+  classes: ClassDef[], o: { makeWorker?: () => Worker; timeoutMs?: number; build?: typeof buildDemoJSON } = {},
 ): Promise<DemoBuilt> {
+  const build = o.build ?? buildDemoJSON; // tests pass a cheap one
   return new Promise((resolve) => {
     let w: Worker | null = null;
     let done = false;
@@ -25,7 +26,7 @@ export function buildDemoModelJSON(
     };
     const inline = (why: string, e?: unknown) => {
       console.warn(`[result] demo model worker ${why}; building it on the main thread`, e ?? '');
-      setTimeout(() => { if (!done) finish(buildDemoJSON(classes), 'main'); }, 0);
+      setTimeout(() => { if (!done) finish(build(classes), 'main'); }, 0);
     };
     const timer = setTimeout(() => inline('did not answer'), o.timeoutMs ?? DEMO_TIMEOUT_MS);
     try {

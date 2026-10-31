@@ -2,7 +2,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { Mode, PressContext, SourceKind } from '../../web/src/core/app';
-import type { ActionResultMsg, ClassDef, Dataset, DatasetClip, HelloMsg, MotionSample, StatusMsg } from '../../web/src/core/contracts';
+import type {
+  ActionResultMsg, ClassDef, Dataset, DatasetClip, DtwKnnModelJSON, HelloMsg, MotionSample, StatusMsg,
+} from '../../web/src/core/contracts';
 import { fakeStatus } from '../../web/src/core/synth';
 import { MotionSynth } from '../../web/src/core/synth';
 import * as ml from '../../web/src/ml/index';
@@ -155,23 +157,25 @@ describe('decideAction: the strict rule', () => {
         mode, source, press: pr, connSerial: SERIAL, panelConn, connOpen, hello: h, status: st, ownModel, pred, action, token,
         now: NOW, lastSentAt, inflight,
       };
-      const checks: [BlockReason, boolean][] = [
-        ['not-accepted', pred.accepted && pred.label !== 'none' && Number.isFinite(pred.confidence)],
-        ['no-action', !!action],
-        ['not-recognize', mode === 'classify'],
-        ['press-mode', pr?.mode === 'classify'],
-        ['not-live', source === 'live'],
-        ['press-changed', pr?.source === 'live' && pr.conn === SERIAL && panelConn.atPress === panelConn.now],
-        ['not-connected', connOpen && st !== null && h !== null],
-        ['simulated', st?.simulated === false && pr?.simulated === false],
-        ['not-armed', st?.armed === true],
-        ['not-own-model', ownModel],
-        ['not-offered', !!action && !!h && h.actions.includes(action)],
-        ['unpaired', !!token],
-        ['busy', !inflight],
-        ['too-soon', lastSentAt === null || NOW - lastSentAt >= 3000],
-      ];
-      const firstFail = checks.find(([, pass]) => !pass)?.[0];
+      // The brief, check by check, in order (early returns keep 344k cases fast).
+      const oracle = (): BlockReason | undefined => {
+        if (!(pred.accepted && pred.label !== 'none' && Number.isFinite(pred.confidence))) return 'not-accepted';
+        if (!action) return 'no-action';
+        if (mode !== 'classify') return 'not-recognize';
+        if (pr?.mode !== 'classify') return 'press-mode';
+        if (source !== 'live') return 'not-live';
+        if (!(pr.source === 'live' && pr.conn === SERIAL && panelConn.atPress === panelConn.now)) return 'press-changed';
+        if (!(connOpen && st !== null && h !== null)) return 'not-connected';
+        if (!(st.simulated === false && pr.simulated === false)) return 'simulated';
+        if (st.armed !== true) return 'not-armed';
+        if (!ownModel) return 'not-own-model';
+        if (!h.actions.includes(action)) return 'not-offered';
+        if (!token) return 'unpaired';
+        if (inflight) return 'busy';
+        if (!(lastSentAt === null || NOW - lastSentAt >= 3000)) return 'too-soon';
+        return undefined;
+      };
+      const firstFail = oracle();
       const d = decideAction(x);
       n++;
       if (!firstFail) sent++;
@@ -500,7 +504,7 @@ describe('model source', () => {
         postMessage(m) {
           const { classes: cs } = m as { classes: ClassDef[] };
           setTimeout(() => {
-            if (behave === 'answer') w.onmessage?.({ data: buildDemoJSON(cs) } as MessageEvent);
+            if (behave === 'answer') w.onmessage?.({ data: cheap(cs) } as MessageEvent);
             if (behave === 'error') w.onerror?.(new Event('error'));
           }, 5);
         },
@@ -509,6 +513,7 @@ describe('model source', () => {
       return w;
     };
     const asWorker = (f: Fake) => () => f as unknown as Worker;
+    const cheap = (cs: ClassDef[]) => ({ ok: true as const, json: { kind: 'dtw-knn', v: 1, labels: cs.map((c) => c.id) } as unknown as DtwKnnModelJSON, n: 1 });
 
     it('pure build: a loadable model with every class', () => {
       const r = buildDemoJSON(classes);
@@ -524,12 +529,14 @@ describe('model source', () => {
       expect(f.terminated).toBe(true);
     });
     it('falls back to the main thread if the worker fails, does not answer, or cannot start', async () => {
-      expect(await buildDemoModelJSON(classes, { makeWorker: asWorker(fakeWorker('error')) })).toMatchObject({ ok: true, where: 'main' });
+      const build = cheap;
+      expect(await buildDemoModelJSON(classes, { makeWorker: asWorker(fakeWorker('error')), build })).toMatchObject({ ok: true, where: 'main' });
       const silent = fakeWorker('silent');
-      expect(await buildDemoModelJSON(classes, { makeWorker: asWorker(silent), timeoutMs: 30 })).toMatchObject({ ok: true, where: 'main' });
+      expect(await buildDemoModelJSON(classes, { makeWorker: asWorker(silent), timeoutMs: 30, build })).toMatchObject({ ok: true, where: 'main' });
       expect(silent.terminated).toBe(true);
-      expect(await buildDemoModelJSON(classes, { makeWorker: () => { throw new Error('blocked'); } })).toMatchObject({ ok: true, where: 'main' });
-      expect(await buildDemoModelJSON(classes)).toMatchObject({ ok: true, where: 'main' }); // node: no Worker at all
+      expect(await buildDemoModelJSON(classes, { makeWorker: () => { throw new Error('blocked'); }, build })).toMatchObject({ ok: true, where: 'main' });
+      const real = await buildDemoModelJSON(classes); // node: no Worker at all, the real build on the main thread
+      expect(real).toMatchObject({ ok: true, where: 'main', n: classes.length * DEMO_REPS });
     });
   });
 
