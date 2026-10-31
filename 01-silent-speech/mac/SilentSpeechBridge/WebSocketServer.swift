@@ -1,5 +1,5 @@
-// WebSocket server on ws://localhost:8765, PROTOCOL.md §2.
-// Loopback only, Origin allowlist, hello + status on connect, status every 1 s, motion per sample,
+// WebSocket server on ws://127.0.0.1:8765, PROTOCOL.md §2.
+// Bound to 127.0.0.1 only, Origin allowlist, hello + status on connect, status every 1 s, motion per sample,
 // action requests answered within 1 s. All Network.framework callbacks run on the main queue.
 import Foundation
 import Network
@@ -30,10 +30,15 @@ final class WebSocketServer: ObservableObject {
     static let maxFramesInFlight = 500
     /// PROTOCOL §2: the Mac replies to every action within 1 s.
     static let replyDeadline: TimeInterval = 0.8
+    /// While the port can't be opened, try again this often.
+    static let retryInterval: TimeInterval = 2
+    /// An approved handshake must turn into a ready connection within this time.
+    static let approvalLifetime: TimeInterval = 5
 
     private final class Client {
         let connection: NWConnection
         var ready = false
+        var closing = false
         var framesInFlight = 0
         init(connection: NWConnection) {
             self.connection = connection
@@ -53,6 +58,10 @@ final class WebSocketServer: ObservableObject {
     private var clients: [ObjectIdentifier: Client] = [:]
     private var lastRun: [String: TimeInterval] = [:] // per action, shared by all connections
     private var statusTimer: Timer?
+    private var retryScheduled = false
+    /// One entry per handshake the Origin check approved. Each ready connection uses one up;
+    /// a connection that becomes ready without one is cancelled (fail closed).
+    private var approvals: [TimeInterval] = []
 
     private static let loopbackV4 = IPv4Address("127.0.0.1")?.rawValue
     private static let loopbackV6 = IPv6Address("::1")?.rawValue
@@ -82,7 +91,7 @@ final class WebSocketServer: ObservableObject {
         openListener()
     }
 
-    /// For the Retry button after the port could not be opened.
+    /// For the Retry button. While the port can't be opened, the server also retries every 2 s by itself.
     func restart() {
         listener?.cancel()
         listener = nil
@@ -101,17 +110,20 @@ final class WebSocketServer: ObservableObject {
             return NWProtocolWebSocket.Response(status: status, subprotocol: nil)
         }
 
+        guard let port = NWEndpoint.Port(rawValue: ProtocolV1.port) else { return }
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
         params.requiredInterfaceType = .loopback
+        // Bind to 127.0.0.1 only (not every interface), so nothing outside this Mac can even reach the port.
+        params.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(IPv4Address.loopback), port: port)
         params.defaultProtocolStack.applicationProtocols.insert(ws, at: 0)
 
-        guard let port = NWEndpoint.Port(rawValue: ProtocolV1.port) else { return }
         let newListener: NWListener
         do {
-            newListener = try NWListener(using: params, on: port)
+            newListener = try NWListener(using: params)
         } catch {
-            setListening(false, "Could not open port \(ProtocolV1.port): \(error)")
+            setListening(false, "Could not open port \(ProtocolV1.port): \(error). Retrying every 2 s.")
+            scheduleRetry()
             return
         }
         newListener.stateUpdateHandler = { [weak self, weak newListener] state in
@@ -129,21 +141,32 @@ final class WebSocketServer: ObservableObject {
     private func listenerChanged(_ state: NWListener.State) {
         switch state {
         case .ready:
-            setListening(true, "Listening on ws://localhost:\(ProtocolV1.port)")
+            setListening(true, "Listening on ws://127.0.0.1:\(ProtocolV1.port)")
         case .failed(let error):
             if case .posix(let code) = error, code == .EADDRINUSE {
-                setListening(false, "Port \(ProtocolV1.port) is in use. Quit the other copy of the app, then press Retry.")
+                setListening(false, "Port \(ProtocolV1.port) is in use. Quit the other copy of the app. Retrying every 2 s.")
             } else {
-                setListening(false, "Server stopped: \(error). Press Retry.")
+                setListening(false, "Server stopped: \(error). Retrying every 2 s.")
             }
             listener?.cancel()
             listener = nil
+            scheduleRetry()
         case .waiting(let error):
             setListening(false, "Waiting for port \(ProtocolV1.port): \(error)")
         case .cancelled:
             setListening(false, "Server stopped. Press Retry.")
         default:
             break
+        }
+    }
+
+    private func scheduleRetry() {
+        guard !retryScheduled else { return }
+        retryScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + WebSocketServer.retryInterval) { [weak self] in
+            guard let self = self else { return }
+            self.retryScheduled = false
+            if self.listener == nil { self.openListener() }
         }
     }
 
@@ -155,8 +178,15 @@ final class WebSocketServer: ObservableObject {
 
     // MARK: Security
 
-    /// Runs during the WebSocket handshake. Origin must be on the allowlist; no Origin only with the dev toggle on.
+    /// Runs during the WebSocket handshake. Records each approval so `.ready` can insist on one.
     private func shouldAccept(headers: [(name: String, value: String)]) -> Bool {
+        let accept = originAllowed(headers: headers)
+        if accept { approvals.append(ProcessInfo.processInfo.systemUptime) }
+        return accept
+    }
+
+    /// Origin must be on the allowlist; no Origin only with the dev toggle on.
+    private func originAllowed(headers: [(name: String, value: String)]) -> Bool {
         let originHeader = headers.first(where: { $0.name.lowercased() == "origin" })
         guard let header = originHeader else {
             if allowNonBrowserClients {
@@ -172,7 +202,16 @@ final class WebSocketServer: ObservableObject {
         return false
     }
 
-    /// Belt and braces on top of requiredInterfaceType = .loopback: only 127.0.0.1 and ::1.
+    /// Uses up one handshake approval (if there is a fresh one).
+    private func takeApproval() -> Bool {
+        let cutoff = ProcessInfo.processInfo.systemUptime - WebSocketServer.approvalLifetime
+        approvals.removeAll(where: { $0 < cutoff })
+        guard !approvals.isEmpty else { return false }
+        approvals.removeFirst()
+        return true
+    }
+
+    /// Belt and braces on top of the 127.0.0.1 bind and .loopback interface: only 127.0.0.1 and ::1.
     static func isLoopback(_ endpoint: NWEndpoint) -> Bool {
         guard case .hostPort(let host, _) = endpoint else { return false }
         if case .ipv4(let address) = host {
@@ -207,8 +246,13 @@ final class WebSocketServer: ObservableObject {
     private func connectionChanged(_ client: Client, state: NWConnection.State) {
         switch state {
         case .ready:
-            // The WebSocket handshake (and the Origin check) passed.
             guard !client.ready else { return }
+            // Fail closed: only a handshake that went through the Origin check may become a client.
+            guard takeApproval() else {
+                log.add("Blocked a connection: handshake not checked")
+                client.connection.cancel()
+                return
+            }
             client.ready = true
             updateClientCount()
             log.add("Dashboard connected (\(clientCount) open)")
@@ -256,7 +300,7 @@ final class WebSocketServer: ObservableObject {
             }
             let meta = context?.protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata
             if let meta = meta, meta.opcode == .close {
-                client.connection.cancel()
+                self.replyToClose(client)
                 return
             }
             if let data = data, !data.isEmpty, let meta = meta, meta.opcode == .text || meta.opcode == .binary {
@@ -267,6 +311,23 @@ final class WebSocketServer: ObservableObject {
                 return
             }
             self.receive(on: client)
+        }
+    }
+
+    /// The browser sent a close frame: answer with a close frame (RFC 6455 §5.5.1), then hang up.
+    private func replyToClose(_ client: Client) {
+        guard !client.closing else { return }
+        client.closing = true
+        let meta = NWProtocolWebSocket.Metadata(opcode: .close)
+        meta.closeCode = .protocolCode(.normalClosure)
+        let context = NWConnection.ContentContext(identifier: "close", metadata: [meta])
+        let connection = client.connection
+        connection.send(content: nil, contentContext: context, isComplete: true, completion: .contentProcessed({ _ in
+            connection.cancel()
+        }))
+        // In case the send never completes.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            connection.cancel()
         }
     }
 
@@ -382,7 +443,7 @@ final class WebSocketServer: ObservableObject {
     }
 
     private func send(_ text: String, to client: Client) {
-        guard client.ready else { return }
+        guard client.ready && !client.closing else { return }
         if client.framesInFlight > WebSocketServer.maxFramesInFlight {
             client.ready = false
             updateClientCount()

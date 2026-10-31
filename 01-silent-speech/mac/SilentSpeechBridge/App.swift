@@ -38,6 +38,21 @@ final class BridgeModel: ObservableObject {
         )
         motion.start()
         server.start()
+        applyLaunchOptions(ProcessInfo.processInfo.arguments)
+    }
+
+    /// Read once at startup, so setup can run without clicking: `open SilentSpeechBridge.app --args --simulate`.
+    /// `--simulate` turns on Simulate motion; `--allow-no-origin` turns on "Allow non browser clients" (dev).
+    /// There is deliberately no option that arms actions: Armed is only ever switched on by hand.
+    private func applyLaunchOptions(_ arguments: [String]) {
+        if arguments.contains("--simulate") {
+            log.add("Launch option --simulate")
+            motion.simulate = true
+        }
+        if arguments.contains("--allow-no-origin") {
+            log.add("Launch option --allow-no-origin")
+            server.allowNonBrowserClients = true
+        }
     }
 }
 
