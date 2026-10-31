@@ -12,8 +12,8 @@
     "text_mom",
     "volume_up"
   ],
-  "accuracy": 0.9833333333333333,
-  "macroF1": 0.9835668103448276,
+  "accuracy": 1.0,
+  "macroF1": 1.0,
   "confusion": [
     [
       15,
@@ -60,8 +60,8 @@
       0,
       0,
       0,
-      14,
-      1,
+      15,
+      0,
       0,
       0
     ],
@@ -91,9 +91,9 @@
       0,
       0,
       0,
-      1,
       0,
-      14
+      0,
+      15
     ]
   ],
   "noneFalseAcceptRate": 0.0,
@@ -106,15 +106,15 @@
       "ua.y",
       "ua.z"
     ],
-    "L": 64,
+    "L": 96,
     "hpHz": 1.0,
-    "norm": "global",
+    "norm": "clip",
     "budNorm": "mirror",
     "gridHz": 50,
-    "threshold": 0.5,
-    "band": 0.1,
-    "k": 1,
-    "radius": 6,
+    "threshold": 0.85,
+    "band": 0.05,
+    "k": 3,
+    "radius": 5,
     "weights": "1/(d+1e-9)",
     "confidence": "vote x separation (knn.ts): softmax T=0.1 dRef, unknown at 1.7 dRef, stillness at 1.25 sum(q^2)",
     "data": [
@@ -151,7 +151,7 @@
         "n": 40
       },
       "s2": {
-        "correct": 38,
+        "correct": 40,
         "n": 40
       },
       "s3": {
@@ -161,8 +161,8 @@
     },
     "jobs": 3,
     "timing": "rough: 3 processes in parallel",
-    "evalSec": 15.49
+    "evalSec": 32.24
   },
-  "inferMsPerClip": 45.32665738335405,
-  "generatedAt": "2026-10-31T10:39:49.335Z"
+  "inferMsPerClip": 83.71562625011393,
+  "generatedAt": "2026-10-31T12:20:11.011Z"
 }

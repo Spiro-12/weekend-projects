@@ -12,64 +12,64 @@
     "text_mom",
     "volume_up"
   ],
-  "accuracy": 0.8918128654970761,
-  "macroF1": 0.8941267060929443,
+  "accuracy": 0.9619883040935673,
+  "macroF1": 0.9620269744250354,
   "confusion": [
     [
-      34,
+      44,
+      0,
+      0,
+      0,
+      0,
       0,
       1,
-      1,
-      2,
-      0,
-      7,
       0
     ],
     [
+      0,
+      44,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0
+    ],
+    [
+      0,
       0,
       43,
       0,
+      0,
+      0,
+      0,
+      2
+    ],
+    [
+      0,
       1,
+      0,
+      43,
       1,
       0,
       0,
       0
     ],
     [
-      4,
-      0,
-      32,
+      1,
       2,
-      4,
-      0,
-      3,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      42,
-      1,
-      0,
-      2,
-      0
-    ],
-    [
-      1,
-      1,
       0,
       0,
       42,
       0,
       0,
-      1
+      0
     ],
     [
-      1,
-      0,
       0,
       1,
+      1,
+      0,
       0,
       25,
       0,
@@ -82,17 +82,17 @@
       0,
       0,
       0,
-      44,
-      1
+      45,
+      0
     ],
     [
+      1,
       0,
       0,
       0,
-      2,
       0,
       0,
-      0,
+      1,
       43
     ]
   ],
@@ -106,15 +106,15 @@
       "ua.y",
       "ua.z"
     ],
-    "L": 64,
+    "L": 96,
     "hpHz": 1.0,
-    "norm": "global",
+    "norm": "clip",
     "budNorm": "mirror",
     "gridHz": 50,
-    "threshold": 0.5,
-    "band": 0.1,
-    "k": 1,
-    "radius": 6,
+    "threshold": 0.85,
+    "band": 0.05,
+    "k": 3,
+    "radius": 5,
     "weights": "1/(d+1e-9)",
     "confidence": "vote x separation (knn.ts): softmax T=0.1 dRef, unknown at 1.7 dRef, stillness at 1.25 sum(q^2)",
     "data": [
@@ -173,22 +173,22 @@
     "folds": 342,
     "perSession": {
       "s1": {
-        "correct": 83,
+        "correct": 95,
         "n": 105
       },
       "s2": {
-        "correct": 109,
+        "correct": 114,
         "n": 117
       },
       "s3": {
-        "correct": 113,
+        "correct": 120,
         "n": 120
       }
     },
     "jobs": 3,
     "timing": "rough: 3 processes in parallel",
-    "evalSec": 460.48
+    "evalSec": 1071.41
   },
-  "inferMsPerClip": 203.22637434502045,
-  "generatedAt": "2026-10-31T10:37:09.981Z"
+  "inferMsPerClip": 300.44148928355054,
+  "generatedAt": "2026-10-31T12:38:12.710Z"
 }

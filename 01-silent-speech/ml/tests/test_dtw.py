@@ -146,11 +146,9 @@ def test_matches_js_dtw_knn_clip_by_clip(synthetic):
     import json
     from pathlib import Path
 
-    from silent.bench import run_fold
+    from silent.bench import default_opts, run_fold
     from silent.cv import splits
     from silent.preprocess import preprocess_clip
-
-    from silent.bench import default_opts
 
     snap = json.loads((Path(__file__).parent / "data" / "js_dtw_knn_loso.json").read_text())
     assert snap["opts"] == {}  # JS defaults = dtw-py defaults
@@ -174,11 +172,9 @@ def test_matches_js_dtw_knn_on_real_data_with_bud_mirroring(real_smoke):
     import json
     from pathlib import Path
 
-    from silent.bench import run_fold
+    from silent.bench import default_opts, run_fold
     from silent.cv import splits
     from silent.preprocess import preprocess_clip
-
-    from silent.bench import default_opts
 
     js = json.loads((Path(__file__).parent / "data" / "js_dtw_knn_real_smoke_loso.json").read_text())
     assert js["opts"] == {}  # JS defaults = dtw-py defaults (L 96, band 0.05, k 3, clip norm, threshold 0.85, budNorm mirror)

@@ -381,7 +381,7 @@ def _luck_table(rows: Sequence[dict[str, Any]], out_path: Path) -> list[str]:
         )
         img = m["_path"].parent / "luck_loso.png"
         if img.exists():
-            imgs += [f"![{m['model']} luck test]({os.path.relpath(img, out_path.parent).replace(os.sep, '/')})", ""]
+            imgs += [f"![{_model(m)} luck test]({os.path.relpath(img, out_path.parent).replace(os.sep, '/')})", ""]
     return lines + [""] + imgs
 
 
@@ -427,7 +427,7 @@ def _real_section(group: Sequence[dict[str, Any]], out_path: Path, ids: Sequence
     lucky = [m for m in by["loso"] if "permutation" in m["params"]]
     if lucky:
         lines += ["#### Luck test", "", *_luck_table(lucky, out_path)]
-        skipped = [m["model"] for m in by["loso"] if "permutation" not in m["params"] and m["model"] != "dtw-knn"]  # dtw-knn = dtw-py
+        skipped = [_model(m) for m in by["loso"] if "permutation" not in m["params"] and m["model"] != "dtw-knn"]  # dtw-knn = dtw-py
         if skipped:
             lines += [f"Not run for {', '.join(skipped)} (each shuffle means retraining every fold; the cheap exact shortcut exists only for",
                       "dtw-py and minirocket).", ""]
