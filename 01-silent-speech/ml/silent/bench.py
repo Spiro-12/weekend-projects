@@ -375,7 +375,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if "xbud" in protocols and not {"left", "right"} <= {c.loc for c in corpus.clips}:
         print(f"cross bud skipped: needs left and right bud clips, got {corpus.buds}", file=sys.stderr)
         protocols.remove("xbud")
-    log = lambda s: print(s, flush=True)  # noqa: E731
+    log = lambda s: print(s, flush=True)
     for model in models:
         for protocol in protocols:
             t = time.perf_counter()

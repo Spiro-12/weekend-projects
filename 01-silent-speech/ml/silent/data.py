@@ -10,7 +10,6 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-
 BUD_LOCS = ("left", "right", "default", "unknown")  # contracts.ts BudLocation
 
 
