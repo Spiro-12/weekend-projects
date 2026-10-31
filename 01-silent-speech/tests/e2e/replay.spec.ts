@@ -289,3 +289,29 @@ test('live: the session recorder exports a session that passes validateSession a
   await expect(page.getByTestId('replay-win')).toHaveCount(1);
   await expect(score(page)).toHaveAttribute('data-scored', '1', { timeout: 10_000 });
 });
+
+test('visitor: the push to talk bar is hidden in the replay, and "Try it yourself" switches to fake data in Recognize mode', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.getByTestId('source-pill')).toHaveText('replay · open', { timeout: 2000 });
+  await expect(page.getByTestId('ptt')).toBeHidden();
+  await expect(page.getByTestId('result-label')).toContainText("Watching Spiro's real session");
+  await page.getByTestId('try-fake').click();
+  await expect(page.getByTestId('source-pill')).toHaveText('fake · open');
+  await expect(page.locator('body')).toHaveAttribute('data-mode', 'classify');
+  await expect(page.getByTestId('ptt')).toBeVisible();
+  await expect(page.getByTestId('replay-note-bar')).toBeHidden();
+  expect(new URL(page.url()).search).toBe('?mode=fake');
+  await expect(page.getByTestId('result-model')).toContainText('Demo model', { timeout: 20_000 });
+  await page.getByTestId('fake-label').selectOption('calendar');
+  await page.waitForTimeout(600);
+  // "What's on my calendar today?" takes about 2 s to mouth; hold a little longer, like a person would. Up to 3 tries.
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.down('Space');
+    await page.waitForTimeout(2600);
+    await page.keyboard.up('Space');
+    await page.waitForTimeout(1500);
+    if (/calendar/i.test((await page.getByTestId('result-label').textContent()) ?? '')) break;
+    await page.waitForTimeout(800);
+  }
+  await expect(page.getByTestId('result-label')).toContainText('calendar', { ignoreCase: true, timeout: 5000 });
+});

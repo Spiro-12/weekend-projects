@@ -312,12 +312,13 @@ class ResultPanel {
     if (this.thinkTimer) clearTimeout(this.thinkTimer);
     this.thinkTimer = null;
     if (!this.app.model) { this.setState('nomodel', down ? 'No model yet' : this.noModelKicker()); return; }
-    if (down) { this.setState('listening', 'Listening… let go when you finish'); return; }
-    this.setState('thinking', 'Reading your lips…');
+    const replay = this.app.source?.kind === 'replay';
+    if (down) { this.setState('listening', replay ? 'Spiro is mouthing a sentence…' : 'Listening… let go when you finish'); return; }
+    this.setState('thinking', replay ? 'Reading the motion…' : 'Reading your lips…');
     this.thinkTimer = setTimeout(() => {
       this.thinkTimer = null;
       this.setState('unsure', 'Didn’t catch that');
-      this.r.guess.textContent = 'Hold Space the whole time you mouth the sentence.';
+      this.r.guess.textContent = this.app.source?.kind === 'replay' ? 'No answer for this take.' : 'Hold Space the whole time you mouth the sentence.';
       this.r.stage.dataset.state = 'unsure';
     }, THINK_TIMEOUT_MS);
   }
@@ -341,7 +342,8 @@ class ResultPanel {
     if (shown) {
       r.label.innerHTML = sentence.split(/\s+/).map((w, i) => `<span class="rs-w" style="--i:${i}">${esc(w)}</span>`).join(' ');
       r.guess.textContent = accepted ? '' : 'Not fully sure. Say it again to be certain.';
-      this.setState(accepted ? 'accepted' : 'probable', accepted ? 'You said' : 'Probably');
+      const said = this.app.source?.kind === 'replay' ? 'Heard' : 'You said';
+      this.setState(accepted ? 'accepted' : 'probable', accepted ? said : 'Probably');
     } else {
       r.label.innerHTML = `<span class="rs-w rs-calm">Not sure, try again</span>`;
       r.guess.textContent = p.label === NONE ? 'Looked like nothing was said.' : `Best guess: ${sentence} (${pct(conf)})`;
@@ -473,8 +475,10 @@ class ResultPanel {
       return;
     }
     this.setState('idle', 'Ready');
-    r.label.innerHTML = `<span class="rs-w rs-calm">Hold <kbd>Space</kbd> and mouth a sentence</span>`;
     const kind = app.source?.kind;
+    r.label.innerHTML = kind === 'replay'
+      ? `<span class="rs-w rs-calm">Watching Spiro's real session</span>`
+      : `<span class="rs-w rs-calm">Hold <kbd>Space</kbd> and mouth a sentence</span>`;
     r.guess.textContent = kind === 'fake' ? 'Fake AirPods: pick a sentence at the top, then hold Space.'
       : kind === 'replay' ? 'Watching a replay of a real session.' : 'Let go when you finish.';
     r.stage.dataset.state = 'idle';

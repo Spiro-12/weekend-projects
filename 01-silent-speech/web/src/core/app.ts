@@ -99,7 +99,7 @@ export class App {
   fakeLabel: string | null = null;
   lastHello: HelloMsg | null = null;
   lastStatus: StatusMsg | null = null;
-  /** Pairing token for actions (from the Mac app's #pair= link, kept in localStorage by the shell). */
+  /** Pairing token for actions, from the Mac app's #pair= link. Memory only: never stored (PROTOCOL §2). */
   pairToken: string | null = null;
   ring: MotionSample[] = [];
   pttDown = false;

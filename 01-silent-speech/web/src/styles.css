@@ -25,10 +25,8 @@ button.ptt { width: 100%; display: flex; gap: 12px; align-items: center; justify
 button.ptt .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); transition: .15s; }
 button.ptt.down { border-color: var(--bad); border-style: solid; background: #ff5d6c14; }
 button.ptt.down .dot { background: var(--bad); box-shadow: 0 0 12px var(--bad); }
-button.ptt.replay { cursor: default; border-style: solid; opacity: 1; }
-button.ptt.replay a { pointer-events: auto; }
-button.ptt.down.replay { border-color: var(--accent); background: #7c9cff14; } /* the replay is "talking" */
-button.ptt.down.replay .dot { background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+.replay-note { display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; padding: 14px; margin-bottom: 20px; border: 1px solid var(--line); border-radius: 14px; color: var(--muted); }
+.replay-note[hidden], button.ptt[hidden] { display: none; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); grid-auto-flow: row dense; gap: 16px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
 .card h2 { margin: 0 0 12px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }

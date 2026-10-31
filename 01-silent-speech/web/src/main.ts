@@ -80,12 +80,21 @@ addEventListener('blur', () => { if (!replaying()) app.ptt(false); });
 pttBtn.addEventListener('pointerdown', (e) => { if (replaying()) return; e.preventDefault(); pttBtn.setPointerCapture(e.pointerId); app.ptt(true); });
 pttBtn.addEventListener('pointerup', () => { if (!replaying()) app.ptt(false); });
 pttBtn.addEventListener('pointercancel', () => { if (!replaying()) app.ptt(false); });
-const pttLabel = pttBtn.querySelector('span:last-child') as HTMLElement;
-const pttDefault = pttLabel.innerHTML;
+// In a replay the push to talk bar is hidden; a note (not inside the button) offers fake data instead.
+const replayNote = document.createElement('div');
+replayNote.className = 'replay-note';
+replayNote.dataset.testid = 'replay-note-bar';
+replayNote.hidden = true;
+replayNote.innerHTML = `<span>Watching a replay of a real recorded session.</span> <button class="ghost" data-testid="try-fake">Try it yourself with fake data</button>`;
+pttBtn.after(replayNote);
+(replayNote.querySelector('[data-testid=try-fake]') as HTMLButtonElement).onclick = () => {
+  history.replaceState(null, '', `${location.pathname}?mode=fake`);
+  app.setSource('fake').then(() => app.setMode('classify')).catch((e) => console.error('[source fake]', e));
+};
 app.bus.on('source', (k) => {
   const r = k === 'replay';
-  pttBtn.classList.toggle('replay', r);
-  pttLabel.innerHTML = r ? `Watching a replay of a real session. <a href="?mode=fake">Try it yourself with fake data</a>` : pttDefault;
+  pttBtn.hidden = r;
+  replayNote.hidden = !r;
 });
 app.bus.on('ptt', ({ down }) => {
   pttBtn.classList.toggle('down', down);
