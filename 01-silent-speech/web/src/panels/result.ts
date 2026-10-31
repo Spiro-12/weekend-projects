@@ -107,6 +107,7 @@ class ResultPanel {
   private status: StatusMsg | null = null; // from the current connection only
   private guard = new ActionGuard();
   private history: Seen[] = [];
+  private predSeq = 0; // which prediction the chip shows (a late answer must not overwrite a newer chip)
   private thinkTimer: ReturnType<typeof setTimeout> | null = null;
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private speak = false;
@@ -324,6 +325,7 @@ class ResultPanel {
     if (this.thinkTimer) clearTimeout(this.thinkTimer);
     this.thinkTimer = null;
     const { app, r } = this;
+    const seq = ++this.predSeq;
     const accepted = p.accepted === true && p.label !== NONE;
     const conf = Number.isFinite(p.confidence) ? Math.max(0, Math.min(1, p.confidence)) : 0;
     const sentence = sentenceOf(app.classes, p.label);
@@ -374,7 +376,7 @@ class ResultPanel {
     const input = this.guardInput({ label: p.label, accepted: p.accepted, confidence: p.confidence }, action, p.model, p.press);
     const run = this.guard.run(input, (a) => app.sendAction({ action: a, label: p.label, confidence: p.confidence }));
     this.renderChip(run.decision, action);
-    if (run.sent) void run.sent.then((s) => this.onSent(s, action!));
+    if (run.sent) void run.sent.then((s) => this.onSent(s, action!, seq));
     else if (!run.decision.send && run.decision.reason === 'unpaired') this.showToast({ kind: 'bad', title: 'Not paired', body: UNPAIRED_TEXT });
     this.renderArmed();
 
@@ -398,12 +400,16 @@ class ResultPanel {
     return ghostReason(reason, this.app.source?.kind ?? null, this.app.classes.length, MIN_TAKES_FOR_ACTIONS);
   }
 
-  private onSent(s: Sent, action: string) {
+  /** The Mac answered (the toast comes from the actionResult event). Updates the chip only if it still shows this prediction. */
+  private onSent(s: Sent, action: string, seq: number) {
+    const chip = (state: ChipState, main: string, why: string) => { if (seq === this.predSeq) this.setChip(state, main, why); };
+    const alert = (text: string) => { if (action === 'help') this.updateAlert(text); };
+    this.renderArmed();
     if (s.error !== undefined || !s.result) {
       console.error('[result] sending the action failed', s.error);
-      this.setChip('failed', `Didn’t run: ${describeAction(action)}`, 'Couldn’t reach the Mac app');
+      chip('failed', `Didn’t run: ${describeAction(action)}`, 'Couldn’t reach the Mac app');
       this.showToast({ kind: 'bad', title: 'Not sent', body: 'Couldn’t reach the Mac app, so nothing happened.' });
-      this.updateAlert('Couldn’t reach the Mac app.');
+      alert('Couldn’t reach the Mac app.');
       return;
     }
     const res: ActionResultMsg = s.result;
@@ -411,13 +417,18 @@ class ResultPanel {
     if (res.ok && !res.dryRun) {
       // The Mac answers ok when it has STARTED (texts, music, calendar), so those never say "Done".
       const w = okWords(action, res.message);
-      this.setChip(w.title === 'Done on your Mac' ? 'done' : 'started', w.chip, w.why);
-      this.updateAlert(TEXTING_ACTIONS.includes(action) ? 'Your Mac is sending the text.' : w.title);
+      chip(w.title === 'Done on your Mac' ? 'done' : 'started', w.chip, w.why);
+      alert(TEXTING_ACTIONS.includes(action) ? 'Your Mac is sending the text.' : w.title);
+    } else if (res.ok) {
+      chip('dry', `Dry run: ${what}`, 'Safe mode is on in the Mac app');
+      alert('Dry run: safe mode is on, nothing was sent.');
+    } else if (OUTCOME_UNKNOWN.includes(res.error ?? '')) {
+      chip('unknown', `Maybe: ${what}`, 'No answer from the Mac. Not trying again.');
+      alert('No answer from the Mac. It may have been sent.');
+    } else {
+      chip('failed', `Didn’t run: ${what}`, toastFor(res).body);
+      alert(`Not sent: ${toastFor(res).body}`);
     }
-    else if (res.ok) { this.setChip('dry', `Dry run: ${what}`, 'Safe mode is on in the Mac app'); this.updateAlert('Dry run: safe mode is on, nothing was sent.'); }
-    else if (OUTCOME_UNKNOWN.includes(res.error ?? '')) { this.setChip('unknown', `Maybe: ${what}`, 'No answer from the Mac. Not trying again.'); this.updateAlert('No answer from the Mac. It may have been sent.'); }
-    else { this.setChip('failed', `Didn’t run: ${what}`, toastFor(res).body); this.updateAlert(`Not sent: ${toastFor(res).body}`); }
-    this.renderArmed();
   }
 
   // ---------- rendering ----------

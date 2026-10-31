@@ -267,38 +267,40 @@ test('armed, paired, real AirPods, your own model: exactly one action per accept
     expect(await actionResults(page)).toBe(0);
 
     await assertMockBridge(page);
-    const t0 = Date.now();
+    // 1. One accepted sentence: exactly one action, with its toast.
+    let t0 = Date.now();
     await inject(page, accepted('volume_up'));
     const toast = page.getByTestId('result-toast');
+    const chip = page.getByTestId('result-action');
     await expect(toast).toBeVisible();
     await expect(toast).toHaveAttribute('data-kind', 'ok');
     await expect(toast).toContainText('Done on your Mac');
     await expect(toast).toContainText('Turn the Mac’s volume up');
-    await expect(page.getByTestId('result-action')).toHaveAttribute('data-state', 'done');
+    await expect(chip).toHaveAttribute('data-state', 'done');
     await page.waitForTimeout(500);
     expect(bridge.actions).toEqual([{ action: 'volume_up', dryRun: false }]); // exactly one
     expect(await actionResults(page)).toBe(1);
 
-    // Another accepted sentence within 3 s: ghost chip, nothing sent
-    await inject(page, accepted('focus_music'));
-    await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'too-soon');
-    await expect(page.getByTestId('result-action')).toContainText('Would: Play focus music');
-    expect(bridge.actions).toHaveLength(1);
-
-    // After 3 s it sends again, once. Music is only started when the Mac answers: "on it", not "Done".
+    // 2. Two accepted sentences back to back (3 s after the first): the first sends, the second is too soon.
+    //    The first one's answer arrives later and must not overwrite the second one's chip.
     await sleep(Math.max(0, 3100 - (Date.now() - t0)));
+    t0 = Date.now();
     await inject(page, accepted('focus_music'));
-    await expect(page.getByTestId('result-action')).toHaveAttribute('data-state', 'started');
-    await expect(toast).toContainText('Your Mac is on it');
+    await inject(page, accepted('text_mom'));
+    await expect(chip).toHaveAttribute('data-reason', /^(busy|too-soon)$/); // the first may still be waiting for its answer
+    await expect(chip).toContainText('Would: Text Mom');
+    await expect(toast).toContainText('Your Mac is on it'); // music is only STARTED when the Mac answers
     await page.waitForTimeout(300);
+    await expect(chip).toHaveAttribute('data-reason', /^(busy|too-soon)$/); // not overwritten by the first one's answer
+    await expect(chip).toHaveAttribute('data-state', 'ghost');
     expect(bridge.actions).toEqual([{ action: 'volume_up', dryRun: false }, { action: 'focus_music', dryRun: false }]);
     expect(await actionResults(page)).toBe(2);
 
-    // A text: the Mac has only STARTED sending it.
-    await sleep(3100);
+    // 3. A text, once allowed again: the Mac has only STARTED sending it.
+    await sleep(Math.max(0, 3100 - (Date.now() - t0)));
     await inject(page, accepted('text_mom'));
-    await expect(page.getByTestId('result-action')).toHaveAttribute('data-state', 'started');
-    await expect(page.getByTestId('result-action')).toContainText('Sending: Text Mom');
+    await expect(chip).toHaveAttribute('data-state', 'started');
+    await expect(chip).toContainText('Sending: Text Mom');
     await expect(toast).toContainText('Your Mac is sending the text');
     await expect(toast).not.toContainText('Done');
     expect(bridge.actions).toHaveLength(3);
