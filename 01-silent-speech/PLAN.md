@@ -37,7 +37,7 @@ Risk: 4 sentences are ~5 syllables. If they get confused in Phase 2, we tweak wo
 ```
 AirPods Pro 3 → Mac app "SilentSpeechBridge" (Swift)
                   ├ reads CMHeadphoneMotionManager
-                  ├ WebSocket server ws://localhost:8765 (loopback only, origin allowlist)
+                  ├ WebSocket server ws://127.0.0.1:8765 (loopback only, origin allowlist)
                   └ runs actions (AppleScript, Shortcuts, say)
                         ⇅ JSON
 Web dashboard (Vite + TS, static on GitHub Pages)
@@ -142,3 +142,12 @@ Auto detect when you start mouthing (no Space key), iPhone bridge, LibrePods rou
 
 ## First step after approval
 Update `01-silent-speech/PLAN.md` with this plan, then start Phase 0 on branch `p0-skeleton`.
+
+## Follow ups found in Phase 1 reviews (do in Phase 2)
+- **Pairing before real actions:** the Mac app trusts every page on `spiro-12.github.io` and local dev servers. Before Armed can send real texts, add pairing (Mac app shows a code, dashboard stores it, actions must carry it).
+- **LOO confidence parity:** if Track D's fast LOO path computes dRef with all-clip norm stats, port the same shortcut to Python `dtw-py` and add a LOO snapshot test (LOSO stays exact and is the published headline).
+- **report.py:** tag every row of a dataset group as synthetic when any row is; compare datasets by session ids / clip id hash, not file name.
+- **Phase 2 tuning:** track "correct accepted" rate, not only none false accepts; recheck dRef factors (1.7 / 0.1 / 1.25) and the threshold on real data; watch quiet (0.5x amplitude) speakers.
+- **Never auto retry** an action that returned `timeout` or `disconnected` (outcome unknown).
+- Track B nits: hovering a stale chart with a still mouse redraws 60/s; DPR change while idle; head angle text keeps last values after a source switch; tests don't count draws (idle) or check canvas label thinning.
+- Mac app: quiet the harmless `POSIXErrorCode 57: Socket is not connected` log line when a client closes; the first real run on Spiro's Mac passed every check (50 Hz, 0% gaps, front and background).
