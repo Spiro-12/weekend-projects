@@ -164,12 +164,12 @@ export const GRID_HZ = 50;
 
 export interface DtwKnnOptions {
   channels?: Channel[]; // default DEFAULT_CHANNELS
-  L?: number; // resampled length, default 64
+  L?: number; // resampled length, default 96
   hpHz?: number; // high pass cutoff, default 1.0
-  band?: number; // Sakoe-Chiba radius as fraction of L, default 0.1
-  k?: number; // default 1 (PROTOCOL §6)
-  norm?: 'global' | 'clip'; // default 'global'
-  threshold?: number; // default 0.5
+  band?: number; // Sakoe-Chiba radius as fraction of L, default 0.05
+  k?: number; // default 3 (PROTOCOL §6)
+  norm?: 'global' | 'clip'; // default 'clip'
+  threshold?: number; // default 0.85
   budNorm?: 'mirror' | 'none'; // default 'mirror': right-bud clips are mirrored into the left-bud frame (PROTOCOL §5 step 0)
 }
 
@@ -189,7 +189,7 @@ export interface DtwKnnModelJSON {
 
 export interface Metrics {
   model: string;
-  protocol: 'loo' | 'loso';
+  protocol: 'loo' | 'loso' | 'xbud'; // xbud: train on one bud's sessions, test on the other bud's (Python bench)
   nClips: number;
   labels: string[];
   accuracy: number;
