@@ -2,8 +2,11 @@
 //   npx tsx scripts/eval-dtw.ts <dataset.json...> [--exclude data/raw/exclude.json] [--protocol loo|loso|both] [--opts '{"k":1}'] [--no-write]
 //   npx tsx scripts/eval-dtw.ts <dataset.json...> [--exclude ...] --sweep [--jobs 4] [--work-dir dir] [--top 20] [--json sweep.json] [--opts '{...}']
 //   npx tsx scripts/eval-dtw.ts <dataset.json...> [--exclude ...] --thresholds [--opts '{...}'] [--json thresholds.json]
+//   npx tsx scripts/eval-dtw.ts <dataset.json...> [--exclude ...] --nested [--jobs 4] [--work-dir dir] [--json nested.json]
 // No dataset given = shared/fixtures/dataset.synthetic.json. --exclude skips the clip ids of an ss-exclude file (PROTOCOL §3).
-// Writes ml/results/dtw-knn/<protocol>.json (the Metrics schema) unless --no-write, --sweep or --thresholds.
+// Writes ml/results/dtw-knn/<protocol>.json (the Metrics schema) unless --no-write, --sweep, --thresholds or --nested.
+// --nested: honest accuracy for a tuned choice. For each session T the options are picked on the other sessions only
+// (the --sweep grid), then tested on T (the sweep's own top score is a little optimistic: it picked on all sessions).
 //
 // --sweep and --thresholds score a config three ways (LOSO = leave one session out):
 //   all   LOSO over every clip. The headline: the sweep ranks by it (tie break: xbud, then macro F1).
@@ -33,7 +36,7 @@ function parseArgs(argv: string[]) {
   const files: string[] = [];
   let protocol: Protocol | 'both' | undefined;
   let opts: DtwKnnOptions = {};
-  let sweep = false, thresholds = false, write = true;
+  let sweep = false, thresholds = false, nested = false, write = true;
   let json: string | undefined, exclude: string | undefined, workDir: string | undefined, shard: [number, number] | undefined;
   let jobs = 1, top = 20;
   for (let i = 0; i < argv.length; i++) {
@@ -43,6 +46,7 @@ function parseArgs(argv: string[]) {
     else if (a === '--exclude') exclude = argv[++i];
     else if (a === '--sweep') sweep = true;
     else if (a === '--thresholds') thresholds = true;
+    else if (a === '--nested') nested = true;
     else if (a === '--no-write') write = false;
     else if (a === '--json') json = argv[++i];
     else if (a === '--jobs') jobs = Number(argv[++i]);
@@ -59,24 +63,31 @@ function parseArgs(argv: string[]) {
   if (shard && !json) throw new Error('--shard needs --json');
   resolveOpts(opts); // fail fast on bad options
   if (workDir) workDir = resolve(workDir);
-  return { files, protocol, opts, sweep, thresholds, write, json, exclude, workDir, jobs, top, shard };
+  return { files, protocol, opts, sweep, thresholds, nested, write, json, exclude, workDir, jobs, top, shard };
 }
 
+/** Dataset files (an ss-exclude file in the list is skipped, so `data/raw/*.json` works), merged, exclusions dropped. */
 function loadClips(files: string[], exclude?: string) {
-  const ds = files.map((f) => {
+  const used: string[] = [], skipped: string[] = [];
+  const ds: Dataset[] = [];
+  for (const f of files) {
     const d = JSON.parse(readFileSync(f, 'utf8')) as unknown;
+    if ((d as { format?: unknown } | null)?.format === 'ss-exclude') { skipped.push(f); continue; }
     const errs = validateDataset(d);
     if (errs.length) throw new Error(`${f}: not a valid ss-dataset: ${errs.slice(0, 3).join('; ')}`);
-    return d as Dataset;
-  });
+    ds.push(d as Dataset);
+    used.push(f);
+  }
+  if (!ds.length) throw new Error('no ss-dataset files given');
   const merged = mergeDatasets(ds);
-  let clips = merged.clips, excluded = 0;
+  let clips = merged.clips, excluded = 0, missing: string[] = [];
   if (exclude) {
     const r = applyExclude(clips, parseExclude(JSON.parse(readFileSync(exclude, 'utf8')) as unknown));
     clips = r.clips;
     excluded = r.excluded;
+    missing = r.missing;
   }
-  return { clips, duplicates: merged.duplicates, excluded, sources: [...new Set(ds.map((d) => d.source))].sort() };
+  return { clips, duplicates: merged.duplicates, excluded, missing, used, skipped, sources: [...new Set(ds.map((d) => d.source))].sort() };
 }
 
 const pct = (x: number) => `${(100 * x).toFixed(1)}%`;
@@ -160,27 +171,23 @@ function sweepGrid(base: DtwKnnOptions): DtwKnnOptions[][] {
 }
 
 /**
- * Runs this shard's base configs. Each finished one is appended to `out` as a JSON line { i, rows }, and configs
- * already in `out` are skipped, so a killed sweep picks up where it stopped (--work-dir).
+ * Runs this shard's base configs (every n-th group of sweepGrid) with `run`. Each finished one is appended to `out`
+ * as a JSON line { i, rows }, and groups already in `out` are skipped, so a killed run picks up where it stopped
+ * (--work-dir). Used by --sweep and --nested.
  */
-function sweepShard(sp: Splits, base: DtwKnnOptions, shard: [number, number], out: string | null, progress: () => void): SweepRow[] {
-  const rows: SweepRow[] = [];
+function gridShard<R>(base: DtwKnnOptions, shard: [number, number], out: string | null, progress: () => void, run: (group: DtwKnnOptions[]) => R[]): R[] {
+  const rows: R[] = [];
   const done = new Set<number>();
   if (out && existsSync(out)) {
     for (const line of readFileSync(out, 'utf8').split('\n')) {
       if (!line.trim()) continue;
-      try { const r = JSON.parse(line) as { i: number; rows: SweepRow[] }; done.add(r.i); rows.push(...r.rows); } catch { /* a line cut off by a kill: redo it */ }
+      try { const r = JSON.parse(line) as { i: number; rows: R[] }; done.add(r.i); rows.push(...r.rows); } catch { /* a line cut off by a kill: redo it */ }
     }
   }
   sweepGrid(base).forEach((group, i) => {
     if (i % shard[1] !== shard[0]) return;
     if (!done.has(i)) {
-      const mine: SweepRow[] = [];
-      const cache = new Map<string, FoldResult[]>();
-      for (const o of group) {
-        const f = runFolds(sp, o, cache);
-        mine.push({ chans: chansName(o.channels!), opts: resolveOpts(o), all: summarize(f.all), same: f.same && summarize(f.same), xbud: f.xbud && summarize(f.xbud) });
-      }
+      const mine = run(group);
       if (out) appendFileSync(out, JSON.stringify({ i, rows: mine }) + '\n');
       rows.push(...mine);
     }
@@ -189,11 +196,20 @@ function sweepShard(sp: Splits, base: DtwKnnOptions, shard: [number, number], ou
   return rows;
 }
 
+/** --sweep: the three scores for both budNorm values of a base config (the 'same' folds are shared). */
+function sweepGroup(sp: Splits, group: DtwKnnOptions[]): SweepRow[] {
+  const cache = new Map<string, FoldResult[]>();
+  return group.map((o) => {
+    const f = runFolds(sp, o, cache);
+    return { chans: chansName(o.channels!), opts: resolveOpts(o), all: summarize(f.all), same: f.same && summarize(f.same), xbud: f.xbud && summarize(f.xbud) };
+  });
+}
+
 /**
  * Runs the shards in `jobs` child processes (same tsx loader) and merges their rows.
  * workDir: keep the shards' progress there (rerun the same command to resume); default a temp dir, removed after.
  */
-async function sweepParallel(argv: string[], jobs: number, total: number, workDir?: string): Promise<SweepRow[]> {
+async function gridParallel<R>(argv: string[], jobs: number, total: number, workDir?: string): Promise<R[]> {
   const dir = workDir ?? mkdtempSync(join(tmpdir(), 'eval-dtw-'));
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -202,7 +218,7 @@ async function sweepParallel(argv: string[], jobs: number, total: number, workDi
   }
   mkdirSync(dir, { recursive: true });
   const stamp = join(dir, 'args.json'), args = JSON.stringify({ rest, jobs });
-  if (existsSync(stamp) && readFileSync(stamp, 'utf8') !== args) throw new Error(`--work-dir ${dir} holds a different sweep (args or --jobs changed): use another dir`);
+  if (existsSync(stamp) && readFileSync(stamp, 'utf8') !== args) throw new Error(`--work-dir ${dir} holds a different run (args or --jobs changed): use another dir`);
   writeFileSync(stamp, args);
   let done = 0;
   try {
@@ -212,12 +228,12 @@ async function sweepParallel(argv: string[], jobs: number, total: number, workDi
         if (l === '@step') process.stderr.write(`\r${++done}/${total} configs x 2 budNorm   `);
       });
       child.on('error', fail);
-      child.on('exit', (code) => (code === 0 ? ok() : fail(new Error(`sweep shard ${k}/${jobs} exited with ${code}`))));
+      child.on('exit', (code) => (code === 0 ? ok() : fail(new Error(`shard ${k}/${jobs} exited with ${code}`))));
     })));
     process.stderr.write('\n');
     const shardFile = (k: number) => join(dir, `${k}of${jobs}.jsonl`);
     return Array.from({ length: jobs }, (_, k) => (existsSync(shardFile(k)) ? readFileSync(shardFile(k), 'utf8') : '').split('\n').filter((l) => l.trim())
-      .flatMap((l) => (JSON.parse(l) as { rows: SweepRow[] }).rows)).flat();
+      .flatMap((l) => (JSON.parse(l) as { rows: R[] }).rows)).flat();
   } finally {
     if (!workDir) rmSync(dir, { recursive: true, force: true });
   }
@@ -308,6 +324,99 @@ function printThresholds(f: Folds, small: ReturnType<typeof smallModels>) {
   return { splits: tabs, small: smallRows };
 }
 
+// ---------- --nested ----------
+// Honest accuracy for the sweep's choice: for each session T, the options are picked WITHOUT T (the --sweep grid,
+// best LOSO accuracy over the other sessions; configs tied at the top are all kept and their results averaged,
+// i.e. the expected score of a random pick among them), then trained on the other sessions and tested on T.
+
+interface NestedRow { chans: string; opts: Required<DtwKnnOptions>; inner: Record<string, { correct: number; n: number }> }
+
+/** Inner folds `${T}|${U}`: train on the sessions other than T and U, test U (with 3 sessions: one train session). */
+function nestedGroup(clips: Clip[], sessions: string[], group: DtwKnnOptions[]): NestedRow[] {
+  const cache = new Map<string, { correct: number; n: number }>();
+  return group.map((o) => {
+    const inner: NestedRow['inner'] = {};
+    for (const T of sessions) for (const U of sessions) {
+      if (U === T) continue;
+      const train = clips.filter((c) => c.session !== T && c.session !== U), test = clips.filter((c) => c.session === U);
+      if (!train.length || !test.length) continue;
+      const mirrored = [...train, ...test].some((c) => c.loc === 'right');
+      const key = JSON.stringify({ T, U, ...resolveOpts(o), budNorm: mirrored ? o.budNorm : '-' });
+      let r = cache.get(key);
+      if (!r) {
+        const res = holdOut(train, test, o);
+        r = { correct: res.filter((x) => x.label === x.predicted).length, n: res.length };
+        cache.set(key, r);
+      }
+      inner[`${T}|${U}`] = r;
+    }
+    return { chans: chansName(o.channels!), opts: resolveOpts(o), inner };
+  });
+}
+
+/** Two sided 95% Clopper-Pearson upper bound for k events in n (k rounded up). */
+function upper95(k: number, n: number): number {
+  const kk = Math.ceil(k - 1e-9);
+  if (kk >= n) return 1;
+  const cdf = (p: number) => { // P(X <= kk), X ~ Binomial(n, p)
+    let logC = 0, s = 0;
+    for (let i = 0; i <= kk; i++) {
+      if (i > 0) logC += Math.log((n - i + 1) / i);
+      s += Math.exp(logC + i * Math.log(p) + (n - i) * Math.log1p(-p));
+    }
+    return s;
+  };
+  let lo = 0, hi = 1;
+  for (let it = 0; it < 60; it++) { const mid = (lo + hi) / 2; if (cdf(mid) > 0.025) lo = mid; else hi = mid; }
+  return hi;
+}
+
+function nestedReport(clips: Clip[], rows: NestedRow[]) {
+  const sessions = [...new Set(clips.map((c) => c.session ?? ''))].sort();
+  const folds = sessions.map((T) => {
+    const others = sessions.filter((x) => x !== T);
+    const innerAcc = rows.map((r) => {
+      let c = 0, n = 0;
+      for (const U of others) { const x = r.inner[`${T}|${U}`]; if (x) { c += x.correct; n += x.n; } }
+      return n ? c / n : -1;
+    });
+    const best = Math.max(...innerAcc);
+    const tied = rows.filter((_, i) => Math.abs(innerAcc[i] - best) < 1e-12);
+    const train = clips.filter((c) => c.session !== T), test = clips.filter((c) => c.session === T);
+    const S = test.filter((c) => c.label !== NONE).length, N = test.length - S;
+    const per = tied.map((r) => {
+      const res = holdOut(train, test, r.opts);
+      const fires = (x: FoldResult) => x.accepted && x.predicted !== NONE;
+      return {
+        correct: res.filter((x) => x.label === x.predicted).length,
+        acceptedRight: res.filter((x) => x.label !== NONE && fires(x) && x.predicted === x.label).length,
+        acceptedWrong: res.filter((x) => x.label !== NONE && fires(x) && x.predicted !== x.label).length,
+        noneFired: res.filter((x) => x.label === NONE && fires(x)).length,
+      };
+    });
+    const avg = (k: keyof (typeof per)[number]) => per.reduce((a, p) => a + p[k], 0) / per.length;
+    return {
+      test: T, bud: test.some((c) => c.loc === 'right') ? 'right' : 'left', pickedOn: others, bestInnerAccuracy: best,
+      picked: tied.map((r) => ({ chans: r.chans, L: r.opts.L, band: r.opts.band, norm: r.opts.norm, k: r.opts.k, budNorm: r.opts.budNorm })),
+      nClips: test.length, correct: avg('correct'), accuracy: avg('correct') / test.length,
+      atThreshold: { threshold: tied[0].opts.threshold, sentences: S, acceptedRight: avg('acceptedRight'), acceptedWrong: avg('acceptedWrong'), noneTakes: N, noneFired: avg('noneFired') },
+    };
+  });
+  const sum = (f: (x: (typeof folds)[number]) => number) => folds.reduce((a, x) => a + f(x), 0);
+  const n = sum((x) => x.nClips), S = sum((x) => x.atThreshold.sentences), N = sum((x) => x.atThreshold.noneTakes);
+  const wrong = sum((x) => x.atThreshold.acceptedWrong), none = sum((x) => x.atThreshold.noneFired);
+  return {
+    folds,
+    pooled: {
+      nClips: n, correct: sum((x) => x.correct), accuracy: sum((x) => x.correct) / n,
+      threshold: folds[0]?.atThreshold.threshold,
+      sentences: S, acceptedRight: sum((x) => x.atThreshold.acceptedRight), correctAccepted: sum((x) => x.atThreshold.acceptedRight) / S,
+      acceptedWrong: wrong, wrongAccepted: wrong / S, wrongAcceptedUpper95: upper95(wrong, S),
+      noneTakes: N, noneFired: none, noneFalseAccept: N ? none / N : 0, noneFalseAcceptUpper95: N ? upper95(none, N) : null,
+    },
+  };
+}
+
 // ---------- main ----------
 
 async function main() {
@@ -317,22 +426,24 @@ async function main() {
   const quiet = !!args.shard; // a --jobs child: only progress lines and the JSON file
   const log = (s: string) => { if (!quiet) console.log(s); };
   if (!args.files.length) log('No dataset given, using shared/fixtures/dataset.synthetic.json');
-  const { clips, duplicates, excluded, sources } = loadClips(files, args.exclude);
+  const { clips, duplicates, excluded, missing, used, skipped, sources } = loadClips(files, args.exclude);
   const nSessions = new Set(clips.map((c) => c.session)).size;
-  log(`${files.length} file(s), ${clips.length} clips${duplicates ? ` (${duplicates} duplicate ids dropped)` : ''}${args.exclude ? `, ${excluded} excluded by ${basename(args.exclude)}` : ''}, ${nSessions} session(s)`);
-  const datasets = files.map((f) => basename(f));
+  if (skipped.length) log(`skipped ${skipped.map((f) => basename(f)).join(', ')} (an exclusion list, not a dataset)`);
+  log(`${used.length} file(s), ${clips.length} clips${duplicates ? ` (${duplicates} duplicate ids dropped)` : ''}${args.exclude ? `, ${excluded} excluded by ${basename(args.exclude)}` : ''}, ${nSessions} session(s)`);
+  if (missing.length && !quiet) console.warn(`warning: ${missing.length} id(s) in ${basename(args.exclude!)} are not in these files: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', ...' : ''}`);
+  const datasets = used.map((f) => basename(f));
 
   if (args.sweep) {
     const sp = splitsOf(clips);
     const total = sweepGrid(args.opts).length;
     if (args.shard) {
-      sweepShard(sp, args.opts, args.shard, args.json!, () => console.log('@step'));
+      gridShard(args.opts, args.shard, args.json!, () => console.log('@step'), (g) => sweepGroup(sp, g));
       return;
     }
     log(sp.describe);
     let done = 0;
-    const rows = args.jobs > 1 ? await sweepParallel(argv, args.jobs, total, args.workDir)
-      : sweepShard(sp, args.opts, [0, 1], args.workDir ? join(args.workDir, '0of1.jsonl') : null, () => process.stderr.write(`\r${++done}/${total} configs x 2 budNorm   `));
+    const rows = args.jobs > 1 ? await gridParallel<SweepRow>(argv, args.jobs, total, args.workDir)
+      : gridShard(args.opts, [0, 1], args.workDir ? join(args.workDir, '0of1.jsonl') : null, () => process.stderr.write(`\r${++done}/${total} configs x 2 budNorm   `), (g) => sweepGroup(sp, g));
     if (args.jobs === 1) process.stderr.write('\n');
     rows.sort(byRank);
     console.log(`\nSweep: ${rows.length} configs, ranked by LOSO all (tie break: xbud, macro F1, none false accepts)`);
@@ -344,6 +455,43 @@ async function main() {
       const lines = rows.map((r) => JSON.stringify({ chans: r.chans, L: r.opts.L, band: r.opts.band, norm: r.opts.norm, k: r.opts.k, budNorm: r.opts.budNorm, all: brief(r.all), same: brief(r.same), xbud: brief(r.xbud) }));
       const head = JSON.stringify({ datasets, exclude: args.exclude ? basename(args.exclude) : null, splits: sp.describe.split('\n'), base: resolveOpts(args.opts), rankedBy: 'all.acc, then xbud.acc, all.macroF1, all.noneFA' }).slice(0, -1);
       writeFileSync(args.json, `${head},"rows":[\n${lines.join(',\n')}\n]}\n`);
+      console.log(`wrote ${args.json}`);
+    }
+    return;
+  }
+
+  if (args.nested) {
+    const sessions = [...new Set(clips.map((c) => c.session ?? ''))].sort();
+    if (sessions.length < 3) throw new Error('--nested needs at least 3 sessions');
+    const total = sweepGrid(args.opts).length;
+    if (args.shard) {
+      gridShard(args.opts, args.shard, args.json!, () => console.log('@step'), (g) => nestedGroup(clips, sessions, g));
+      return;
+    }
+    let done = 0;
+    const rows = args.jobs > 1 ? await gridParallel<NestedRow>(argv, args.jobs, total, args.workDir)
+      : gridShard(args.opts, [0, 1], args.workDir ? join(args.workDir, '0of1.jsonl') : null, () => process.stderr.write(`\r${++done}/${total} configs x 2 budNorm   `), (g) => nestedGroup(clips, sessions, g));
+    if (args.jobs === 1) process.stderr.write('\n');
+    const rep = nestedReport(clips, rows);
+    // the same options tuned on all sessions (DEFAULT_OPTS + --opts), for comparison
+    const o = resolveOpts(args.opts);
+    const tuned = crossValidate(clips, o, 'loso');
+    const tunedOnAll = { opts: o, accuracy: tuned.filter((r) => r.label === r.predicted).length / tuned.length,
+      perSession: Object.fromEntries(sessions.map((T) => { const r = tuned.filter((_, i) => clips[i].session === T); return [T, r.filter((x) => x.label === x.predicted).length / r.length]; })) };
+    console.log(`\nNested LOSO: options picked on the other sessions (${rows.length} configs, ties averaged), then tested on the held out one`);
+    for (const f of rep.folds) {
+      console.log(`  ${f.test} (${f.bud} bud): ${pct(f.accuracy)} (${f.correct}/${f.nClips}), picked on ${f.pickedOn.join(' + ')} (inner ${pct(f.bestInnerAccuracy)}): ` +
+        f.picked.map((x) => `${x.chans} L${x.L} b${x.band} ${x.norm} k${x.k} ${x.budNorm}`).join(' | '));
+      console.log(`      at ${f.atThreshold.threshold}: ${f.atThreshold.acceptedRight}/${f.atThreshold.sentences} sentences acted on right, ${f.atThreshold.acceptedWrong} wrong, ${f.atThreshold.noneFired}/${f.atThreshold.noneTakes} none fired`);
+    }
+    const p = rep.pooled;
+    console.log(`  pooled: ${pct(p.accuracy)} (${p.correct}/${p.nClips}); at ${p.threshold}: ${pct(p.correctAccepted)} acted on right, wrong ${p.acceptedWrong}/${p.sentences} (95% upper ${pct(p.wrongAcceptedUpper95)}), none ${p.noneFired}/${p.noneTakes} (95% upper ${p.noneFalseAcceptUpper95 === null ? 'n/a' : pct(p.noneFalseAcceptUpper95)})`);
+    console.log(`  tuned on all sessions (${JSON.stringify({ L: o.L, band: o.band, norm: o.norm, k: o.k })}): ${pct(tunedOnAll.accuracy)} ` + sessions.map((T) => `${T} ${pct(tunedOnAll.perSession[T])}`).join(', '));
+    if (args.json) {
+      const out = { model: 'dtw-knn', protocol: 'nested-loso', datasets, sources, exclude: args.exclude ? basename(args.exclude) : null, nExcluded: excluded,
+        how: 'For each session T: pick the options by LOSO accuracy over the other sessions only (the eval-dtw --sweep grid; configs tied at the top are all kept and averaged), train on the other sessions, test T.',
+        nConfigs: rows.length, ...rep, tunedOnAll, generatedAt: new Date().toISOString() };
+      writeFileSync(args.json, prettyJson(out) + '\n');
       console.log(`wrote ${args.json}`);
     }
     return;
