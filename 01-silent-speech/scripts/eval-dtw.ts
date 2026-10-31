@@ -1,6 +1,6 @@
 // DTW + kNN cross validation from the command line (PROTOCOL.md §6).
 //   npx tsx scripts/eval-dtw.ts <dataset.json...> [--exclude data/raw/exclude.json] [--protocol loo|loso|both] [--opts '{"k":1}'] [--no-write]
-//   npx tsx scripts/eval-dtw.ts <dataset.json...> [--exclude ...] --sweep [--jobs 4] [--top 20] [--json sweep.json] [--opts '{...}']
+//   npx tsx scripts/eval-dtw.ts <dataset.json...> [--exclude ...] --sweep [--jobs 4] [--work-dir dir] [--top 20] [--json sweep.json] [--opts '{...}']
 //   npx tsx scripts/eval-dtw.ts <dataset.json...> [--exclude ...] --thresholds [--opts '{...}'] [--json thresholds.json]
 // No dataset given = shared/fixtures/dataset.synthetic.json. --exclude skips the clip ids of an ss-exclude file (PROTOCOL §3).
 // Writes ml/results/dtw-knn/<protocol>.json (the Metrics schema) unless --no-write, --sweep or --thresholds.
@@ -10,8 +10,9 @@
 //   same  LOSO over the main bud's clips only (the bud with the most clips; real data: s2 + s3, left bud).
 //   xbud  cross bud: train on the main bud's clips, test on the other bud's (real data: s2 + s3 -> s1, right bud).
 // A clip's bud is its loc as step 0 sees it: 'right', or the left frame (left / default / unknown).
+// --work-dir keeps a sweep's progress on disk: run the same command again after a crash and it resumes.
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -33,7 +34,7 @@ function parseArgs(argv: string[]) {
   let protocol: Protocol | 'both' | undefined;
   let opts: DtwKnnOptions = {};
   let sweep = false, thresholds = false, write = true;
-  let json: string | undefined, exclude: string | undefined, shard: [number, number] | undefined;
+  let json: string | undefined, exclude: string | undefined, workDir: string | undefined, shard: [number, number] | undefined;
   let jobs = 1, top = 20;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -46,6 +47,7 @@ function parseArgs(argv: string[]) {
     else if (a === '--json') json = argv[++i];
     else if (a === '--jobs') jobs = Number(argv[++i]);
     else if (a === '--top') top = Number(argv[++i]);
+    else if (a === '--work-dir') workDir = argv[++i];
     else if (a === '--shard') { const [k, n] = argv[++i].split('/').map(Number); shard = [k, n]; } // internal (--jobs)
     else if (a === '-h' || a === '--help') { console.log(readFileSync(SELF, 'utf8').split('\n').slice(0, 12).join('\n')); process.exit(0); }
     else if (a.startsWith('--')) throw new Error(`unknown flag ${a}`);
@@ -56,7 +58,8 @@ function parseArgs(argv: string[]) {
   if (shard && !(shard[1] >= 1 && shard[0] >= 0 && shard[0] < shard[1])) throw new Error('--shard must be k/n with 0 <= k < n');
   if (shard && !json) throw new Error('--shard needs --json');
   resolveOpts(opts); // fail fast on bad options
-  return { files, protocol, opts, sweep, thresholds, write, json, exclude, jobs, top, shard };
+  if (workDir) workDir = resolve(workDir);
+  return { files, protocol, opts, sweep, thresholds, write, json, exclude, workDir, jobs, top, shard };
 }
 
 function loadClips(files: string[], exclude?: string) {
@@ -156,32 +159,55 @@ function sweepGrid(base: DtwKnnOptions): DtwKnnOptions[][] {
   return grid;
 }
 
-function sweepShard(sp: Splits, base: DtwKnnOptions, shard: [number, number], progress: () => void): SweepRow[] {
+/**
+ * Runs this shard's base configs. Each finished one is appended to `out` as a JSON line { i, rows }, and configs
+ * already in `out` are skipped, so a killed sweep picks up where it stopped (--work-dir).
+ */
+function sweepShard(sp: Splits, base: DtwKnnOptions, shard: [number, number], out: string | null, progress: () => void): SweepRow[] {
   const rows: SweepRow[] = [];
+  const done = new Set<number>();
+  if (out && existsSync(out)) {
+    for (const line of readFileSync(out, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try { const r = JSON.parse(line) as { i: number; rows: SweepRow[] }; done.add(r.i); rows.push(...r.rows); } catch { /* a line cut off by a kill: redo it */ }
+    }
+  }
   sweepGrid(base).forEach((group, i) => {
     if (i % shard[1] !== shard[0]) return;
-    const cache = new Map<string, FoldResult[]>();
-    for (const o of group) {
-      const f = runFolds(sp, o, cache);
-      rows.push({ chans: chansName(o.channels!), opts: resolveOpts(o), all: summarize(f.all), same: f.same && summarize(f.same), xbud: f.xbud && summarize(f.xbud) });
+    if (!done.has(i)) {
+      const mine: SweepRow[] = [];
+      const cache = new Map<string, FoldResult[]>();
+      for (const o of group) {
+        const f = runFolds(sp, o, cache);
+        mine.push({ chans: chansName(o.channels!), opts: resolveOpts(o), all: summarize(f.all), same: f.same && summarize(f.same), xbud: f.xbud && summarize(f.xbud) });
+      }
+      if (out) appendFileSync(out, JSON.stringify({ i, rows: mine }) + '\n');
+      rows.push(...mine);
     }
     progress();
   });
   return rows;
 }
 
-/** Runs the shards in `jobs` child processes (same tsx loader) and merges their rows. */
-async function sweepParallel(argv: string[], jobs: number, total: number): Promise<SweepRow[]> {
-  const dir = mkdtempSync(join(tmpdir(), 'eval-dtw-'));
+/**
+ * Runs the shards in `jobs` child processes (same tsx loader) and merges their rows.
+ * workDir: keep the shards' progress there (rerun the same command to resume); default a temp dir, removed after.
+ */
+async function sweepParallel(argv: string[], jobs: number, total: number, workDir?: string): Promise<SweepRow[]> {
+  const dir = workDir ?? mkdtempSync(join(tmpdir(), 'eval-dtw-'));
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
-    if (['--jobs', '--json', '--top', '--shard'].includes(argv[i])) i++;
+    if (['--jobs', '--json', '--top', '--shard', '--work-dir'].includes(argv[i])) i++;
     else rest.push(argv[i]);
   }
+  mkdirSync(dir, { recursive: true });
+  const stamp = join(dir, 'args.json'), args = JSON.stringify({ rest, jobs });
+  if (existsSync(stamp) && readFileSync(stamp, 'utf8') !== args) throw new Error(`--work-dir ${dir} holds a different sweep (args or --jobs changed): use another dir`);
+  writeFileSync(stamp, args);
   let done = 0;
   try {
     await Promise.all(Array.from({ length: jobs }, (_, k) => new Promise<void>((ok, fail) => {
-      const child = spawn(process.execPath, [...process.execArgv, SELF, ...rest, '--shard', `${k}/${jobs}`, '--json', join(dir, `${k}.json`)], { stdio: ['ignore', 'pipe', 'inherit'] });
+      const child = spawn(process.execPath, [...process.execArgv, SELF, ...rest, '--shard', `${k}/${jobs}`, '--json', join(dir, `${k}of${jobs}.jsonl`)], { stdio: ['ignore', 'pipe', 'inherit'] });
       createInterface({ input: child.stdout }).on('line', (l) => {
         if (l === '@step') process.stderr.write(`\r${++done}/${total} configs x 2 budNorm   `);
       });
@@ -189,9 +215,11 @@ async function sweepParallel(argv: string[], jobs: number, total: number): Promi
       child.on('exit', (code) => (code === 0 ? ok() : fail(new Error(`sweep shard ${k}/${jobs} exited with ${code}`))));
     })));
     process.stderr.write('\n');
-    return Array.from({ length: jobs }, (_, k) => JSON.parse(readFileSync(join(dir, `${k}.json`), 'utf8')) as SweepRow[]).flat();
+    const shardFile = (k: number) => join(dir, `${k}of${jobs}.jsonl`);
+    return Array.from({ length: jobs }, (_, k) => (existsSync(shardFile(k)) ? readFileSync(shardFile(k), 'utf8') : '').split('\n').filter((l) => l.trim())
+      .flatMap((l) => (JSON.parse(l) as { rows: SweepRow[] }).rows)).flat();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    if (!workDir) rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -268,14 +296,13 @@ async function main() {
     const sp = splitsOf(clips);
     const total = sweepGrid(args.opts).length;
     if (args.shard) {
-      const rows = sweepShard(sp, args.opts, args.shard, () => console.log('@step'));
-      writeFileSync(args.json!, JSON.stringify(rows));
+      sweepShard(sp, args.opts, args.shard, args.json!, () => console.log('@step'));
       return;
     }
     log(sp.describe);
     let done = 0;
-    const rows = args.jobs > 1 ? await sweepParallel(argv, args.jobs, total)
-      : sweepShard(sp, args.opts, [0, 1], () => process.stderr.write(`\r${++done}/${total} configs x 2 budNorm   `));
+    const rows = args.jobs > 1 ? await sweepParallel(argv, args.jobs, total, args.workDir)
+      : sweepShard(sp, args.opts, [0, 1], args.workDir ? join(args.workDir, '0of1.jsonl') : null, () => process.stderr.write(`\r${++done}/${total} configs x 2 budNorm   `));
     if (args.jobs === 1) process.stderr.write('\n');
     rows.sort(byRank);
     console.log(`\nSweep: ${rows.length} configs, ranked by LOSO all (tie break: xbud, macro F1, none false accepts)`);
