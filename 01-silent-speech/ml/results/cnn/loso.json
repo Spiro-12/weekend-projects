@@ -191,8 +191,28 @@
     },
     "jobs": 1,
     "timing": "single process",
-    "evalSec": 41.86
+    "evalSec": 32.65,
+    "seedSpread": {
+      "seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "correct": [
+        262,
+        260,
+        265,
+        256,
+        278
+      ],
+      "nClips": 342,
+      "mean": 0.7725146198830408,
+      "min": 0.7485380116959064,
+      "max": 0.8128654970760234
+    }
   },
-  "inferMsPerClip": 3.6535925380097694,
-  "generatedAt": "2026-10-31T10:28:41.849Z"
+  "inferMsPerClip": 2.069898444455386,
+  "generatedAt": "2026-10-31T11:00:02.001Z"
 }
