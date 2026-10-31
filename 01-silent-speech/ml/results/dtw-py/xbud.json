@@ -147,6 +147,10 @@
       "s2-mvw4xa22-7s"
     ],
     "excluded": 18,
+    "excludedBySession": {
+      "s1": 15,
+      "s2": 3
+    },
     "duplicatesDropped": 0,
     "folds": 1,
     "perSession": {
@@ -157,7 +161,7 @@
     },
     "jobs": 1,
     "timing": "single process",
-    "evalSec": 2.2,
+    "evalSec": 4.48,
     "xbud": {
       "trainBud": "left",
       "testBud": "right",
@@ -251,7 +255,7 @@
           ]
         ],
         "noneFalseAcceptRate": 0.0,
-        "inferMsPerClip": 18.63312002857735,
+        "inferMsPerClip": 36.26988624761928,
         "correct": 66,
         "perSession": {
           "s1": {
@@ -339,7 +343,7 @@
           ]
         ],
         "noneFalseAcceptRate": 0.0,
-        "inferMsPerClip": 20.4379706095378,
+        "inferMsPerClip": 37.99497782857933,
         "correct": 36,
         "perSession": {
           "s1": {
@@ -350,6 +354,6 @@
       }
     }
   },
-  "inferMsPerClip": 18.63312002857735,
-  "generatedAt": "2026-10-31T09:27:15.380Z"
+  "inferMsPerClip": 36.26988624761928,
+  "generatedAt": "2026-10-31T09:59:45.142Z"
 }
