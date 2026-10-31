@@ -169,7 +169,7 @@ const panel: Panel = {
         const [aText, aTone] = AUTH[status.auth] ?? [status.auth, 'warn'];
         setRow('auth', aText, aTone);
         setRow('loc', LOC[status.loc] ?? status.loc);
-        setRow('simulated', status.simulated ? 'Simulated (no AirPods needed)' : 'Real AirPods');
+        setRow('simulated', app.source?.kind === 'replay' ? 'Recorded from real AirPods (replay)' : status.simulated ? 'Simulated (no AirPods needed)' : 'Real AirPods');
         setRow('armed', status.armed ? 'Armed: actions run for real' : 'Safe mode: dry run only', status.armed ? 'warn' : 'good');
       } else {
         for (const k of ['headphones', 'auth', 'loc', 'simulated', 'armed']) setRow(k, '–', 'idle');
