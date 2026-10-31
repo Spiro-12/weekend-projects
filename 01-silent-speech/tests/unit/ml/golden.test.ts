@@ -1,6 +1,7 @@
 // JS preprocessing + DTW vs real scipy / numpy (tests/unit/ml/golden.json, made by scripts/golden-ml.py).
 import { describe, expect, it } from 'vitest';
 import type { BudLocation, Channel, Clip, MotionSample } from '../../../web/src/core/contracts';
+import { DEFAULT_CHANNELS } from '../../../web/src/core/contracts';
 import { dtw, preprocess } from '../../../web/src/ml/index';
 import {
   applyNorm, butterHighpass2, computeNorm, filtfilt, lfilterZi, preprocessRaw, toGrid,
@@ -79,7 +80,9 @@ describe('golden: step 0 bud normalization (right bud mirrored), then steps 1-4'
 describe('golden: step 5 norm stats on fixture clips', () => {
   const byId = new Map(syntheticDataset().clips.map((c) => [c.id, c] as [string, Clip]));
   const clips = g.norm.ids.map((id) => byId.get(id)!);
-  const raws = clips.map((c) => preprocessRaw(c.samples));
+  // golden-ml.py's raw() reference options (6 channels, L 64, 1 Hz), not DEFAULT_OPTS: these goldens test the spec
+  const SPEC = { channels: [...DEFAULT_CHANNELS], L: 64, hpHz: 1.0 };
+  const raws = clips.map((c) => preprocessRaw(c.samples, SPEC));
 
   it('raw clip matches', () => {
     expect(maxAbsDiff(raws[0], g.norm.raw0)).toBeLessThan(1e-9);
@@ -90,13 +93,13 @@ describe('golden: step 5 norm stats on fixture clips', () => {
     expect(maxAbsDiff(n.mean, g.norm.global.mean)).toBeLessThan(1e-12);
     expect(maxAbsDiff(n.std, g.norm.global.std)).toBeLessThan(1e-12);
     expect(maxAbsDiff(applyNorm(raws[0], 'global', n), g.norm.global.x0)).toBeLessThan(1e-9);
-    expect(maxAbsDiff(preprocess(clips[0].samples, {}, n), g.norm.global.x0)).toBeLessThan(TOL);
+    expect(maxAbsDiff(preprocess(clips[0].samples, SPEC, n), g.norm.global.x0)).toBeLessThan(TOL);
   });
 
   it('clip: per clip z score with floor = 0.5 x median per clip std', () => {
     const n = computeNorm(raws, 'clip', 6);
     expect(maxAbsDiff(n.std, g.norm.clip.floor)).toBeLessThan(1e-12);
-    expect(maxAbsDiff(preprocess(clips[0].samples, { norm: 'clip' }, n), g.norm.clip.x0)).toBeLessThan(TOL);
+    expect(maxAbsDiff(preprocess(clips[0].samples, { ...SPEC, norm: 'clip' }, n), g.norm.clip.x0)).toBeLessThan(TOL);
   });
 });
 
