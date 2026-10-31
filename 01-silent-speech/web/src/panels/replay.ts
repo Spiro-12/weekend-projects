@@ -62,7 +62,7 @@ const panel: Panel = {
     const root = q('.rp'), titleEl = q('[data-testid=replay-title]'), noteEl = q('[data-testid=replay-note]');
     const scoreEl = q('[data-testid=replay-score]'), playBtn = q<HTMLButtonElement>('[data-testid=replay-play]');
     const track = q('[data-testid=replay-track]'), head = q('.rp-head'), nowEl = q('[data-testid=replay-now]');
-    const errEl = q('[data-testid=replay-error]');
+    const errEl = q('[data-testid=replay-error]'), ctl = q('.rp-ctl');
     const speedBtns = [...el.querySelectorAll<HTMLButtonElement>('.rp-speed button')];
 
     let src: ReplaySource | null = null;
@@ -174,6 +174,7 @@ const panel: Panel = {
       errEl.hidden = s.phase !== 'error';
       setText(errEl.querySelector('span')!, s.phase === 'error' ? s.error : '');
       playBtn.disabled = s.phase === 'loading' || s.phase === 'error';
+      ctl.hidden = s.phase === 'error';
       const paused = s.paused;
       setText(playBtn, paused ? '▶ Play' : '❚❚ Pause');
       playBtn.setAttribute('aria-label', paused ? 'Play the replay' : 'Pause the replay');

@@ -9,6 +9,7 @@ import { demoScript, MAX_SEC, SessionRecorder, sessionFileName } from './session
 
 const NONE_PROMPT = "Keep your mouth closed and still. Don't say anything.";
 
+const plural = (n: number, w: string) => `${n.toLocaleString('en-US')} ${w}${n === 1 ? '' : 's'}`;
 const fmtTime = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
 
 const panel: Panel = {
@@ -73,7 +74,7 @@ const panel: Panel = {
       if (!rec.recording) return;
       rec.stop();
       if (rec.statusChanged) say('warn', 'Stopped. The sensor bud or Simulate changed during the recording; the file keeps the first setting. Consider recording again.');
-      else say('ok', why ?? `Stopped. ${rec.nTakes} takes. Press Export to save the file.`);
+      else say('ok', why ?? `Stopped. ${plural(rec.nTakes, 'take')}. Press Export to save the file.`);
       render();
     };
     stopBtn.onclick = () => stop();
@@ -131,9 +132,9 @@ const panel: Panel = {
       stopBtn.disabled = !rec.recording;
       expBtn.disabled = rec.recording || !rec.hasData;
       const parts = rec.hasData
-        ? [fmtTime(rec.seconds), `${rec.nTakes} takes`, `${rec.samples.length.toLocaleString('en-US')} samples`, `${rec.nPredictions} heard`]
+        ? [fmtTime(rec.seconds), plural(rec.nTakes, 'take'), plural(rec.samples.length, 'sample'), `${rec.nPredictions} heard`]
         : [canRecord() ? 'Ready' : 'Connect the Mac app to record'];
-      if (rec.nActions) parts.push(`${rec.nActions} actions`);
+      if (rec.nActions) parts.push(plural(rec.nActions, 'action'));
       stats.textContent = parts.join(' · ');
       promptBox.hidden = !rec.recording;
       const cur = current();

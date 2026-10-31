@@ -204,7 +204,8 @@ test('2× plays twice as fast; pause stops the stream and play resumes it', asyn
 test('a missing replay file shows an error and a way out to fake data', async ({ page }) => {
   await page.goto('./?session=replay/missing.json');
   await expect(page.getByTestId('source-pill')).toHaveText('replay · closed');
-  await expect(page.getByTestId('replay-error')).toContainText('Could not load the replay');
+  await expect(page.getByTestId('replay-error')).toContainText('Could not load the replay (the file is missing or broken).');
+  await expect(page.getByTestId('replay-play')).toBeHidden();
   await page.getByTestId('replay-fallback').click();
   await expect(page.getByTestId('source-pill')).toHaveText('fake · open');
   await expect(page.getByTestId('replay-banner')).toBeHidden();
@@ -238,7 +239,7 @@ test('live: the session recorder exports a session that passes validateSession a
   await page.keyboard.down('Space');
   await page.waitForTimeout(1200);
   await page.keyboard.up('Space');
-  await expect(page.getByTestId('recorder-stats')).toContainText('1 takes');
+  await expect(page.getByTestId('recorder-stats')).toContainText('1 take ·');
   await expect(page.getByTestId('recorder-stats')).toContainText('1 heard');
   await expect(page.getByTestId('recorder-progress')).toHaveText('2 of 16');
   await page.waitForTimeout(500);

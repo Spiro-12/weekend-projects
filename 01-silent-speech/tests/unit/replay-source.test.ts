@@ -98,9 +98,9 @@ describe('ReplaySource loading', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const r = await rig(null, {}, { fetchJson });
     expect(r.src.phase).toBe('error');
-    expect(r.src.error).toMatch(msg);
+    expect(r.src.error).toBe('Could not load the replay (the file is missing or broken).');
     expect(r.conn).toEqual(['connecting', 'closed']);
-    expect(warn).toHaveBeenCalled();
+    expect(warn.mock.calls.flat().map(String).join(' ')).toMatch(msg); // the details go to the console
     r.run(1000);
     expect(r.motion).toHaveLength(0);
   });

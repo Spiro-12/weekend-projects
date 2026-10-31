@@ -281,7 +281,8 @@ export class ReplaySource implements MotionSource {
       if (metaMatches(meta, s)) this.meta = meta;
       this.session = s;
     } catch (e) {
-      this.fail(`Could not load the replay: ${(e as Error)?.message ?? String(e)}`);
+      console.warn('[replay] load failed:', (e as Error)?.message ?? e);
+      this.fail('Could not load the replay (the file is missing or broken).');
       return;
     }
     const s = this.session!;
