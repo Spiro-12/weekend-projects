@@ -213,9 +213,7 @@ if (good.open) {
   // (f) pairing: checked before anything else about the action
   if (safeToSendAction('(f) pairing')) {
     const noField = await act('volume_up', null);
-    // The TS mock treats a missing token field as a broken action (bad_json); the Mac app says unpaired.
-    const mockOk = hello?.app === 'MockBridge' && noField.m?.code === 'bad_json';
-    report(isUnpaired(noField) || mockOk, '(f) action with no token -> error unpaired', describe(noField));
+    report(isUnpaired(noField), '(f) action with no token -> error unpaired', describe(noField));
     const empty = await act('volume_up', '');
     report(isUnpaired(empty), '(f) action with an empty token -> error unpaired', describe(empty));
     const bad = await act('volume_up', wrong);

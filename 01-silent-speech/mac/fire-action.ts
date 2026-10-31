@@ -2,7 +2,8 @@
 //   npx tsx mac/fire-action.ts --action volume_up
 //   npx tsx mac/fire-action.ts --action text_mom --yes-really     texts need --yes-really (only after Spiro said OK)
 // Options: --port 8765 (default, the real app), --token-file ~/.silentspeech/token, --wait <seconds> to watch the
-// app log for "<action> done" / "<action> failed" (default depends on the action), --log-file <path>.
+// app log for "<action> done" / "failed" / "cancelled" (default depends on the action), --log-file <path>.
+// Never retries: after a failed text, ask Spiro whether it arrived anyway before sending another.
 // The token is read from the file and never printed. Exit 0 = the app answered ok (and, if real, the log says done).
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -19,7 +20,7 @@ const ORIGIN = 'https://spiro-12.github.io';
 const MESSAGING = ['text_mom', 'call_back', 'help'];
 /** How long to watch the app log after the reply, per action (seconds). */
 const DEFAULT_WAIT: Record<string, number> = {
-  text_mom: 20, call_back: 20, help: 20, focus_music: 20, calendar: 40, demo_48h: 10, volume_up: 2,
+  text_mom: 30, call_back: 30, help: 30, focus_music: 30, calendar: 40, demo_48h: 10, volume_up: 2,
 };
 
 const argv = process.argv.slice(2);
@@ -107,7 +108,10 @@ if (ok && reply.dryRun === false && waitSec > 0) {
   if (logStart < 0) {
     console.log(`(no log at ${logFile}, not waiting for the end)`);
   } else {
-    const done = new RegExp(`\\b${action} (done|failed): `);
+    // Only lines the app itself wrote about this action: "HH:MM:SS  <action> done: ..." etc. (the app writes every
+    // entry as one line and never logs made up action names, so nothing else can match these).
+    const ends = new RegExp(`^\\d\\d:\\d\\d:\\d\\d  ${action} (done|failed|cancelled): `);
+    const about = new RegExp(`^\\d\\d:\\d\\d:\\d\\d  (Real action: ${action}: |${action}: |${action} (done|failed|cancelled): |Contacts: |Help: )`);
     const deadline = Date.now() + waitSec * 1000;
     let seen = 0;
     let end: string | undefined;
@@ -116,18 +120,21 @@ if (ok && reply.dryRun === false && waitSec > 0) {
       const text = fs.readFileSync(logFile, 'utf8');
       const lines = Buffer.from(text, 'utf8').subarray(Math.max(0, logStart)).toString('utf8').split('\n');
       // Lines about this action only; never echo the pair link line.
-      const mine = lines.filter((l) => l.includes(action) && !l.includes('#pair='));
+      const mine = lines.filter((l) => about.test(l) && !l.includes('#pair='));
       for (const line of mine.slice(seen)) console.log(`  log: ${line}`);
       seen = mine.length;
-      end = mine.find((l) => done.test(l));
+      end = mine.find((l) => ends.test(l));
     }
     if (!end) {
       console.log(`No "${action} done" line in the log after ${waitSec} s (a popup may be waiting for a click).`);
       ok = false;
-    } else if (/ failed: /.test(end)) {
+    } else if (!/ done: /.test(end)) {
       ok = false;
     }
   }
 }
 console.log(ok ? 'OK' : 'NOT OK');
+if (!ok && MESSAGING.includes(action)) {
+  console.log('Do not send it again yet: first ask Spiro whether the text arrived anyway.');
+}
 process.exit(ok ? 0 : 1);

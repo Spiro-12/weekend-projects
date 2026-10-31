@@ -210,7 +210,8 @@ final class WebSocketServer: ObservableObject {
         }
         let origin = header.value.trimmingCharacters(in: .whitespaces)
         if ProtocolV1.allowedOrigins.contains(origin) { return true }
-        log.add("Blocked a website: \(String(origin.prefix(80)))")
+        let shown = String(origin.unicodeScalars.filter { $0.value >= 0x21 && $0.value < 0x7f }.map(Character.init).prefix(80))
+        log.add("Blocked a website: \(shown)")
         return false
     }
 
@@ -360,13 +361,13 @@ final class WebSocketServer: ObservableObject {
         // Pairing comes before anything else about the action (PROTOCOL §2). The token itself is never logged.
         guard pairing.matches(request.token) else {
             sendError(.unpaired, "wrong or missing pairing token: open the dashboard with the Mac app's link", id: request.id, to: client)
-            log.add("Refused an unpaired action (\(String(request.action.prefix(64)))): open the dashboard with this app's link")
+            log.add("Refused an unpaired action (\(logSafeName(request.action))): open the dashboard with this app's link")
             return
         }
         let action = request.action
         guard ActionRunner.actionKeys.contains(action) else {
             sendError(.unknown_action, "unknown action \(String(action.prefix(64)))", id: request.id, to: client)
-            log.add("Unknown action: \(String(action.prefix(64)))")
+            log.add("Unknown action: \(logSafeName(action))")
             return
         }
         let now = ProcessInfo.processInfo.systemUptime

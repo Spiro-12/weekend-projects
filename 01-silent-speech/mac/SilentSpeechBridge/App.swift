@@ -32,7 +32,11 @@ final class BridgeModel: ObservableObject {
         self.pairing = pairing
         self.runner = runner
         self.motion = motion
-        self.server = WebSocketServer(motion: motion, runner: runner, pairing: pairing, log: log)
+        let server = WebSocketServer(motion: motion, runner: runner, pairing: pairing, log: log)
+        self.server = server
+        // Background steps of an action (AppleScript, Spotify play, speaking the calendar) check this right before
+        // they run, so switching Armed off cancels them.
+        runner.isArmed = { [weak server] in server?.armed ?? false }
 
         // Keep streaming while the window is in the background: no App Nap.
         activity = ProcessInfo.processInfo.beginActivity(
@@ -111,8 +115,13 @@ final class LogStore: ObservableObject {
         show(stamp(windowText))
     }
 
+    /// "HH:mm:ss  text", always one line: control characters (newlines too) become spaces, so nothing can fake a
+    /// line of its own. Setup greps anchor on this start of line.
     private func stamp(_ text: String) -> String {
-        "\(timeFormat.string(from: Date()))  \(text)"
+        let flat = String(String.UnicodeScalarView(text.unicodeScalars.map {
+            $0.properties.generalCategory == .control ? Unicode.Scalar(32) : $0
+        }))
+        return "\(timeFormat.string(from: Date()))  \(flat)"
     }
 
     private func write(_ line: String) {

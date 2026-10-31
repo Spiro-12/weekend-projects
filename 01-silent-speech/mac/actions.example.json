@@ -1,7 +1,7 @@
 {
-  "text_mom": { "kind": "imessage", "to": "+15555550100", "text": "On my way!" },
-  "call_back": { "kind": "imessage", "to": "+15555550100", "text": "Can't talk now, call me back later" },
-  "help": { "kind": "imessage", "to": "+15555550100", "text": "I need help right now" },
+  "text_mom": { "kind": "imessage", "to": "", "text": "On my way!" },
+  "call_back": { "kind": "imessage", "to": "", "text": "Can't talk now, call me back later" },
+  "help": { "kind": "imessage", "to": "", "text": "I need help right now" },
   "volume_up": { "kind": "volume", "step": 15 },
   "focus_music": { "kind": "spotify", "uri": "spotify:playlist:37i9dQZF1DWZeKCadgRdKQ" },
   "demo_48h": { "kind": "say", "text": "I created this demo in 48 hours" },

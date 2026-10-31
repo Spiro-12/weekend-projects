@@ -54,17 +54,12 @@ final class Pairing {
         }
 
         if let existing = readToken(at: path) {
-            if let mode = (try? fm.attributesOfItem(atPath: path))?[.posixPermissions] as? NSNumber, mode.intValue & 0o777 != 0o600 {
-                do {
-                    try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
-                    log.add("Pairing: made ~/.silentspeech/token private again (mode 600)")
-                } catch {
-                    log.add("Pairing: could not make ~/.silentspeech/token private. Every action will be refused.")
-                    return nil
-                }
+            if isPrivate(path) {
+                log.add("Pairing: token ready (~/.silentspeech/token)")
+                return existing
             }
-            log.add("Pairing: token ready (~/.silentspeech/token)")
-            return existing
+            // Someone else may have read it: make a new one (the dashboard pairs again from the app's link).
+            log.add("Pairing: token reset: bad permissions")
         }
 
         guard let fresh = randomHex(bytes: tokenBytes) else {
@@ -100,6 +95,14 @@ final class Pairing {
               let text = String(data: data, encoding: .utf8) else { return nil }
         let token = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return isToken(token) ? token : nil
+    }
+
+    /// Mode exactly 600 and owned by this user.
+    private static func isPrivate(_ path: String) -> Bool {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let mode = attributes[.posixPermissions] as? NSNumber,
+              let owner = attributes[.ownerAccountID] as? NSNumber else { return false }
+        return mode.intValue & 0o777 == 0o600 && owner.uint32Value == getuid()
     }
 
     static func isToken(_ text: String) -> Bool {
