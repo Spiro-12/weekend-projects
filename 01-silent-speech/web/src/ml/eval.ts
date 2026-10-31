@@ -11,7 +11,7 @@
 // the mean of that over channels ('clip' norm needs no rescale). dRef only scales confidence, it never
 // changes a label, and the label path (templates, query, norm) is still the exact per fold one.
 // Measured gap to the exact path: same labels; confidence within 0.003 on the 120 clip fixture and on a
-// real 17 clip recording, within 0.04 on a 15 clip pilot. LOSO stays exact throughout.
+// real 17 clip recording, within ~0.04 to 0.1 on a 15 clip pilot (sets <= EXACT_LOO_MAX use the exact path anyway). LOSO stays exact throughout.
 import type { Clip, DtwKnnOptions, Metrics, NormStats } from '../core/contracts';
 import { NONE } from '../core/contracts';
 import { bandRadius, dtwFlat, interleave } from './dtw';

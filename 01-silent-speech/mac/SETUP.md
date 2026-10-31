@@ -11,10 +11,11 @@ Repo: `~/weekend-projects`. The app's log: `~/Library/Logs/SilentSpeechBridge.lo
 ## Get the code (first time)
 `~/weekend-projects` is the folder Spiro shares with Claude. It may start empty.
 ```bash
-cd ~/weekend-projects && if [ ! -d .git ]; then git clone https://github.com/Spiro-12/weekend-projects.git . ; fi
-git fetch origin && git checkout p1 && git pull --ff-only   # Phase 1 work lives on branch p1 until it is merged to main
+cd ~/weekend-projects
+if [ ! -d .git ]; then git init -q && git remote add origin https://github.com/Spiro-12/weekend-projects.git; fi
+git fetch origin && git checkout -f -B main origin/main   # works even if Finder left a .DS_Store here
 ```
-(After Phase 1 merges, use `main` instead of `p1`.)
+(If the lead says a phase branch is under test, use that branch instead of `main`.)
 
 ## 0. Prerequisites (check each, install only what is missing)
 Password steps use `osascript ... with administrator privileges`: a normal macOS password box for Spiro, so the
@@ -55,7 +56,7 @@ It must end with `OK: signing works.` On `FAILED`, run it again. If the identity
 ```bash
 cd ~/weekend-projects/01-silent-speech/mac && ./build.sh && codesign -dv build/Debug/SilentSpeechBridge.app 2>&1 | grep -E "Authority|Signature"
 ```
-It ends with `OK: built ... (signed: SilentSpeech Local)`. This is how it was first built on Spiro's Mac (Oct 31).
+The build prints `OK: built ... (signed: SilentSpeech Local)`, then the codesign lines show `Authority=SilentSpeech Local`. This is how it was first built on Spiro's Mac (Oct 31).
 
 **With full Xcode** (optional, same result):
 ```bash

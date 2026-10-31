@@ -37,11 +37,13 @@ const PROMPT_READY_MS = 400; // a new sentence must be on screen this long befor
 const SLOW_LOAD_MS = 5000;
 
 const WAIT_MSG = "Wait until the sentence turns solid white, then hold Space.";
+const NOT_READY_MSG = "Wait for a sentence to show, then hold Space.";
 const SLIP_MSG = 'Finger slipped, say it again.';
 const SAVE_FAILED = 'Recorded but NOT saved in this browser. Press Export now.';
 const NO_AUTOSAVE = 'Autosave is off in this browser. Press Export before you close the page.';
 const PRACTICE_NOTE = 'Practice with fake data (not saved as real training data).';
 const OFF_BANNER = 'Not connected to AirPods. Recording real data is off.';
+const FAKE_BANNER = 'Fake AirPods data (no Mac app connected). You can practice here, nothing is saved as real training data.';
 const SIMULATE_BANNER = 'The Mac app is in Simulate mode. Real recording is off.';
 const STORAGE_STUCK = "This browser's storage isn't answering, so recordings are only kept on this page. Press Export before you close it.";
 const KIND_CHANGED = 'Not saved: the AirPods mode changed while you were recording. Say it again.';
@@ -308,11 +310,11 @@ class EnrollPanel {
 
   /** Why a press right now can't be saved, or null. */
   private pressBlock(): string | null {
-    if (!this.restored) return WAIT_MSG;
+    if (!this.restored) return NOT_READY_MSG;
     if (this.app.source?.kind === 'replay') return "You're watching a replay. Recording needs AirPods.";
     if (!this.kind) return NO_SIGNAL;
     if (!this.prompt) {
-      return this.promptState() === 'done' ? `Session ${this.session} is done. Start the next session to record more.` : WAIT_MSG;
+      return this.promptState() === 'done' ? `Session ${this.session} is done. Start the next session to record more.` : NOT_READY_MSG;
     }
     if (!this.promptReady) return WAIT_MSG; // only glimpsed: the person may still be saying the last one
     return null;
@@ -392,7 +394,7 @@ class EnrollPanel {
     // (presses in Recognize mode never get a Press record).
     if (p.slipped) { this.say('bad', SLIP_MSG); return; }
     if (p.block) { this.say('bad', `Not saved. ${p.block}`); return; }
-    if (!p.label || !p.kind) { this.say('bad', `Not saved. ${WAIT_MSG}`); return; }
+    if (!p.label || !p.kind) { this.say('bad', `Not saved. ${NOT_READY_MSG}`); return; }
     const bad = takeReject({ wallHoldSec: ((p.wallUp ?? p.wallDown) - p.wallDown) / 1000, msSinceMotionAtRelease: p.motionAgeAtUp }, c);
     if (bad) { this.say('bad', `Not saved. ${bad.message}`); return; }
     if (this.status && this.status.headphones !== 'connected') { this.say('bad', `Not saved. ${NO_SIGNAL}`); return; }
@@ -640,7 +642,7 @@ class EnrollPanel {
     const practice = kind === 'practice';
     r.banner.hidden = !active || !this.restored || src === 'replay' || !src || kind === 'real';
     r.banner.dataset.kind = practice ? 'practice' : 'off';
-    r.bannerHead.textContent = practice && src === 'live' ? SIMULATE_BANNER : OFF_BANNER;
+    r.bannerHead.textContent = practice && src === 'live' ? SIMULATE_BANNER : src === 'fake' ? FAKE_BANNER : OFF_BANNER;
     r.bannerSub.textContent = practice
       ? `${PRACTICE_NOTE} Practice session: ${session}.`
       : this.offReason();

@@ -10,7 +10,8 @@ APP="build/Debug/$NAME.app"
 ARCH="$(uname -m)"
 IDENTITY="${SIGN_IDENTITY:-SilentSpeech Local}"
 
-command -v xcrun >/dev/null || { echo "FAILED: Command Line Tools missing. Run: xcode-select --install"; exit 1; }
+# /usr/bin/xcrun always exists (a stub), so check for a real toolchain.
+xcode-select -p >/dev/null 2>&1 && xcrun --find swiftc >/dev/null 2>&1 || { echo "FAILED: Command Line Tools missing. Run: xcode-select --install"; exit 1; }
 
 rm -rf "$APP" "build/Debug/$NAME.dSYM"
 mkdir -p "$APP/Contents/MacOS"

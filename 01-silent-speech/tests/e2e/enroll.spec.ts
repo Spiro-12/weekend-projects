@@ -132,7 +132,7 @@ test('records 3 sentences × 3 takes as fake practice, exports a valid file, and
   await setup(page, 3, PICK);
   // fake data is practice: clearly labeled, own session (finding 3)
   const banner = page.getByTestId('enroll-banner');
-  await expect(banner).toContainText('Not connected to AirPods. Recording real data is off.');
+  await expect(banner).toContainText('Fake AirPods data (no Mac app connected)');
   await expect(banner).toContainText('Practice with fake data (not saved as real training data)');
   await expect(prompt(page)).toHaveAttribute('data-session', 'fake-1');
   const said = await record(page, 9);
@@ -384,7 +384,7 @@ test('finding 4: a press while loading is thrown away, recording starts once sav
   await expect(prompt(page)).toHaveText('Loading your recordings…');
   await page.waitForTimeout(500);
   await hold(page, 1400); // the restore lands while Space is held
-  await expect(msg(page)).toContainText('Wait until the sentence turns solid white', { timeout: 5000 });
+  await expect(msg(page)).toContainText('Wait for a sentence to show', { timeout: 5000 });
   await expect(prompt(page)).toHaveAttribute('data-state', 'prompt');
   await page.waitForTimeout(800);
   expect(await stored(page)).toBe(0);

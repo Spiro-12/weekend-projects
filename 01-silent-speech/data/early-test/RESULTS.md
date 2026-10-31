@@ -22,4 +22,4 @@ Simple DTW 1-NN, leave one out (high pass 1 Hz, 6 channels, 2.9 s window, L = 64
 - **Mouthing is clearly visible** in AirPods Pro 3 motion (≈10× the still baseline). GO on "can it see the jaw".
 - **The two sentences look separable**, but each sentence was recorded as one block, so some of the score could be "clips close in time look alike". The Phase 1 pilot uses shuffled prompts, which removes that confound.
 
-Scripts: `scripts/` (run with `uv run --with numpy --with scipy --with matplotlib python <script>`). Raw recordings are not committed (they include device ids).
+Scripts: `scripts/` (run with `uv run --with numpy --with scipy --with matplotlib python <script> <recording folder> <output png>`; `analyze.py` also writes `/tmp/sl_data/segs.npy`, so create `/tmp/sl_data` first). Raw recordings are not committed (they include device ids).

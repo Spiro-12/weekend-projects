@@ -36,9 +36,13 @@ jobs:
         # Claude's sandbox can't open github.io, so the deploy checks itself.
         run: |
           url="${{ steps.deployment.outputs.page_url }}"
+          # Pin to this build's hashed entry file, so the old deploy can't pass the check.
+          want=$(grep -o 'assets/index-[A-Za-z0-9_-]*\.js' _site/01-silent-speech/index.html | head -1)
+          test -n "$want" || { echo "::error::could not find the built entry file"; exit 1; }
+          echo "Expecting /weekend-projects/01-silent-speech/$want"
           for i in $(seq 1 12); do
-            if curl -fsS "${url}01-silent-speech/" | grep -q '/weekend-projects/01-silent-speech/assets/' \
-               && curl -fsS "${url}" | grep -q 'Weekend Projects'; then
+            if curl -fsS --max-time 20 "${url}01-silent-speech/" | grep -qF "/weekend-projects/01-silent-speech/$want" \
+               && curl -fsS --max-time 20 "${url}" | grep -q 'Weekend Projects'; then
               echo "Live site OK: ${url}"; exit 0
             fi
             echo "not ready yet ($i), retrying"; sleep 10
