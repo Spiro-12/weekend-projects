@@ -1,8 +1,10 @@
 // DTW + kNN classifier (PROTOCOL.md §6).
 //
 // Prediction:
-//   1. Preprocess the clip (spec v1, the model's norm stats) and DTW it against every template.
-//   2. Label = distance weighted vote of the k nearest templates (default k = 1), weight 1 / (d + 1e-9)
+//   1. Preprocess the clip (spec v1, the model's norm stats; step 0 mirrors it when ctx.loc is 'right' and the
+//      model's budNorm is 'mirror', so it lands in the left bud frame the templates are stored in) and DTW it
+//      against every template.
+//   2. Label = distance weighted vote of the k nearest templates (default k = 3), weight 1 / (d + 1e-9)
 //      (same as the Python `dtw-py` cross check). Ties: the class with the nearer template wins.
 //   3. Reference distance dRef (a property of the model, kept up to date as templates are added): the
 //      median, over templates, of the DTW distance to the nearest OTHER template of the same class, i.e.
@@ -17,20 +19,30 @@
 //                       it falls fast toward 0 (far from every template = not a sentence we know).
 //                     * "stillness" at 1.25 x sum(q^2) = 1.25 x the DTW distance to the all zeros clip.
 //                       It backs a 'none' answer and counts against all other labels. With norm 'global'
-//                       (default) all zeros is the training mean, i.e. nothing moved, so a quiet clip is not
-//                       accepted even by a model with no 'none' takes. With norm 'clip' every clip is z scored
-//                       on its own, so sum(q^2) is about channels x L for any clip louder than the std floor:
-//                       there it only catches clips quieter than the floor and is otherwise inert.
+//                       all zeros is the training mean, i.e. nothing moved, so a quiet clip is not accepted even
+//                       by a model with no 'none' takes. With norm 'clip' (the default since Phase 2) every clip
+//                       is z scored on its own, so sum(q^2) is exactly channels x L for any clip louder than the
+//                       std floor (576 at L 96: stillness at 720) and a little less for a quieter one. So there it
+//                       is a second, fixed distance competitor next to "unknown" (Spiro's public model: dRef 421,
+//                       unknown at 716, stillness at 720): not inert, it makes every non 'none' answer more
+//                       conservative (and backs 'none' answers); it still catches clips quieter than the floor.
 //      Limits: distance is the only cue. A different sentence that lands within ~1.7 x dRef of a template is
-//      still accepted (synthetic fixture: a text_mom + none model accepts about 7% of the 6 other sentences), and a
-//      model trained on one sitting is stricter on other sittings (their takes sit farther than dRef).
+//      still accepted, and a model trained on one sitting is stricter on other sittings (their takes sit farther
+//      than dRef). On Spiro's real recordings with the defaults (norm 'clip'), known sentences from another sitting
+//      sit at about 0.9 to 1.25 x dRef and sentences the model wasn't trained on at about 1.35 to 1.7 x dRef (10th
+//      to 90th percentile, a 3 class model s2 -> s3), which is why the default threshold is high (0.85: small real
+//      models then accept ~8% of unknown sentences, ~35% at 0.5).
+//      With norm 'clip' the synthetic fixture's sentences all look alike (it only varies loudness and timing), so
+//      there a small model accepts many other sentences; safety-real.test.ts checks the real data instead.
 //      Unsafe models (fewer than 2 classes, or dRef undefined / 0) get the old scale free softmax
 //      (T = 0.1 x best distance, no virtual templates) capped at threshold / 2, so they never accept at a
 //      positive threshold.
 //   5. top (up to 3, score desc): top[0] = { label, confidence }. top[1..2] = the next classes by their own
 //      separation score (same softmax, read at that class), never above top[0].score.
 //   6. accepted = label !== 'none' && confidence >= threshold.
-import type { Clip, DtwKnnModelJSON, DtwKnnOptions, MotionSample, NormStats, Prediction } from '../core/contracts';
+import type {
+  BudLocation, Clip, DtwKnnModelJSON, DtwKnnOptions, MotionSample, NormStats, PredictContext, Prediction,
+} from '../core/contracts';
 import { NONE } from '../core/contracts';
 import { bandRadius, dtwFlat, interleave } from './dtw';
 import { applyNorm, applyNormInterleaved, computeNorm, preprocessRaw, resolveOpts, toF32 } from './preprocess';
@@ -130,14 +142,14 @@ export class DtwKnn implements DtwKnnModel {
 
   get size(): number { return this.tpl.length; }
 
-  /** Spec v1 preprocessing with this model's options and norm stats. Returns [channel][L]. */
-  prep(samples: MotionSample[]): Float32Array[] {
-    return toF32(applyNorm(preprocessRaw(samples, this.opts), this.opts.norm, this.norm));
+  /** Spec v1 preprocessing with this model's options and norm stats (`loc`: the clip's bud, step 0). Returns [channel][L]. */
+  prep(samples: MotionSample[], loc?: BudLocation): Float32Array[] {
+    return toF32(applyNorm(preprocessRaw(samples, this.opts, loc), this.opts.norm, this.norm));
   }
 
   /** Same as prep, interleaved [L][channel] (what classify takes). */
-  prepFlat(samples: MotionSample[]): Float32Array {
-    return applyNormInterleaved(preprocessRaw(samples, this.opts), this.opts.norm, this.norm);
+  prepFlat(samples: MotionSample[], loc?: BudLocation): Float32Array {
+    return applyNormInterleaved(preprocessRaw(samples, this.opts, loc), this.opts.norm, this.norm);
   }
 
   /**
@@ -172,14 +184,15 @@ export class DtwKnn implements DtwKnnModel {
     return this.dRef;
   }
 
-  /** Adds one clip as a template, normalized with the model's current stats (stats are not recomputed). */
+  /** Adds one clip as a template (bud normalized by `c.loc`), normalized with the model's current stats (not recomputed). */
   add(c: Clip): void {
-    this.push(c.label, this.prep(c.samples));
+    this.push(c.label, this.prep(c.samples, c.loc));
   }
 
-  predict(samples: MotionSample[]): Prediction {
+  /** `ctx.loc`: the bud that is streaming (the shell passes status.loc); step 0 mirrors `right`. */
+  predict(samples: MotionSample[], ctx?: PredictContext): Prediction {
     const t0 = now();
-    const p = this.classify(this.prepFlat(samples));
+    const p = this.classify(this.prepFlat(samples, ctx?.loc));
     return { ...p, ms: now() - t0 };
   }
 
@@ -258,24 +271,25 @@ export class DtwKnn implements DtwKnnModel {
   }
 }
 
-/** Fits norm stats on `clips` (deduped by id) and stores every clip as a template. */
+/** Fits norm stats on `clips` (deduped by id, each bud normalized by its `loc`) and stores every clip as a template. */
 export function trainModel(clips: Clip[], opts?: DtwKnnOptions): DtwKnn {
   const o = resolveOpts(opts);
   const cs = dedupeById(clips);
-  const raws = cs.map((c) => preprocessRaw(c.samples, o));
+  const raws = cs.map((c) => preprocessRaw(c.samples, o, c.loc));
   return fromRaw(cs.map((c) => c.label), raws, o);
 }
 
 /**
  * Builds a model from step 1..4 outputs (lets evaluate reuse preprocessing across folds).
  * internal.norm: norm stats already computed from exactly these raws. internal.dRef: see the constructor.
+ * internal.flat: the raws already normalized with `norm` and interleaved (exactly applyNormInterleaved's output).
  */
 export function fromRaw(
   labels: string[], raws: Float64Array[][], o: Required<DtwKnnOptions>,
-  internal: { dRef?: number | null; norm?: NormStats } = {},
+  internal: { dRef?: number | null; norm?: NormStats; flat?: Float32Array[] } = {},
 ): DtwKnn {
   const norm = internal.norm ?? computeNorm(raws, o.norm, o.channels.length);
-  const flat = raws.map((r, i) => ({ label: labels[i], x: applyNormInterleaved(r, o.norm, norm) }));
+  const flat = raws.map((r, i) => ({ label: labels[i], x: internal.flat?.[i] ?? applyNormInterleaved(r, o.norm, norm) }));
   return new DtwKnn(o, norm, [], { flat, dRef: internal.dRef });
 }
 

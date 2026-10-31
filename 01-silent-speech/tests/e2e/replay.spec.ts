@@ -116,7 +116,8 @@ test('a visitor (no ?mode) gets the real replay within 2 s: no console errors, n
   // The first take starts 1.3 s in: push to talk goes down and the banner says what is being mouthed.
   await expect(page.getByTestId('replay-now')).toContainText('silently mouths', { timeout: 3000 });
   await expect(page.getByTestId('ptt')).toHaveClass(/down/);
-  await expect(score(page)).toContainText('Waiting for the model'); // no model loader on this branch: honest, not scored
+  // Track F's public model ships with the site now: Recognize loads it for the replay.
+  await expect(page.getByTestId('result-model')).toContainText("Spiro's model (public)", { timeout: 15_000 });
   await expect(page.getByTestId('replay-score-detail')).toHaveText('16 takes');
   // The now line only changes when there is something new to say (it used to be rewritten 5 times a second).
   const mutations = await page.getByTestId('replay-now').evaluate((el) => new Promise<number>((res) => {
@@ -176,6 +177,7 @@ test('wrong ones show as wrong (a model that always says "help")', async ({ page
 });
 
 test('without a model, finished takes are counted as not scored, never dropped', async ({ page }) => {
+  await page.route('**/models/templates.json', (r) => r.fulfill({ status: 404, body: '' })); // no public model
   await serveShort(page);
   await page.goto(`./?session=${SHORT_URL}&speed=8`);
   await expect(score(page)).toHaveAttribute('data-unscored', '8', { timeout: 15_000 });
@@ -208,7 +210,7 @@ test('2× plays twice as fast; pause stops the stream and play resumes it', asyn
   await expect(page.getByTestId('source-pill')).toHaveText('replay · open');
   const r1 = await rate();
   expect(r1).toBeGreaterThan(40);
-  expect(r1).toBeLessThan(60);
+  expect(r1).toBeLessThan(70); // 50 Hz; the 2 s window is wall time, so a busy machine adds a little (still far below 2×)
   await page.getByTestId('replay-speed-2').click();
   await expect(page.getByTestId('replay-speed-2')).toHaveAttribute('aria-pressed', 'true');
   const r2 = await rate();

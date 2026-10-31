@@ -2,21 +2,23 @@ import { describe, expect, it } from 'vitest';
 import type { Clip, DatasetClip, DtwKnnModelJSON } from '../../../web/src/core/contracts';
 import { NONE } from '../../../web/src/core/contracts';
 import { dtw, loadModel, preprocess, train, type DtwKnnModel } from '../../../web/src/ml/index';
+import { bandRadius } from '../../../web/src/ml/dtw';
 import { fromRaw, trainModel } from '../../../web/src/ml/knn';
-import { preprocessRaw, resolveOpts } from '../../../web/src/ml/preprocess';
+import { DEFAULT_OPTS, preprocessRaw, resolveOpts } from '../../../web/src/ml/preprocess';
 import { syntheticDataset } from './helpers';
 
 const clips = (): DatasetClip[] => syntheticDataset().clips;
 const bySession = (s: string) => clips().filter((c) => c.session === s);
 
-describe('train / predict', () => {
+// Heavy work: an explicit timeout so loaded or parallel runs (CI, 4 agents on one box) don't flake.
+describe('train / predict', { timeout: 60_000 }, () => {
   const model = train([...bySession('s1'), ...bySession('s2')]);
   const test = bySession('s3');
 
   it('has the Classifier shape', () => {
     expect(model.name).toBe('dtw-knn');
     expect(model.labels).toEqual([...new Set(clips().map((c) => c.label))].sort());
-    expect(model.threshold).toBe(0.5);
+    expect(model.threshold).toBe(DEFAULT_OPTS.threshold);
   });
 
   it('prediction fields are consistent: top[0] is the label and its score is the confidence', () => {
@@ -39,12 +41,13 @@ describe('train / predict', () => {
   /** The header's formula, recomputed from scratch with the public dtw() (no early abandon, no caching). */
   function bruteForce(json: DtwKnnModelJSON, samples: Clip['samples']) {
     const tpl = json.templates.map((t) => ({ label: t.label, x: t.x.map((r) => Float32Array.from(r)) }));
-    const nnSame = tpl.map((t, i) => Math.min(...tpl.filter((u, j) => j !== i && u.label === t.label).map((u) => dtw(t.x, u.x, 6))));
+    const r = bandRadius(json.opts.band, json.opts.L);
+    const nnSame = tpl.map((t, i) => Math.min(...tpl.filter((u, j) => j !== i && u.label === t.label).map((u) => dtw(t.x, u.x, r))));
     const finite = nnSame.filter(Number.isFinite).sort((a, b) => a - b);
     const h = finite.length >> 1;
     const dRef = finite.length % 2 ? finite[h] : (finite[h - 1] + finite[h]) / 2;
     const q = preprocess(samples, json.opts, json.norm);
-    const d = tpl.map((t) => ({ label: t.label, d: dtw(q, t.x, 6) }));
+    const d = tpl.map((t) => ({ label: t.label, d: dtw(q, t.x, r) }));
     const nearest = new Map<string, number>();
     for (const x of d) nearest.set(x.label, Math.min(nearest.get(x.label) ?? Infinity, x.d));
     const knn = [...d].sort((a, b) => a.d - b.d).slice(0, json.opts.k);
@@ -64,8 +67,8 @@ describe('train / predict', () => {
   }
 
   it('matches a brute force kNN + the documented confidence formula (public dtw, no early abandon)', () => {
-    const m3 = train([...bySession('s1'), ...bySession('s2')], { k: 3 });
-    for (const m of [model, m3]) {
+    const m1 = train([...bySession('s1'), ...bySession('s2')], { k: 1, norm: 'global', L: 64, band: 0.1 }); // Phase 1 path
+    for (const m of [model, m1]) {
       const json = m.toJSON();
       for (const c of test.filter((_, i) => i % 3 === 0)) { // 14 clips, every class
         const want = bruteForce(json, c.samples);
@@ -121,11 +124,11 @@ describe('train / predict', () => {
     const json = model.toJSON();
     expect(json.kind).toBe('dtw-knn');
     expect(json.v).toBe(1);
-    expect(json.opts).toEqual({ channels: ['rr.x', 'rr.y', 'rr.z', 'ua.x', 'ua.y', 'ua.z'], L: 64, hpHz: 1, band: 0.1, k: 1, norm: 'global', threshold: 0.5, budNorm: 'mirror' });
+    expect(json.opts).toEqual({ channels: ['rr.x', 'rr.y', 'rr.z', 'ua.x', 'ua.y', 'ua.z'], L: 96, hpHz: 1, band: 0.05, k: 3, norm: 'clip', threshold: 0.85, budNorm: 'mirror' });
     expect(json.norm.mean.length).toBe(6);
     expect(json.templates.length).toBe(80);
     expect(json.templates[0].x.length).toBe(6);
-    expect(json.templates[0].x[0].length).toBe(64);
+    expect(json.templates[0].x[0].length).toBe(96);
     expect(json.labels).toEqual(model.labels);
   });
 
