@@ -1,0 +1,133 @@
+{
+  "model": "dtw-py",
+  "protocol": "loso",
+  "nClips": 120,
+  "labels": [
+    "text_mom",
+    "volume_up",
+    "call_back",
+    "demo_48h",
+    "help",
+    "calendar",
+    "focus_music",
+    "none"
+  ],
+  "accuracy": 0.9666666666666667,
+  "macroF1": 0.9677448565633151,
+  "confusion": [
+    [
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      13,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2
+    ],
+    [
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      14,
+      0,
+      0,
+      1
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      15,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      14,
+      1
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      15
+    ]
+  ],
+  "noneFalseAcceptRate": 0.0,
+  "params": {
+    "channels": [
+      "rr.x",
+      "rr.y",
+      "rr.z",
+      "ua.x",
+      "ua.y",
+      "ua.z"
+    ],
+    "L": 64,
+    "hpHz": 1.0,
+    "norm": "global",
+    "gridHz": 50,
+    "threshold": 0.5,
+    "band": 0.1,
+    "k": 3,
+    "weights": "1/(d+1e-9)",
+    "confidence": "vote share of the k nearest",
+    "data": [
+      "shared/fixtures/dataset.synthetic.json"
+    ],
+    "sessions": [
+      "s1",
+      "s2",
+      "s3"
+    ],
+    "folds": 3,
+    "jobs": 1,
+    "duplicatesDropped": 0,
+    "evalSec": 0.76
+  },
+  "inferMsPerClip": 6.739660558347775,
+  "generatedAt": "2026-10-31T02:03:42.158Z"
+}

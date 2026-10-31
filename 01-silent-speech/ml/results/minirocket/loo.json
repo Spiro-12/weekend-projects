@@ -1,0 +1,133 @@
+{
+  "model": "minirocket",
+  "protocol": "loo",
+  "nClips": 120,
+  "labels": [
+    "text_mom",
+    "volume_up",
+    "call_back",
+    "demo_48h",
+    "help",
+    "calendar",
+    "focus_music",
+    "none"
+  ],
+  "accuracy": 0.9833333333333333,
+  "macroF1": 0.9833240637745644,
+  "confusion": [
+    [
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      14,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+    ],
+    [
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      0,
+      0,
+      14,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      15,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      15,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      15
+    ]
+  ],
+  "noneFalseAcceptRate": 0.0,
+  "params": {
+    "channels": [
+      "rr.x",
+      "rr.y",
+      "rr.z",
+      "ua.x",
+      "ua.y",
+      "ua.z"
+    ],
+    "L": 64,
+    "hpHz": 1.0,
+    "norm": "global",
+    "gridHz": 50,
+    "threshold": 0.5,
+    "nKernels": 10000,
+    "seed": 0,
+    "classifier": "StandardScaler(with_mean=False) + RidgeClassifierCV(logspace(-3,3,10))",
+    "confidence": "ridge decision (d+1)/2 clipped, normalized",
+    "data": [
+      "shared/fixtures/dataset.synthetic.json"
+    ],
+    "sessions": [
+      "s1",
+      "s2",
+      "s3"
+    ],
+    "folds": 120,
+    "jobs": 4,
+    "duplicatesDropped": 0,
+    "evalSec": 39.62
+  },
+  "inferMsPerClip": 4.970619791652098,
+  "generatedAt": "2026-10-31T02:04:22.984Z"
+}
