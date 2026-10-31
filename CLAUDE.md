@@ -19,7 +19,7 @@ A one line hook, live demo link, a demo GIF or screenshot, and short "what / why
 
 ## How we work with Spiro
 - Spiro is not technical. **Never ask him to review code, run commands, merge PRs or edit files.** Claude does all of that.
-- Claude reviews, tests, merges, installs and builds. Work on his Mac goes through Remote Control (his `Documents/weekend-projects` folder).
+- Claude reviews, tests, merges, installs and builds. Work on his Mac goes through Remote Control (his `~/weekend-projects` folder; Remote Control to cloud sessions is not available on his Mac yet, so a Claude Code session running on the Mac does Mac work).
 - Only ask Spiro for: physical actions (wearing AirPods, mouthing sentences, clicking macOS permission popups, typing his Mac password), accounts or money, and anything that reaches real people (real texts, public posts). Sending a real message to a real person always needs his OK first.
 - Updates are short, plain English, 7th grade, no jargon: what changed, what he can see, and the one thing he needs to do (if any).
 - He is fine with Claude merging its own PRs to main, **only** after the ship checklist passes.

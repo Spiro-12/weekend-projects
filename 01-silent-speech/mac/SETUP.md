@@ -5,8 +5,16 @@ Spiro only types his Mac password into macOS password boxes, clicks **Allow** / 
 and wears the AirPods. Never ask him to click anything in the app, run commands or edit files. Before each popup,
 tell him in one plain sentence what is about to appear and what to click.
 
-Repo: `~/Documents/weekend-projects`. The app's log: `~/Library/Logs/SilentSpeechBridge.log` (new file each launch).
+Repo: `~/weekend-projects`. The app's log: `~/Library/Logs/SilentSpeechBridge.log` (new file each launch).
 **Quit the app when not in use (it keeps the Mac awake):** `pkill -x SilentSpeechBridge`.
+
+## Get the code (first time)
+`~/weekend-projects` is the folder Spiro shares with Claude. It may start empty.
+```bash
+cd ~/weekend-projects && if [ ! -d .git ]; then git clone https://github.com/Spiro-12/weekend-projects.git . ; fi
+git fetch origin && git checkout p1 && git pull --ff-only   # Phase 1 work lives on branch p1 until it is merged to main
+```
+(After Phase 1 merges, use `main` instead of `p1`.)
 
 ## 0. Prerequisites (check each, install only what is missing)
 Password steps use `osascript ... with administrator privileges`: a normal macOS password box for Spiro, so the
@@ -38,13 +46,13 @@ A stable `SilentSpeech Local` identity makes macOS remember the Motion and Autom
 Tell Spiro first: "Two Mac password boxes are coming. Type your password. When one says codesign wants to use a key,
 click Always Allow."
 ```bash
-cd ~/Documents/weekend-projects/01-silent-speech/mac && ./make-cert.sh
+cd ~/weekend-projects/01-silent-speech/mac && ./make-cert.sh
 ```
 It must end with `OK: signing works.` On `FAILED`, run it again. If the identity is already fine there are no popups.
 
 ## 2. Build
 ```bash
-cd ~/Documents/weekend-projects/01-silent-speech/mac && xcodegen && \
+cd ~/weekend-projects/01-silent-speech/mac && xcodegen && \
 xcodebuild -quiet -project SilentSpeechBridge.xcodeproj -target SilentSpeechBridge -configuration Debug build CODE_SIGN_IDENTITY="SilentSpeech Local" && \
 codesign -dv build/Debug/SilentSpeechBridge.app 2>&1 | grep -E "Authority|Signature"
 ```
@@ -66,7 +74,7 @@ Launch options (read once at startup): `--simulate` = Simulate motion on, `--all
 clients" on (dev). No option arms actions: Armed is off at every launch. `open --args` only reaches a fresh process,
 so quit the old copy first and wait until it is gone:
 ```bash
-cd ~/Documents/weekend-projects/01-silent-speech/mac && pkill -x SilentSpeechBridge; while pgrep -x SilentSpeechBridge >/dev/null; do sleep 0.2; done; open build/Debug/SilentSpeechBridge.app --args --simulate; sleep 3; cat ~/Library/Logs/SilentSpeechBridge.log
+cd ~/weekend-projects/01-silent-speech/mac && pkill -x SilentSpeechBridge; while pgrep -x SilentSpeechBridge >/dev/null; do sleep 0.2; done; open build/Debug/SilentSpeechBridge.app --args --simulate; sleep 3; cat ~/Library/Logs/SilentSpeechBridge.log
 ```
 The log shows `Listening on ws://127.0.0.1:8765` and `Launch option --simulate`.
 First launch: tell Spiro "a popup may ask about Motion, click Allow".
@@ -75,7 +83,7 @@ First launch: tell Spiro "a popup may ask about Motion, click Allow".
 App running with `--simulate` (step 3).
 ```bash
 lsof -nP -iTCP:8765 -sTCP:LISTEN
-cd ~/Documents/weekend-projects/01-silent-speech && npm ci && npx tsx mac/check-bridge.ts
+cd ~/weekend-projects/01-silent-speech && npm ci && npx tsx mac/check-bridge.ts
 ```
 - `lsof` shows only `127.0.0.1:8765`.
 - Every line of the check is `PASS`: (a) lsof says 127.0.0.1 only, and the port is refused on each of the Mac's
@@ -99,7 +107,7 @@ cd ~/Documents/weekend-projects/01-silent-speech && npm ci && npx tsx mac/check-
 3. `grep -E "Headphones|Motion" ~/Library/Logs/SilentSpeechBridge.log` shows `Headphones: connected`.
 4. `npx tsx mac/check-bridge.ts` from `01-silent-speech`: all PASS, and the INFO line shows hz 25 to 50 and gapPct under 5.
    Then put another app in front and wait, to prove App Nap is off:
-   `open -a Finder && sleep 60 && cd ~/Documents/weekend-projects/01-silent-speech && npx tsx mac/check-bridge.ts`
+   `open -a Finder && sleep 60 && cd ~/weekend-projects/01-silent-speech && npx tsx mac/check-bridge.ts`
    gives the same result.
 5. Leave the app running for the dashboard, or quit it: `pkill -x SilentSpeechBridge`.
 
