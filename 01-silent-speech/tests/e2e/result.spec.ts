@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { BASE, MOCK_WS } from '../../playwright.config';
+import type { PressContext } from '../../web/src/core/app';
 import type { ClassDef, Dataset, Prediction } from '../../web/src/core/contracts';
 import * as ml from '../../web/src/ml/index';
 import { startMockBridge, type MockBridge, type MockBridgeOpts } from '../mock-bridge';
@@ -12,7 +13,7 @@ const classes = JSON.parse(read('../../shared/classes.json')) as ClassDef[];
 const synthetic = JSON.parse(read('../../shared/fixtures/dataset.synthetic.json')) as Dataset;
 /** Stand in for Track F's public model (live / replay without your recordings): trained on the synthetic fixture. */
 const PUBLIC_MODEL = JSON.stringify(ml.train(synthetic.clips).toJSON());
-/** The same clips, as if recorded with real AirPods (store meta source 'airpods'). */
+/** The same clips, as if they were real AirPods recordings: 8 sentences, 15 takes each (5 per session). */
 const REAL: Dataset = { ...synthetic, source: 'airpods', session: 'real' };
 const PRACTICE: Dataset = { ...synthetic, source: 'fake', session: 'fake-1' };
 
@@ -36,10 +37,21 @@ async function recognize(page: Page) {
   await expect.poll(() => page.evaluate(() => window.__ss.app.mode)).toBe('classify');
 }
 
-/** A prediction straight onto the bus, as the shell emits it after a clip. */
-const inject = (page: Page, p: Partial<Prediction> & { label: string }) => page.evaluate((p) => {
-  window.__ss.app.bus.emit('prediction', {
+/**
+ * A prediction straight onto the bus, as the shell emits it after a take: made by the current model,
+ * with a press context for a take started now (override with `press`). A push to talk down/up is
+ * announced on the bus first (the panel tracks key downs itself) without cutting a real clip.
+ */
+const inject = (page: Page, p: Partial<Prediction> & { label: string; press?: Partial<PressContext> }) => page.evaluate((p) => {
+  const app = window.__ss.app;
+  const press: PressContext = {
+    mode: 'classify', source: app.source?.kind ?? null, conn: app.connSerial, simulated: app.lastStatus?.simulated ?? null, ...p.press,
+  };
+  app.bus.emit('ptt', { down: true, t: app.lastT });
+  app.bus.emit('ptt', { down: false, t: app.lastT });
+  app.bus.emit('prediction', {
     confidence: 0.9, accepted: p.label !== 'none', top: [{ label: p.label, score: p.confidence ?? 0.9 }], ms: 1, clipId: 'test', ...p,
+    model: app.model!, press,
   });
 }, p);
 const accepted = (label: string, confidence = 0.92) => ({ label, confidence, accepted: true, top: [{ label, score: confidence }] });
@@ -52,17 +64,34 @@ async function assertMockBridge(page: Page) {
   await expect.poll(() => page.evaluate(() => window.__ss.app.lastHello?.app ?? null)).toBe('MockBridge');
 }
 
-/** Live page on its own mock bridge; real AirPods clips in the store; Recognize mode on. */
-async function livePage(page: Page, o: MockBridgeOpts, opts: { pair?: string | null; realClips?: boolean } = {}): Promise<MockBridge> {
+/** Adds clips as if recorded in this browser with real AirPods (meta origin 'recorded'), like the Record panel does. */
+const addRecorded = (page: Page, ds: Dataset) => page.evaluate(async (ds) => {
+  const store = window.__ss.app.store;
+  await store.ready;
+  for (const c of ds.clips) {
+    store.add({ ...c, session: c.session ?? ds.session }, { source: 'airpods', subject: 'spiro', device: { model: 'AirPods Pro 3', loc: 'left' }, hz: 25, origin: 'recorded' });
+  }
+}, ds);
+/** Imports a dataset file (meta origin 'imported'). */
+const addImported = (page: Page, ds: Dataset) => page.evaluate(async (ds) => {
+  await window.__ss.app.store.ready;
+  window.__ss.app.store.load(ds);
+}, ds);
+
+/** Live page on its own mock bridge; clips in the store (default: all 8 sentences recorded here); Recognize mode on. */
+async function livePage(
+  page: Page, o: MockBridgeOpts, opts: { pair?: string | null; clips?: 'recorded' | 'imported' | 'none' | Dataset } = {},
+): Promise<MockBridge> {
   const bridge = await startMockBridge({ port: 0, allowOrigins: [ORIGIN], utterEvery: 0, ...o });
   const pair = opts.pair === undefined ? TOKEN : opts.pair;
   await servePublicModel(page);
   await page.goto(`./?mode=live&ws=${encodeURIComponent(`ws://127.0.0.1:${bridge.port}`)}${pair ? `#pair=${pair}` : ''}`);
   await expect(page.getByTestId('source-pill')).toHaveText('live · open');
   await assertMockBridge(page);
-  if (opts.realClips ?? true) {
-    await page.evaluate(async (ds) => { await window.__ss.app.store.ready; window.__ss.app.store.load(ds); }, REAL);
-  }
+  const clips = opts.clips ?? 'recorded';
+  if (clips === 'recorded') await addRecorded(page, REAL);
+  else if (clips === 'imported') await addImported(page, REAL);
+  else if (clips !== 'none') await addRecorded(page, clips);
   await recognize(page);
   return bridge;
 }
@@ -244,7 +273,7 @@ test('armed, paired, real AirPods, your own model: exactly one action per accept
     await expect(toast).toBeVisible();
     await expect(toast).toHaveAttribute('data-kind', 'ok');
     await expect(toast).toContainText('Done on your Mac');
-    await expect(toast).toContainText('Mock ran volume_up');
+    await expect(toast).toContainText('Turn the Mac’s volume up');
     await expect(page.getByTestId('result-action')).toHaveAttribute('data-state', 'done');
     await page.waitForTimeout(500);
     expect(bridge.actions).toEqual([{ action: 'volume_up', dryRun: false }]); // exactly one
@@ -256,14 +285,23 @@ test('armed, paired, real AirPods, your own model: exactly one action per accept
     await expect(page.getByTestId('result-action')).toContainText('Would: Play focus music');
     expect(bridge.actions).toHaveLength(1);
 
-    // After 3 s it sends again, once.
+    // After 3 s it sends again, once. Music is only started when the Mac answers: "on it", not "Done".
     await sleep(Math.max(0, 3100 - (Date.now() - t0)));
     await inject(page, accepted('focus_music'));
-    await expect(page.getByTestId('result-action')).toHaveAttribute('data-state', 'done');
-    await expect(toast).toContainText('Mock ran focus_music');
+    await expect(page.getByTestId('result-action')).toHaveAttribute('data-state', 'started');
+    await expect(toast).toContainText('Your Mac is on it');
     await page.waitForTimeout(300);
     expect(bridge.actions).toEqual([{ action: 'volume_up', dryRun: false }, { action: 'focus_music', dryRun: false }]);
     expect(await actionResults(page)).toBe(2);
+
+    // A text: the Mac has only STARTED sending it.
+    await sleep(3100);
+    await inject(page, accepted('text_mom'));
+    await expect(page.getByTestId('result-action')).toHaveAttribute('data-state', 'started');
+    await expect(page.getByTestId('result-action')).toContainText('Sending: Text Mom');
+    await expect(toast).toContainText('Your Mac is sending the text');
+    await expect(toast).not.toContainText('Done');
+    expect(bridge.actions).toHaveLength(3);
     expect(errors).toEqual([]);
   } finally {
     await bridge.close();
@@ -274,16 +312,17 @@ test('live push to talk end to end: a real prediction sends at most one action, 
   test.setTimeout(60_000);
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true, utterEvery: 1 });
   try {
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
     await page.waitForTimeout(1200);
-    const next = page.evaluate(() => new Promise<{ label: string; accepted: boolean }>((res) => {
-      const off = window.__ss.app.bus.on('prediction', (p) => { off(); res({ label: p.label, accepted: p.accepted }); });
+    const next = page.evaluate(() => new Promise<{ label: string; accepted: boolean; mode: string }>((res) => {
+      const off = window.__ss.app.bus.on('prediction', (p) => { off(); res({ label: p.label, accepted: p.accepted, mode: p.press.mode }); });
     }));
     await assertMockBridge(page);
     await page.keyboard.down('Space');
     await page.waitForTimeout(2000);
     await page.keyboard.up('Space');
     const pred = await next;
+    expect(pred.mode).toBe('classify');
     const action = classes.find((c) => c.id === pred.label)?.action ?? null;
     const shouldSend = pred.accepted && pred.label !== 'none' && !!action;
     await page.waitForTimeout(800);
@@ -295,10 +334,72 @@ test('live push to talk end to end: a real prediction sends at most one action, 
   }
 });
 
+test('a take started in Record mode and let go in Recognize mode sends nothing', async ({ page }) => {
+  test.setTimeout(60_000);
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true, utterEvery: 1 });
+  try {
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
+    await expect(page.getByTestId('result-armed')).toHaveAttribute('data-live', '1');
+    await page.getByTestId('mode-toggle').click(); // back to Record
+    await expect.poll(() => page.evaluate(() => window.__ss.app.mode)).toBe('enroll');
+    await page.waitForTimeout(800);
+    const predictions = () => page.evaluate(() => window.__ss.counts.prediction ?? 0);
+    const before = await predictions();
+    await assertMockBridge(page);
+    await page.keyboard.down('Space'); // started in Record mode
+    await page.waitForTimeout(700);
+    await page.getByTestId('mode-toggle').click(); // switched to Recognize while holding
+    await expect.poll(() => page.evaluate(() => window.__ss.app.mode)).toBe('classify');
+    await page.waitForTimeout(900);
+    await page.keyboard.up('Space'); // let go in Recognize mode
+    await page.waitForTimeout(2500);
+    expect(await predictions()).toBe(before); // the shell doesn't even predict
+    expect(bridge.actions).toEqual([]);
+    expect(await actionResults(page)).toBe(0);
+    // And if a prediction for such a take ever arrived, the rule blocks it.
+    await inject(page, { ...accepted('volume_up'), press: { mode: 'enroll' } });
+    await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'press-mode');
+    await page.waitForTimeout(400);
+    expect(bridge.actions).toEqual([]);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test('a take from another connection, or started while simulated, sends nothing', async ({ page }) => {
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true });
+  try {
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
+    const serial = await page.evaluate(() => window.__ss.app.connSerial);
+    await inject(page, { ...accepted('volume_up'), press: { conn: serial - 1 } });
+    await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'press-changed');
+    await inject(page, { ...accepted('volume_up'), press: { simulated: true } });
+    await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'simulated');
+    await inject(page, { ...accepted('volume_up'), press: { source: 'fake' } });
+    await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'press-changed');
+    // The panel's own tracking: a connection event after the key went down blocks it too.
+    await page.evaluate(() => {
+      const app = window.__ss.app;
+      app.bus.emit('ptt', { down: true, t: app.lastT });
+      app.bus.emit('conn', { state: 'open', url: 'again' });
+      app.bus.emit('prediction', {
+        label: 'volume_up', confidence: 0.9, accepted: true, top: [], ms: 1, clipId: 'x', model: app.model!,
+        press: { mode: 'classify', source: 'live', conn: app.connSerial, simulated: false },
+      });
+    });
+    await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', /press-changed|not-connected/);
+    await page.waitForTimeout(400);
+    expect(bridge.actions).toEqual([]);
+    expect(await actionResults(page)).toBe(0);
+  } finally {
+    await bridge.close();
+  }
+});
+
 test('not armed: ghost chip only, nothing sent', async ({ page }) => {
   const bridge = await livePage(page, { armed: false, token: TOKEN, real: true });
   try {
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
     await expect(page.getByTestId('result-armed')).toHaveAttribute('data-live', '0');
     await expect(page.getByTestId('result-armed')).toContainText('Safe mode');
     await inject(page, accepted('text_mom'));
@@ -319,7 +420,7 @@ test('not armed: ghost chip only, nothing sent', async ({ page }) => {
 test('Simulate mode on the Mac: ghost chip only', async ({ page }) => {
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: false });
   try {
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
     await inject(page, accepted('volume_up'));
     await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'simulated');
     await page.waitForTimeout(500);
@@ -330,13 +431,15 @@ test('Simulate mode on the Mac: ghost chip only', async ({ page }) => {
   }
 });
 
+const RECORD_ALL = 'Record all 8 sentences (5 each) to run actions';
+
 test("Spiro's public model never runs actions, even when armed and paired", async ({ page }) => {
-  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }, { realClips: false });
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }, { clips: 'none' });
   try {
     await expect(page.getByTestId('result-model')).toContainText("Spiro's model (public)");
     await inject(page, accepted('volume_up'));
     await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'not-own-model');
-    await expect(page.getByTestId('result-action')).toContainText('Only your own model can run actions');
+    await expect(page.getByTestId('result-action')).toContainText(RECORD_ALL);
     await page.waitForTimeout(500);
     expect(bridge.actions).toEqual([]);
     expect(await actionResults(page)).toBe(0);
@@ -345,10 +448,76 @@ test("Spiro's public model never runs actions, even when armed and paired", asyn
   }
 });
 
+test('imported recordings make a preview model only: shown, never acts', async ({ page }) => {
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }, { clips: 'imported' });
+  try {
+    await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'preview');
+    await expect(page.getByTestId('result-model')).toContainText('Your model (preview): 120 recordings');
+    await expect(page.getByTestId('result-model')).toContainText(`${RECORD_ALL} (0 of 8 done in this browser)`);
+    await expect(page.getByTestId('result-armed')).toContainText(RECORD_ALL);
+    await inject(page, accepted('volume_up'));
+    await expect(page.getByTestId('result-label')).toHaveText(sentence('volume_up')); // still shown big
+    await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'not-own-model');
+    await page.waitForTimeout(500);
+    expect(bridge.actions).toEqual([]);
+    expect(await actionResults(page)).toBe(0);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test('only 2 sentences recorded: a preview model that never acts, even for a sure, real looking prediction', async ({ page }) => {
+  const two: Dataset = { ...REAL, clips: REAL.clips.filter((c) => c.label === 'none' || c.label === 'text_mom') };
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }, { clips: two });
+  try {
+    await expect(page.getByTestId('result-model')).toContainText('Your model (preview): 30 recordings');
+    await expect(page.getByTestId('result-model')).toContainText('(2 of 8 done in this browser)');
+    await inject(page, accepted('text_mom', 0.99));
+    await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'not-own-model');
+    await expect(page.getByTestId('result-action')).toContainText(RECORD_ALL);
+    // Recording the rest makes it ready: Re-train turns it into your model, which may act.
+    await addRecorded(page, { ...REAL, clips: REAL.clips.filter((c) => c.label !== 'none' && c.label !== 'text_mom') });
+    await expect(page.getByTestId('result-model')).toContainText('New recordings since. Press Re-train.');
+    await page.getByTestId('result-retrain').click();
+    await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'own');
+    await expect(page.getByTestId('result-armed')).toHaveAttribute('data-live', '1');
+    await page.waitForTimeout(300);
+    expect(bridge.actions).toEqual([]);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test('replay always uses Spiro\'s public model, never your recordings', async ({ page }) => {
+  await servePublicModel(page);
+  await page.goto('./?mode=fake');
+  await addRecorded(page, REAL);
+  await page.evaluate(async () => {
+    const app = window.__ss.app;
+    app.registerSource({ // a stand in for Track K's replay source
+      kind: 'replay',
+      create: (a) => ({
+        kind: 'replay',
+        async start() {
+          a.bus.emit('conn', { state: 'open', url: 'replay' });
+          a.bus.emit('status', { type: 'status', headphones: 'connected', auth: 'authorized', loc: 'left', hz: 50, gapPct: 0, clients: 1, armed: false, simulated: true });
+        },
+        stop() { a.bus.emit('conn', { state: 'closed', url: 'replay' }); },
+      }),
+    });
+    await app.setSource('live', { ws: 'ws://127.0.0.1:9' }); // nowhere: no connection
+  });
+  await recognize(page);
+  await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/); // live: yours
+  await page.evaluate(() => window.__ss.app.setSource('replay'));
+  await expect(page.getByTestId('result-model')).toContainText("Spiro's model (public)");
+  await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'public');
+});
+
 test('unpaired: a wrong token gets the Mac\'s "unpaired" and the unpaired toast', async ({ page }) => {
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }, { pair: OTHER_TOKEN });
   try {
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
     await inject(page, accepted('volume_up'));
     const toast = page.getByTestId('result-toast');
     await expect(toast).toHaveAttribute('data-kind', 'bad');
@@ -366,8 +535,8 @@ test('unpaired: with no token at all nothing is sent and the unpaired toast show
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }, { pair: null });
   try {
     expect(await page.evaluate(() => window.__ss.app.pairToken)).toBeNull();
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model/);
-    await expect(page.getByTestId('result-armed')).toContainText('Not paired');
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
+    await expect(page.getByTestId('result-armed')).toContainText('Open this page from the Mac app’s link');
     await inject(page, accepted('volume_up'));
     await expect(page.getByTestId('result-toast-body'))
       .toHaveText("This dashboard isn't paired with your Mac app. Open it from the Mac app's link.");
@@ -384,7 +553,7 @@ test('a dropped connection is never retried: one send, "may have run" toast', as
   // A bridge that takes the action and then dies without answering.
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true });
   try {
-    await expect(page.getByTestId('result-model')).toHaveText(/Your model/);
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120/);
     const sent: string[] = [];
     await page.exposeFunction('__sent', (a: string) => { sent.push(a); });
     await page.evaluate(() => {
@@ -404,15 +573,15 @@ test('a dropped connection is never retried: one send, "may have run" toast', as
   }
 });
 
-test('Re-train picks up new real recordings', async ({ page }) => {
-  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }, { realClips: false });
+test('Re-train picks up new recordings', async ({ page }) => {
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }, { clips: 'none' });
   try {
     await expect(page.getByTestId('result-model')).toContainText("Spiro's model (public)");
-    const half: Dataset = { ...REAL, clips: REAL.clips.filter((c) => c.session === 's1') };
-    await page.evaluate((ds) => window.__ss.app.store.load(ds), half);
+    await addRecorded(page, { ...REAL, clips: REAL.clips.filter((c) => c.session === 's1') }); // 8 sentences × 5
     await page.getByTestId('result-retrain').click();
     await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40 recordings/);
-    await page.evaluate((ds) => window.__ss.app.store.load(ds), REAL);
+    await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'own');
+    await addRecorded(page, REAL);
     await expect(page.getByTestId('result-model')).toContainText('New recordings since. Press Re-train.');
     await page.getByTestId('result-retrain').click();
     await expect(page.getByTestId('result-model')).toHaveText(/Your model: 120 recordings/);
@@ -424,33 +593,94 @@ test('Re-train picks up new real recordings', async ({ page }) => {
 
 // ---------- moments ----------
 
-test('help: full screen red alert with a big Dismiss (Escape works too)', async ({ page }) => {
+async function helpPage(page: Page) {
   await page.goto('./?mode=fake');
   await recognize(page);
   await expect(page.getByTestId('result-model')).toContainText('Demo model (fake data)');
-  const alert = page.getByTestId('result-alert');
+  return page.getByTestId('result-alert');
+}
+const pttEvents = (page: Page) => page.evaluate(() => window.__ss.counts.ptt ?? 0);
+const pttDown = (page: Page) => page.evaluate(() => window.__ss.app.pttDown);
+
+test('help: full screen red alert with a big Dismiss; Space, Enter and Escape close it', async ({ page }) => {
+  const alert = await helpPage(page);
   await inject(page, { label: 'help', confidence: 0.4, accepted: false });
   await expect(alert).toBeHidden(); // only when it's sure
   await inject(page, accepted('help'));
   await expect(alert).toBeVisible();
   await expect(alert).toContainText(sentence('help'));
   await expect(alert).toContainText('Would: Text your emergency contact');
+  await expect(alert).not.toContainText('on the way');
   const box = await alert.boundingBox();
   const vp = page.viewportSize()!;
   expect(box!.width).toBeGreaterThanOrEqual(vp.width - 1);
   expect(box!.height).toBeGreaterThanOrEqual(vp.height - 1);
   await expect(page.getByTestId('result-alert-dismiss')).toBeFocused();
+  const n = await pttEvents(page);
   await page.keyboard.press('Space'); // presses Dismiss, not push to talk
   await expect(alert).toBeHidden();
-  expect(await page.evaluate(() => window.__ss.counts.ptt ?? 0)).toBe(0);
-  await inject(page, accepted('help'));
-  await expect(alert).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(alert).toBeHidden();
+  expect(await pttEvents(page)).toBe(n);
+  for (const key of ['Escape', 'Enter']) {
+    await inject(page, accepted('help'));
+    await expect(alert).toBeVisible();
+    const m = await pttEvents(page);
+    await page.keyboard.press(key);
+    await expect(alert).toBeHidden();
+    expect(await pttEvents(page)).toBe(m);
+  }
   await inject(page, accepted('help'));
   await page.getByTestId('result-alert-dismiss').click();
   await expect(alert).toBeHidden();
 });
+
+test('help alert: push to talk held when it opens is ended, and its key up is not swallowed', async ({ page }) => {
+  const alert = await helpPage(page);
+  await page.waitForTimeout(500);
+  await page.keyboard.down('Space');
+  await expect.poll(() => pttDown(page)).toBe(true);
+  await inject(page, accepted('help')); // the alert opens while Space is still held
+  await expect(alert).toBeVisible();
+  expect(await pttDown(page)).toBe(false); // the take was ended
+  await page.keyboard.up('Space'); // the key up of a press that started before the alert
+  await page.waitForTimeout(300);
+  await expect(alert).toBeVisible(); // ...does not close it
+  expect(await pttDown(page)).toBe(false);
+  await page.keyboard.press('Space'); // a press on the alert does
+  await expect(alert).toBeHidden();
+  expect(await pttDown(page)).toBe(false);
+});
+
+test('help alert: nothing behind it works (inert, no push to talk button, focus stays on Dismiss)', async ({ page }) => {
+  const alert = await helpPage(page);
+  const ptt = page.getByTestId('ptt');
+  const pttBox = (await ptt.boundingBox())!;
+  await inject(page, accepted('help'));
+  await expect(alert).toBeVisible();
+  // Header and panels are inert while it is open.
+  const inert = () => page.evaluate(() => ['header.top', 'main'].map((s) => (document.querySelector(s) as HTMLElement).inert));
+  expect(await inert()).toEqual([true, true]);
+  // Clicking where the push to talk button is (behind the alert) does nothing.
+  const n = await pttEvents(page);
+  await page.mouse.move(pttBox.x + pttBox.width / 2, pttBox.y + pttBox.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(300);
+  expect(await pttDown(page)).toBe(false);
+  await page.mouse.up();
+  expect(await pttEvents(page)).toBe(n);
+  // Clicks elsewhere on the alert keep focus on Dismiss.
+  await page.mouse.click(20, vpHeight(page) - 20);
+  await expect(page.getByTestId('result-alert-dismiss')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.getByTestId('result-alert-dismiss')).toBeFocused();
+  // Space still dismisses (focus never left), and everything works again after.
+  await page.keyboard.press('Space');
+  await expect(alert).toBeHidden();
+  expect(await inert()).toEqual([false, false]);
+  await page.keyboard.down('Space');
+  await expect.poll(() => pttDown(page)).toBe(true);
+  await page.keyboard.up('Space');
+});
+const vpHeight = (page: Page) => page.viewportSize()!.height;
 
 test('demo_48h throws confetti; "Say it out loud" (off by default) speaks the sentence', async ({ page }) => {
   await page.addInitScript(() => {
@@ -463,6 +693,7 @@ test('demo_48h throws confetti; "Say it out loud" (off by default) speaks the se
   await expect(page.getByTestId('result-model')).toContainText('Demo model (fake data)');
   await inject(page, accepted('demo_48h'));
   await expect(page.getByTestId('result-confetti')).toBeAttached();
+  expect(await page.getByTestId('result-confetti').evaluate((c: HTMLCanvasElement) => c.width)).toBe(page.viewportSize()!.width); // DPR 1
   await expect(page.getByTestId('result-confetti')).not.toBeAttached({ timeout: 6000 }); // cleans up
   const said = () => page.evaluate(() => (window as unknown as { __said: string[] }).__said);
   expect(await said()).toEqual([]); // off by default
