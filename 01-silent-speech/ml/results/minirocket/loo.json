@@ -3,14 +3,14 @@
   "protocol": "loo",
   "nClips": 120,
   "labels": [
-    "text_mom",
-    "volume_up",
+    "calendar",
     "call_back",
     "demo_48h",
-    "help",
-    "calendar",
     "focus_music",
-    "none"
+    "help",
+    "none",
+    "text_mom",
+    "volume_up"
   ],
   "accuracy": 0.9833333333333333,
   "macroF1": 0.9833240637745644,
@@ -27,10 +27,40 @@
     ],
     [
       0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
       14,
-      0,
-      0,
-      0,
       0,
       0,
       1
@@ -38,10 +68,10 @@
     [
       0,
       0,
+      0,
+      0,
+      0,
       15,
-      0,
-      0,
-      0,
       0,
       0
     ],
@@ -49,51 +79,21 @@
       0,
       0,
       0,
+      0,
+      0,
+      0,
       15,
-      0,
-      0,
-      0,
       0
     ],
     [
+      0,
+      0,
+      0,
+      0,
       0,
       1,
       0,
-      0,
-      14,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0,
-      15,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      15,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      15
+      14
     ]
   ],
   "noneFalseAcceptRate": 0.0,
@@ -118,16 +118,26 @@
     "data": [
       "shared/fixtures/dataset.synthetic.json"
     ],
+    "datasets": [
+      "dataset.synthetic.json"
+    ],
+    "sources": [
+      "fake"
+    ],
+    "subjects": [
+      "synthetic"
+    ],
     "sessions": [
       "s1",
       "s2",
       "s3"
     ],
     "folds": 120,
-    "jobs": 4,
+    "jobs": 1,
+    "timing": "single process",
     "duplicatesDropped": 0,
-    "evalSec": 39.62
+    "evalSec": 38.97
   },
-  "inferMsPerClip": 4.970619791652098,
-  "generatedAt": "2026-10-31T02:04:22.984Z"
+  "inferMsPerClip": 2.8575205999459286,
+  "generatedAt": "2026-10-31T02:25:32.033Z"
 }

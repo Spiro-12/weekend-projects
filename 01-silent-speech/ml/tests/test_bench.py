@@ -17,11 +17,28 @@ def test_dtw_py_loso_on_synthetic(synthetic, tmp_path):
     assert validate_metrics(m) == []
     assert m["model"] == "dtw-py" and m["protocol"] == "loso" and m["nClips"] == 120
     assert m["accuracy"] >= 0.9, m["accuracy"]  # brief gate
-    assert m["params"]["band"] == 0.1 and m["params"]["k"] == 3 and m["params"]["L"] == 64
+    pr = m["params"]
+    assert pr["band"] == 0.1 and pr["k"] == 1 and pr["radius"] == 6 and pr["L"] == 64  # PROTOCOL §6 defaults
+    assert pr["datasets"] == ["dataset.synthetic.json"] and pr["data"] == ["shared/fixtures/dataset.synthetic.json"]
+    assert pr["sources"] == ["fake"] and pr["subjects"] == ["synthetic"]  # so reports can flag synthetic numbers
+    assert pr["timing"] == "single process"
+    assert m["labels"] == sorted(m["labels"])
     p = bench.write_result(m, tmp_path)
     assert p == tmp_path / "dtw-py" / "loso.json"
     assert validate_metrics(json.loads(p.read_text())) == []
     assert (tmp_path / "dtw-py" / "confusion_loso.png").stat().st_size > 1000
+
+
+def test_confusion_png_title_says_synthetic(synthetic, monkeypatch, tmp_path):
+    import matplotlib.axes
+
+    titles = []
+    monkeypatch.setattr(matplotlib.axes.Axes, "set_title", lambda self, t, **kw: titles.append(t))
+    m = bench.evaluate(synthetic, "dtw-py", "loso")
+    bench.plot_confusion(m, tmp_path / "a.png")
+    bench.plot_confusion({**m, "params": {**m["params"], "sources": ["airpods"]}}, tmp_path / "b.png")
+    assert "SYNTHETIC" in titles[0] and f"{round(m['accuracy'] * 120)}/120 correct" in titles[0]
+    assert "SYNTHETIC" not in titles[1]
 
 
 def test_cli_writes_results(tmp_path, capsys):
@@ -32,10 +49,19 @@ def test_cli_writes_results(tmp_path, capsys):
     assert "dtw-py" in capsys.readouterr().out
 
 
-def test_parallel_folds_give_identical_predictions(tiny):
+def test_protocol_all_skips_loso_on_single_session_data(tmp_path, capsys):
+    rc = bench.main(["--model", "dtw-py", "--protocol", "all", "--data", str(TINY), "--out", str(tmp_path)])
+    assert rc == 0
+    assert (tmp_path / "dtw-py" / "loo.json").exists()
+    assert not (tmp_path / "dtw-py" / "loso.json").exists()
+    assert "LOSO skipped" in capsys.readouterr().err
+
+
+def test_parallel_folds_give_identical_predictions_but_rough_timing(tiny):
     a = bench.evaluate(tiny, "dtw-py", "loo")
     b = bench.evaluate(tiny, "dtw-py", "loo", jobs=2)
     assert a["confusion"] == b["confusion"] and a["accuracy"] == b["accuracy"]
+    assert b["params"]["timing"].startswith("rough") and a["params"]["timing"] == "single process"
 
 
 def test_ridge_scores_are_probabilities():

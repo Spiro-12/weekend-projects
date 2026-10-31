@@ -63,7 +63,9 @@ def evaluate(
     log: Callable[[str], None] | None = None,
     jobs: int = 1,
 ) -> dict[str, Any]:
-    model_kw = model_kw or {}
+    model_kw = dict(model_kw or {})
+    if model == "dtw-py":  # its confidence cap for unsafe models uses the threshold
+        model_kw.setdefault("threshold", threshold)
     clips = corpus.clips
     y = np.array([c.label for c in clips], dtype=object)
     sessions = [c.session for c in clips]
@@ -108,13 +110,17 @@ def evaluate(
         "threshold": threshold,
         **model_params,
         "data": [_rel(p) for p in corpus.files],
+        "datasets": [Path(p).name for p in corpus.files],  # same key as the JS eval-dtw
+        "sources": corpus.sources,
+        "subjects": corpus.subjects,
         "sessions": corpus.sessions,
         "folds": len(folds),
         "jobs": jobs,
+        "timing": "single process" if jobs <= 1 else f"rough: {jobs} processes in parallel",
         "duplicatesDropped": corpus.duplicates,
         "evalSec": round(time.perf_counter() - t_all, 2),
     }
-    return compute_metrics(model, protocol, corpus.labels, y.tolist(), preds, threshold, params, float(infer_ms.mean()))  # type: ignore[arg-type]
+    return compute_metrics(model, protocol, y.tolist(), preds, threshold, params, float(infer_ms.mean()))  # type: ignore[arg-type]
 
 
 def plot_confusion(metrics: dict[str, Any], path: Path) -> None:
@@ -138,7 +144,12 @@ def plot_confusion(metrics: dict[str, Any], path: Path) -> None:
     ax.set_yticks(range(len(labels)), labels, fontsize=8)
     ax.set_xlabel("predicted")
     ax.set_ylabel("true")
-    ax.set_title(f"{metrics['model']} {metrics['protocol'].upper()}  acc {metrics['accuracy']:.3f}  ({metrics['nClips']} clips)", fontsize=9)
+    synthetic = "fake" in (metrics["params"].get("sources") or [])
+    ax.set_title(
+        f"{metrics['model']} {metrics['protocol'].upper()}  {int(np.trace(cm))}/{metrics['nClips']} correct"
+        + ("\nSYNTHETIC data, not real AirPods" if synthetic else ""),
+        fontsize=9,
+    )
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, bbox_inches="tight")
@@ -175,11 +186,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--norm", choices=["global", "clip"], default="global")
     ap.add_argument("--threshold", type=float, default=0.5)
     ap.add_argument("--band", type=float, default=0.1, help="dtw-py Sakoe-Chiba band (fraction of L)")
-    ap.add_argument("--k", type=int, default=3, help="dtw-py neighbours")
+    ap.add_argument("--k", type=int, default=1, help="dtw-py neighbours (PROTOCOL §6 default 1)")
     ap.add_argument("--kernels", type=int, default=10_000, help="minirocket kernels")
     ap.add_argument("--epochs", type=int, default=300, help="cnn max epochs")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--jobs", type=int, default=1, help="run folds in this many processes (results identical, faster)")
+    ap.add_argument("--jobs", type=int, default=1, help="run folds in this many processes: same predictions, faster, but rough timings")
     a = ap.parse_args(argv)
 
     models = _expand(a.model, MODEL_NAMES)
@@ -198,8 +209,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "minirocket": {"n_kernels": a.kernels, "seed": a.seed},
         "cnn": {"seed": a.seed, "max_epochs": a.epochs},
     }
+    protocols = _expand(a.protocol, PROTOCOLS)
+    if "loso" in protocols and len(corpus.sessions) < 2:
+        print(f"LOSO skipped: needs at least 2 sessions, got {corpus.sessions}", file=sys.stderr)
+        protocols.remove("loso")
     for model in models:
-        for protocol in _expand(a.protocol, PROTOCOLS):
+        for protocol in protocols:
             t = time.perf_counter()
             m = evaluate(corpus, model, protocol, opts, a.threshold, kw[model], log=lambda s: print(s, flush=True), jobs=a.jobs)
             p = write_result(m, Path(a.out))

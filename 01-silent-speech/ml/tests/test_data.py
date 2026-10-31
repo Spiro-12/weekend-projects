@@ -11,8 +11,9 @@ from tests.conftest import TINY
 def test_load_synthetic(synthetic):
     assert len(synthetic.clips) == 120
     assert synthetic.sessions == ["s1", "s2", "s3"]
-    assert synthetic.labels == ["text_mom", "volume_up", "call_back", "demo_48h", "help", "calendar", "focus_music", "none"]
+    assert synthetic.labels == ["calendar", "call_back", "demo_48h", "focus_music", "help", "none", "text_mom", "volume_up"]
     assert synthetic.duplicates == 0
+    assert synthetic.sources == ["fake"] and synthetic.subjects == ["synthetic"]
 
 
 def test_merge_dedupes_by_clip_id_first_wins():
@@ -30,16 +31,17 @@ def test_loading_the_same_file_twice_dedupes():
     assert len(c.clips) == 120 and c.duplicates == 120
 
 
-def test_session_falls_back_to_file_session(tmp_path):
+def test_session_falls_back_to_file_session_like_js_nullish(tmp_path):
     d = load_dataset(TINY)
     d["session"] = "file-session"
     del d["clips"][0]["session"]
     d["clips"][1]["session"] = "override"
+    d["clips"][2]["session"] = ""  # JS `c.session ?? d.session` keeps an empty string
+    d["clips"][3]["session"] = None  # ... and replaces null
     p = tmp_path / "d.json"
     p.write_text(json.dumps(d))
     c = load_corpus([p])
-    assert c.clips[0].session == "file-session"
-    assert c.clips[1].session == "override"
+    assert [x.session for x in c.clips[:4]] == ["file-session", "override", "", "file-session"]
 
 
 def test_merge_two_files_keeps_both_sessions(tmp_path):

@@ -35,7 +35,8 @@ def confusion(labels: Sequence[str], y_true: Sequence[str], y_pred: Sequence[str
 
 
 def macro_f1(cm: np.ndarray) -> float:
-    """Mean over labels of F1 = 2tp / (2tp + fp + fn); a label with no clips and no predictions is skipped."""
+    """Mean over labels of F1 = 2tp / (2tp + fp + fn) (sklearn macro). Labels = true or predicted, so denom > 0;
+    the guard only matters for a hand made matrix."""
     tp = np.diag(cm).astype(np.float64)
     fp = cm.sum(axis=0) - tp
     fn = cm.sum(axis=1) - tp
@@ -47,17 +48,14 @@ def macro_f1(cm: np.ndarray) -> float:
 def compute_metrics(
     model: str,
     protocol: str,
-    labels: Sequence[str],
     y_true: Sequence[str],
     preds: Sequence[Pred],
     threshold: float,
     params: dict[str, Any],
     infer_ms_per_clip: float,
 ) -> dict[str, Any]:
-    labels = list(labels)
     y_pred = [p.label for p in preds]
-    extra = sorted(set(y_pred) - set(labels))  # a model can only predict train labels, so normally empty
-    labels += extra
+    labels = sorted(set(y_true) | set(y_pred))  # same as the JS metricsFrom
     cm = confusion(labels, y_true, y_pred)
     n = len(y_true)
     none_idx = [i for i, t in enumerate(y_true) if t == NONE]

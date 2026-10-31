@@ -3,14 +3,14 @@
   "protocol": "loso",
   "nClips": 120,
   "labels": [
-    "text_mom",
-    "volume_up",
+    "calendar",
     "call_back",
     "demo_48h",
-    "help",
-    "calendar",
     "focus_music",
-    "none"
+    "help",
+    "none",
+    "text_mom",
+    "volume_up"
   ],
   "accuracy": 0.9916666666666667,
   "macroF1": 0.9916573971078977,
@@ -27,13 +27,13 @@
     ],
     [
       0,
-      14,
+      15,
       0,
       0,
       0,
       0,
       0,
-      1
+      0
     ],
     [
       0,
@@ -91,9 +91,9 @@
       0,
       0,
       0,
+      1,
       0,
-      0,
-      15
+      14
     ]
   ],
   "noneFalseAcceptRate": 0.0,
@@ -118,16 +118,26 @@
     "data": [
       "shared/fixtures/dataset.synthetic.json"
     ],
+    "datasets": [
+      "dataset.synthetic.json"
+    ],
+    "sources": [
+      "fake"
+    ],
+    "subjects": [
+      "synthetic"
+    ],
     "sessions": [
       "s1",
       "s2",
       "s3"
     ],
     "folds": 3,
-    "jobs": 4,
+    "jobs": 1,
+    "timing": "single process",
     "duplicatesDropped": 0,
-    "evalSec": 6.94
+    "evalSec": 0.82
   },
-  "inferMsPerClip": 10.037192016655657,
-  "generatedAt": "2026-10-31T02:04:30.427Z"
+  "inferMsPerClip": 2.3503491166820822,
+  "generatedAt": "2026-10-31T02:25:33.507Z"
 }

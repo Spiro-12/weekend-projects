@@ -3,66 +3,86 @@
   "protocol": "loo",
   "nClips": 120,
   "labels": [
-    "text_mom",
-    "volume_up",
+    "calendar",
     "call_back",
     "demo_48h",
-    "help",
-    "calendar",
     "focus_music",
-    "none"
+    "help",
+    "none",
+    "text_mom",
+    "volume_up"
   ],
   "accuracy": 0.9833333333333333,
   "macroF1": 0.9835668103448276,
   "confusion": [
     [
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      15,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
       14,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1
-    ],
-    [
-      0,
-      14,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1
-    ],
-    [
-      0,
-      0,
-      15,
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      15,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      15,
-      0,
-      0,
       0
     ],
     [
@@ -71,29 +91,9 @@
       0,
       0,
       0,
-      15,
+      1,
       0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      15,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      15
+      14
     ]
   ],
   "noneFalseAcceptRate": 0.0,
@@ -123,16 +123,26 @@
     "data": [
       "shared/fixtures/dataset.synthetic.json"
     ],
+    "datasets": [
+      "dataset.synthetic.json"
+    ],
+    "sources": [
+      "fake"
+    ],
+    "subjects": [
+      "synthetic"
+    ],
     "sessions": [
       "s1",
       "s2",
       "s3"
     ],
     "folds": 120,
-    "jobs": 4,
+    "jobs": 1,
+    "timing": "single process",
     "duplicatesDropped": 0,
-    "evalSec": 150.13
+    "evalSec": 483.25
   },
-  "inferMsPerClip": 1.2755545250267157,
-  "generatedAt": "2026-10-31T02:07:00.775Z"
+  "inferMsPerClip": 0.9781629916460588,
+  "generatedAt": "2026-10-31T02:33:36.940Z"
 }

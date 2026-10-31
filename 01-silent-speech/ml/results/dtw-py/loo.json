@@ -3,17 +3,17 @@
   "protocol": "loo",
   "nClips": 120,
   "labels": [
-    "text_mom",
-    "volume_up",
+    "calendar",
     "call_back",
     "demo_48h",
-    "help",
-    "calendar",
     "focus_music",
-    "none"
+    "help",
+    "none",
+    "text_mom",
+    "volume_up"
   ],
-  "accuracy": 0.9916666666666667,
-  "macroF1": 0.9916573971078977,
+  "accuracy": 0.9833333333333333,
+  "macroF1": 0.9835668103448276,
   "confusion": [
     [
       15,
@@ -27,41 +27,41 @@
     ],
     [
       0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
       14,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1
-    ],
-    [
-      0,
-      0,
-      15,
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      15,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      15,
-      0,
+      1,
       0,
       0
     ],
@@ -91,9 +91,9 @@
       0,
       0,
       0,
+      1,
       0,
-      0,
-      15
+      14
     ]
   ],
   "noneFalseAcceptRate": 0.0,
@@ -112,11 +112,21 @@
     "gridHz": 50,
     "threshold": 0.5,
     "band": 0.1,
-    "k": 3,
+    "k": 1,
+    "radius": 6,
     "weights": "1/(d+1e-9)",
-    "confidence": "vote share of the k nearest",
+    "confidence": "vote x separation (knn.ts): softmax T=0.1 dRef, unknown at 1.7 dRef, stillness at 1.25 sum(q^2)",
     "data": [
       "shared/fixtures/dataset.synthetic.json"
+    ],
+    "datasets": [
+      "dataset.synthetic.json"
+    ],
+    "sources": [
+      "fake"
+    ],
+    "subjects": [
+      "synthetic"
     ],
     "sessions": [
       "s1",
@@ -125,9 +135,10 @@
     ],
     "folds": 120,
     "jobs": 1,
+    "timing": "single process",
     "duplicatesDropped": 0,
-    "evalSec": 1.65
+    "evalSec": 10.08
   },
-  "inferMsPerClip": 13.811763916661826,
-  "generatedAt": "2026-10-31T02:03:40.893Z"
+  "inferMsPerClip": 13.641013983343933,
+  "generatedAt": "2026-10-31T02:34:16.814Z"
 }

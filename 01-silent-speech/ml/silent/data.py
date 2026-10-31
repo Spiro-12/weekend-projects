@@ -26,15 +26,14 @@ class Clip:
 class Corpus:
     clips: list[Clip]
     files: list[str]
-    class_order: list[str]  # class ids in file order (first file first), for stable label order
     duplicates: int = 0  # clips dropped because their id was already seen
+    sources: list[str] = field(default_factory=list)  # dataset `source` values: "airpods" / "fake"
     subjects: list[str] = field(default_factory=list)
 
     @property
     def labels(self) -> list[str]:
-        present = {c.label for c in self.clips}
-        ordered = [c for c in self.class_order if c in present]
-        return ordered + sorted(present - set(ordered))
+        """Sorted, like the JS (`sortLabels`)."""
+        return sorted({c.label for c in self.clips})
 
     @property
     def sessions(self) -> list[str]:
@@ -76,7 +75,7 @@ def validate_dataset(d: Any) -> list[str]:
             errs.append(f"clips[{i}] id/label missing")
         elif c["label"] not in known:
             errs.append(f"clips[{i}] unknown label {c['label']}")
-        if "session" in c and not isinstance(c["session"], str):
+        if c.get("session") is not None and not isinstance(c["session"], str):
             errs.append(f"clips[{i}] session must be a string")
         s = c.get("samples")
         if not isinstance(s, list) or len(s) < 2:
@@ -100,25 +99,26 @@ def load_dataset(path: str | Path) -> dict[str, Any]:
 
 
 def merge(datasets: Iterable[dict[str, Any]], files: list[str] | None = None) -> Corpus:
-    """Merge datasets in order. A clip id seen before is dropped (first one wins)."""
+    """Merge datasets in order. A clip id seen before is dropped (first one wins).
+    session = clip.session ?? file session (like the JS: an empty string is kept, only a missing / null one falls back)."""
     clips: list[Clip] = []
     seen: set[str] = set()
-    order: list[str] = []
+    sources: list[str] = []
     subjects: list[str] = []
     dup = 0
     for d in datasets:
-        for c in d["classes"]:
-            if c["id"] not in order:
-                order.append(c["id"])
-        if d.get("subject") and d["subject"] not in subjects:
-            subjects.append(d["subject"])
+        for key, acc in (("source", sources), ("subject", subjects)):
+            v = d.get(key)
+            if isinstance(v, str) and v not in acc:
+                acc.append(v)
         for c in d["clips"]:
             if c["id"] in seen:
                 dup += 1
                 continue
             seen.add(c["id"])
-            clips.append(Clip(id=c["id"], label=c["label"], session=c.get("session") or d["session"], samples=c["samples"]))
-    return Corpus(clips=clips, files=list(files or []), class_order=order, duplicates=dup, subjects=subjects)
+            session = c["session"] if c.get("session") is not None else d["session"]
+            clips.append(Clip(id=c["id"], label=c["label"], session=session, samples=c["samples"]))
+    return Corpus(clips=clips, files=list(files or []), duplicates=dup, sources=sources, subjects=subjects)
 
 
 def load_corpus(paths: Iterable[str | Path]) -> Corpus:
