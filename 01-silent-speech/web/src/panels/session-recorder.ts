@@ -102,6 +102,8 @@ const panel: Panel = {
     };
 
     app.bus.on('conn', (c) => { conn = c.state; render(); });
+    app.bus.on('hello', () => render()); // Record needs a hello and a status first
+    app.bus.on('status', (st) => { rec.onStatus(st); if (recBtn.disabled !== (rec.recording || !canRecord())) render(); });
     app.bus.on('source', () => {
       if (rec.recording && !isLive()) stop('Stopped: the dashboard left live mode. Press Export to save what was recorded.');
       render();
@@ -110,7 +112,6 @@ const panel: Panel = {
       if (!rec.recording) return;
       if (!rec.motion(s)) stop(`Stopped at the ${MAX_SEC / 60} minute limit. Press Export to save the file.`);
     });
-    app.bus.on('status', (s) => rec.onStatus(s));
     app.bus.on('ptt', ({ down, t }) => {
       if (!rec.recording) return;
       if (down) { rec.ptt(true, t, current()); return; }
