@@ -5,7 +5,8 @@ import type { ClassDef, Dataset, DatasetClip } from '../../web/src/core/contract
 import { synthClip } from '../../web/src/core/synth';
 import { validateDataset } from '../../web/src/core/validate';
 import {
-  MemoryClipStore, PersistentClipStore, createStore, memoryBackend, type ClipBackend, type DatasetMeta,
+  MemoryClipStore, PersistentClipStore, aggregateMeta, createStore, memoryBackend,
+  type ClipBackend, type ClipMeta, type DatasetMeta, type StoredClip,
 } from '../../web/src/store';
 
 const classes = classesJson as ClassDef[];
@@ -101,13 +102,14 @@ describe('MemoryClipStore', () => {
   it('is memory only and ready right away', async () => {
     const s = new MemoryClipStore();
     await expect(s.ready).resolves.toBeUndefined();
+    await expect(s.flush()).resolves.toBeUndefined();
     expect(s.health()).toEqual({ kind: 'memory', error: null });
   });
 });
 
 describe('PersistentClipStore', () => {
   it('persists add/remove/clear and restores them in a new store (page reload)', async () => {
-    const disk = new Map<string, DatasetClip>();
+    const disk = new Map<string, StoredClip>();
     const a = new PersistentClipStore(memoryBackend(disk));
     await a.ready;
     const c1 = clip('text_mom'), c2 = clip('volume_up'), c3 = clip('none');
@@ -133,21 +135,21 @@ describe('PersistentClipStore', () => {
   });
 
   it('restores in recording order (startedAt), whatever order the backend returns', async () => {
-    const disk = new Map<string, DatasetClip>();
+    const disk = new Map<string, StoredClip>();
     const late = clip('help', 's1', { id: 'a-late', startedAt: '2026-10-31T12:00:09.000Z' });
     const early = clip('none', 's1', { id: 'z-early', startedAt: '2026-10-31T12:00:01.000Z' });
-    disk.set(late.id, late);
-    disk.set(early.id, early);
+    disk.set(late.id, { clip: late });
+    disk.set(early.id, { clip: early });
     const s = new PersistentClipStore(memoryBackend(disk));
     await s.ready;
     expect(s.all().map((c) => c.id)).toEqual(['z-early', 'a-late']);
   });
 
   it('clips added or removed while restoring are kept / stay removed', async () => {
-    const disk = new Map<string, DatasetClip>();
+    const disk = new Map<string, StoredClip>();
     const old1 = clip('text_mom'), old2 = clip('volume_up');
-    disk.set(old1.id, old1);
-    disk.set(old2.id, old2);
+    disk.set(old1.id, { clip: old1 });
+    disk.set(old2.id, { clip: old2 });
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
     const inner = memoryBackend(disk);
@@ -164,9 +166,9 @@ describe('PersistentClipStore', () => {
   });
 
   it('clear while restoring wins over the saved clips', async () => {
-    const disk = new Map<string, DatasetClip>();
+    const disk = new Map<string, StoredClip>();
     const old = clip('text_mom');
-    disk.set(old.id, old);
+    disk.set(old.id, { clip: old });
     const s = new PersistentClipStore(memoryBackend(disk));
     s.clear();
     await s.ready;
@@ -197,7 +199,7 @@ describe('PersistentClipStore', () => {
   });
 
   it('writes reach the backend in order (add then remove of the same clip)', async () => {
-    const disk = new Map<string, DatasetClip>();
+    const disk = new Map<string, StoredClip>();
     const s = new PersistentClipStore(memoryBackend(disk));
     const c = clip('none');
     s.add(c);
@@ -205,6 +207,63 @@ describe('PersistentClipStore', () => {
     s.add(c);
     await s.flush();
     expect([...disk.keys()]).toEqual([c.id]);
+  });
+});
+
+const AIR: ClipMeta = { source: 'airpods', subject: 'spiro', device: { model: 'AirPods Pro 3', loc: 'right' }, hz: 50 };
+const FAKE: ClipMeta = { source: 'fake', subject: 'spiro', device: { model: 'AirPods Pro 3', loc: 'left' }, hz: 25 };
+
+describe('per clip meta (source, subject, device, hz saved at record time)', () => {
+  it('is saved with the clip, restored after a reload, and dropped with it', async () => {
+    const disk = new Map<string, StoredClip>();
+    const a = new PersistentClipStore(memoryBackend(disk));
+    const c1 = clip('help', 's1'), c2 = clip('none', 's1');
+    a.add(c1, AIR); a.add(c2, AIR);
+    await a.flush();
+    expect(disk.get(c1.id)).toEqual({ clip: c1, meta: AIR });
+    const b = new PersistentClipStore(memoryBackend(disk));
+    await b.ready;
+    expect(b.meta(c1.id)).toEqual(AIR);
+    expect(b.sessionMeta('s1')).toEqual({ source: 'airpods', subject: 'spiro', device: { model: 'AirPods Pro 3', loc: 'right' }, hz: 50 });
+    b.remove(c1.id);
+    expect(b.meta(c1.id)).toBeUndefined();
+    expect(b.sessionMeta('nope')).toBeNull();
+  });
+
+  it('import takes the meta from the file header', () => {
+    const s = new MemoryClipStore();
+    s.load(tiny);
+    expect(s.meta(tiny.clips[0].id)).toEqual({ source: 'fake', subject: 'synthetic', device: tiny.device, hz: 25 });
+  });
+
+  it('export aggregates it into the header and keeps it out of the clips', () => {
+    const s = new MemoryClipStore();
+    s.add(clip('help', 's1'), AIR);
+    s.add(clip('none', 's1'), { ...AIR, hz: 48 });
+    s.add(clip('text_mom', 's1'), { ...AIR, hz: 50 });
+    const ds = s.toDataset({ session: 's1', classes, ...s.sessionMeta('s1')! }, (c) => c.session === 's1');
+    expect(ds).toMatchObject({ source: 'airpods', subject: 'spiro', device: { loc: 'right' }, hz: 50 });
+    expect(ds.clips.every((c) => !('meta' in c))).toBe(true);
+    expect(validateDataset(ds)).toEqual([]);
+  });
+
+  it('a session is real AirPods data only if every clip is', () => {
+    expect(aggregateMeta([AIR, AIR])!.source).toBe('airpods');
+    expect(aggregateMeta([AIR, FAKE])!.source).toBe('fake');
+    expect(aggregateMeta([AIR, undefined])!.source).toBe('fake');
+    expect(aggregateMeta([undefined])!).toMatchObject({ source: 'fake', subject: 'unknown' });
+    expect(aggregateMeta([])).toBeNull();
+    expect(aggregateMeta([FAKE, AIR, AIR])!.device.loc).toBe('right'); // most common
+  });
+
+  it('restores records saved before meta existed (bare clips)', async () => {
+    const disk = new Map<string, StoredClip>();
+    const c = clip('help', 's1');
+    disk.set(c.id, { clip: c });
+    const s = new PersistentClipStore(memoryBackend(disk));
+    await s.ready;
+    expect(s.all()).toEqual([c]);
+    expect(s.sessionMeta('s1')!.source).toBe('fake');
   });
 });
 

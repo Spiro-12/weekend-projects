@@ -1,28 +1,51 @@
-// Live accuracy for the enroll panel. Runs ml.evaluate in a Web Worker, so a big leave one out
-// check never freezes the page (a frozen page would delay the next Space press and cut the
-// start of the next clip). Falls back to the main thread if workers are unavailable.
-import type { Clip, Metrics } from '../../core/contracts';
-import { runEval, type EvalRequest, type EvalResponse } from './eval-core';
+// Live accuracy for the enroll panel. Runs ml.evaluate in a Web Worker, so a big check never freezes
+// the page (a frozen page would delay the next Space press and cut the start of the next clip).
+// Falls back to the main thread (only for small sets) if workers are unavailable. A worker that
+// doesn't answer in time is killed, so the panel can't sit on "Checking…" forever.
+import type { Clip } from '../../core/contracts';
+import { runEval, type EvalRequest, type EvalResponse, type EvalResult } from './eval-core';
 
-export interface EvalResult { loo: Metrics; loso: Metrics | null }
+export type { EvalResult } from './eval-core';
 
-type Pending = { req: EvalRequest; res: (r: EvalResult) => void; rej: (e: Error) => void };
+/** Above this many clips per check, the main thread fallback skips it (it would freeze the page). */
+export const INLINE_MAX = 150;
+export const EVAL_TIMEOUT_MS = 45_000;
+
+export interface EvaluatorOpts {
+  makeWorker?: () => Worker; // tests inject a fake
+  timeoutMs?: number;
+  inlineMax?: number;
+}
+
+type Pending = { req: EvalRequest; res: (r: EvalResult) => void; rej: (e: Error) => void; timer: ReturnType<typeof setTimeout> };
+
+const defaultWorker = () => new Worker(new URL('./accuracy-worker.ts', import.meta.url), { type: 'module' });
+const slim = (cs: Clip[] | null) => cs && cs.map((c) => ({ id: c.id, label: c.label, session: c.session, samples: c.samples }));
 
 export class Evaluator {
   private worker: Worker | null = null;
-  private broken = typeof Worker === 'undefined';
+  private broken: boolean;
   private seq = 0;
   private pending = new Map<number, Pending>();
+  private makeWorker: () => Worker;
+  private timeoutMs: number;
+  private inlineMax: number;
 
-  run(clips: Clip[], loso: boolean): Promise<EvalResult> {
-    // Only what evaluate needs: keeps the copy to the worker small.
-    const slim = clips.map((c) => ({ id: c.id, label: c.label, session: c.session, samples: c.samples }));
-    const req: EvalRequest = { id: ++this.seq, clips: slim, loso };
+  constructor(o: EvaluatorOpts = {}) {
+    this.makeWorker = o.makeWorker ?? defaultWorker;
+    this.broken = !o.makeWorker && typeof Worker === 'undefined';
+    this.timeoutMs = o.timeoutMs ?? EVAL_TIMEOUT_MS;
+    this.inlineMax = o.inlineMax ?? INLINE_MAX;
+  }
+
+  /** Rejects with the classifier's error, or "timed out". */
+  run(loo: Clip[] | null, loso: Clip[] | null): Promise<EvalResult> {
+    const req: EvalRequest = { id: ++this.seq, loo: slim(loo), loso: slim(loso) };
     return new Promise((res, rej) => {
-      const p: Pending = { req, res, rej };
       const w = this.getWorker();
-      if (!w) { this.inline(p); return; }
-      this.pending.set(req.id, p);
+      if (!w) { setTimeout(() => this.settle({ res, rej }, runEval(req, this.inlineMax)), 0); return; }
+      const timer = setTimeout(() => this.timeout(), this.timeoutMs);
+      this.pending.set(req.id, { req, res, rej, timer });
       w.postMessage(req);
     });
   }
@@ -30,22 +53,22 @@ export class Evaluator {
   private getWorker(): Worker | null {
     if (this.worker || this.broken) return this.worker;
     try {
-      const w = new Worker(new URL('./accuracy-worker.ts', import.meta.url), { type: 'module' });
+      const w = this.makeWorker();
       w.onmessage = (e: MessageEvent<EvalResponse>) => {
         const p = this.pending.get(e.data.id);
         if (!p) return;
         this.pending.delete(e.data.id);
+        clearTimeout(p.timer);
         this.settle(p, e.data);
       };
       w.onerror = (e) => { // the worker script failed to load: do it on the main thread instead
         e.preventDefault?.();
         console.warn('[enroll] accuracy worker failed, using the main thread', e);
         this.broken = true;
-        w.terminate();
-        this.worker = null;
+        this.drop();
         const left = [...this.pending.values()];
         this.pending.clear();
-        left.forEach((p) => this.inline(p));
+        for (const p of left) { clearTimeout(p.timer); this.settle(p, runEval(p.req, this.inlineMax)); }
       };
       this.worker = w;
     } catch (e) {
@@ -55,12 +78,22 @@ export class Evaluator {
     return this.worker;
   }
 
-  private inline(p: Pending) {
-    setTimeout(() => this.settle(p, runEval(p.req)), 0);
+  /** No answer in time: kill the worker (a fresh one is made next run) and fail what was waiting. */
+  private timeout() {
+    console.warn('[enroll] accuracy worker timed out');
+    this.drop();
+    const left = [...this.pending.values()];
+    this.pending.clear();
+    for (const p of left) { clearTimeout(p.timer); p.rej(new Error('timed out')); }
   }
 
-  private settle(p: Pending, r: EvalResponse) {
-    if (r.ok) p.res({ loo: r.loo, loso: r.loso });
+  private drop() {
+    this.worker?.terminate();
+    this.worker = null;
+  }
+
+  private settle(p: Pick<Pending, 'res' | 'rej'>, r: EvalResponse) {
+    if (r.ok) p.res(r.res);
     else p.rej(new Error(r.error));
   }
 }

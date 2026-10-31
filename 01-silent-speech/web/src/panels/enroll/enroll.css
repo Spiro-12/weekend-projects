@@ -15,6 +15,13 @@
 @media (max-width: 900px) { .en-main { grid-template-columns: 1fr; } }
 .en-left, .en-right { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 
+/* "real data is off" banner and "not saved" alert */
+.en-banner { display: flex; flex-direction: column; gap: 4px; border: 2px solid var(--warn); background: #ffb5471a; border-radius: 14px; padding: 14px 18px; }
+.en-banner b { font-size: 20px; color: var(--warn); }
+.en-banner span { font-size: 15px; }
+.en-alert { border: 2px solid var(--bad); background: #ff5d6c26; color: var(--bad); border-radius: 14px; padding: 14px 18px; font-size: 20px; font-weight: 800; }
+.en-stage[data-kind=practice] { border-style: dashed; }
+
 /* the big prompt */
 .en-stage { border: 2px solid var(--line); border-radius: 16px; padding: 20px 24px 16px; background: #0e1118; text-align: center; transition: border-color .12s, box-shadow .12s, background .12s; }
 .en-stage[data-rec="1"] { border-color: var(--bad); box-shadow: 0 0 0 5px #ff5d6c26; background: #1a0f14; }
