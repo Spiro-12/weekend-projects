@@ -10,10 +10,15 @@ final class WebSocketServer: ObservableObject {
     @Published private(set) var listening = false
     @Published private(set) var portStatus = "Starting..."
 
+    /// Goes up on every Armed change, so a request that waits in the background can tell Armed was switched
+    /// (even off and on again) and cancel itself.
+    private(set) var armedGeneration = 0
+
     /// Off by default. Changes go out in `status` right away and in every later `hello`.
     @Published var armed = false {
         didSet {
             guard armed != oldValue else { return }
+            armedGeneration += 1
             log.add(armed ? "Armed: actions from the paired dashboard will really run" : "Not armed: actions are dry runs")
             broadcastStatus()
         }

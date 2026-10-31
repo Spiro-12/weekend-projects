@@ -83,6 +83,10 @@ final class ActionRunner: ObservableObject {
     /// Asked again right before anything runs in the background (an AppleScript, Spotify play, speaking the
     /// calendar), so switching Armed off cancels what has not started yet. Set by BridgeModel; until then: off.
     var isArmed: () -> Bool = { false }
+    /// Goes up on every Armed change. A request remembers it, so off and on again also cancels a waiting request.
+    var armedGeneration: () -> Int = { -1 }
+    /// A request that has waited this long (for example on a permission popup) is dropped instead of run.
+    static let maxWait: TimeInterval = 60
 
     private(set) var configs: [String: ActionConfig] = [:]
     private var configData: Data?
@@ -92,6 +96,9 @@ final class ActionRunner: ObservableObject {
     private var eventStore: EKEventStore?
     private var calendarBusySince: TimeInterval?
     private var alertSound: NSSound?
+    /// Apps with a request waiting to use them (opening, or a permission popup on screen), since when. Only one
+    /// request may wait per app: no two texts can run back to back from one popup.
+    private var waitingApps: [String: TimeInterval] = [:]
 
     init(log: LogStore) {
         self.log = log
@@ -133,7 +140,7 @@ final class ActionRunner: ObservableObject {
 
     private func contactSummary(_ raw: String?) -> String {
         guard let raw = raw, !raw.trimmingCharacters(in: .whitespaces).isEmpty else { return "no contact" }
-        guard let clean = ActionRunner.cleanContact(raw) else { return "not a +country number or email" }
+        guard let clean = ActionRunner.cleanContact(raw) else { return "not a + and country code number" }
         return ActionRunner.mask(clean)
     }
 
@@ -200,15 +207,42 @@ final class ActionRunner: ObservableObject {
         log.add("\(action) done: \(ActionRunner.scrubContacts(text, contact: contact))")
     }
 
+    /// Logs "<action> failed: ...". For help, the notice in the window says it too.
     private func logFailed(_ action: String, _ text: String, contact: String? = nil) {
-        log.add("\(action) failed: \(ActionRunner.scrubContacts(text, contact: contact))")
+        let clean = ActionRunner.scrubContacts(text, contact: contact)
+        log.add("\(action) failed: \(clean)")
+        if action == "help" { setHelpDetail("The text did not go out: \(clean)") }
     }
 
-    /// True if still Armed; else logs "<action> cancelled: not armed".
-    private func stillArmed(_ action: String) -> Bool {
-        if isArmed() { return true }
-        log.add("\(action) cancelled: not armed")
-        return false
+    /// Logs "<action> cancelled: ...". For help, the notice in the window says it too.
+    private func logCancelled(_ action: String, _ why: String) {
+        log.add("\(action) cancelled: \(why)")
+        if action == "help" { setHelpDetail("The text did not go out: cancelled (\(why))") }
+    }
+
+    /// One armed request on its way through background steps.
+    struct Ticket {
+        let action: String
+        let generation: Int
+        let started: TimeInterval
+    }
+
+    private func makeTicket(_ action: String) -> Ticket {
+        Ticket(action: action, generation: armedGeneration(), started: ProcessInfo.processInfo.systemUptime)
+    }
+
+    /// True if the request may still run now: still Armed, Armed not switched off and on since, and at most 60 s
+    /// old. Otherwise logs "<action> cancelled: not armed" / "cancelled: too late" (unless quiet) and says false.
+    private func mayRun(_ ticket: Ticket, quiet: Bool = false) -> Bool {
+        if !isArmed() || armedGeneration() != ticket.generation {
+            if !quiet { logCancelled(ticket.action, "not armed") }
+            return false
+        }
+        if ProcessInfo.processInfo.systemUptime - ticket.started > ActionRunner.maxWait {
+            if !quiet { logCancelled(ticket.action, "too late (waited over \(Int(ActionRunner.maxWait)) s)") }
+            return false
+        }
+        return true
     }
 
     /// Logs the failure and replies ok:false.
@@ -224,6 +258,12 @@ final class ActionRunner: ObservableObject {
         return Automation.permission(bundleID, ask: false) == .denied
     }
 
+    /// True while another request waits to use this app (at most 60 s, then it no longer counts).
+    private func someoneWaits(for bundleID: String) -> Bool {
+        guard let since = waitingApps[bundleID] else { return false }
+        return ProcessInfo.processInfo.systemUptime - since <= ActionRunner.maxWait
+    }
+
     private static func notAllowedDetail(_ app: String) -> String {
         "Not allowed to control \(app): System Settings > Privacy & Security > Automation > Silent Speech Bridge > \(app)"
     }
@@ -235,25 +275,27 @@ final class ActionRunner: ObservableObject {
         if isHelp { raiseHelpAlarm() } // the sound and the notice happen even when no text can go out
         let raw = config.to?.trimmingCharacters(in: .whitespaces) ?? ""
         guard !raw.isEmpty else {
-            if isHelp { setHelpDetail("No text sent: no contact set for help") }
             refuse(action, "No contact set for \(action)", error: "no_contact",
                    logDetail: "No contact set for \(action) (run mac/set-contact.sh)", reply)
             return
         }
         guard let to = ActionRunner.cleanContact(raw) else {
-            if isHelp { setHelpDetail("No text sent: the contact for help is not a +country number or email") }
             refuse(action, "The contact for \(action) must start with + and the country code", error: "bad_contact",
                    logDetail: "The contact for \(action) must start with + and the country code (run mac/set-contact.sh)", reply)
             return
         }
+        guard !someoneWaits(for: ActionRunner.messagesBundleID) else {
+            refuse(action, "Still waiting for Messages (is a popup open?)", error: "busy", reply)
+            return
+        }
         guard !knownDenied(ActionRunner.messagesBundleID) else {
-            if isHelp { setHelpDetail("No text sent: not allowed to control Messages") }
             refuse(action, "Not allowed to control Messages", error: "not_allowed",
                    logDetail: ActionRunner.notAllowedDetail("Messages"), reply)
             return
         }
         let text = ActionRunner.cleanText(config.text) ?? ActionRunner.defaultTexts[action] ?? "Hi"
         let masked = ActionRunner.mask(to)
+        let ticket = makeTicket(action)
         log.add("Real action: \(action): handing a text for \(masked) to Messages")
         if isHelp { setHelpDetail("Sending a text to \(masked)…") }
         reply(ActionOutcome(ok: true, dryRun: false, message: "Sending a text to \(masked)…"))
@@ -268,9 +310,9 @@ final class ActionRunner: ObservableObject {
             end tell
         end timeout
         """
-        prepareApp(action, bundleID: ActionRunner.messagesBundleID, appName: "Messages",
-                   launchWait: ActionRunner.messagesLaunchWait, contact: to) { [weak self] in
-            self?.runScriptSoon(action, source) { [weak self] result in
+        prepareApp(ticket, bundleID: ActionRunner.messagesBundleID, appName: "Messages",
+                   launchWait: ActionRunner.messagesLaunchWait) { [weak self] in
+            self?.runScriptSoon(ticket, source) { [weak self] result in
                 guard let self = self else { return }
                 switch result {
                 case .success:
@@ -278,9 +320,7 @@ final class ActionRunner: ObservableObject {
                     self.logDone(action, "handed to Messages for \(masked)", contact: to)
                     if isHelp { self.setHelpDetail("Text handed to Messages for \(masked)") }
                 case .failure(let failure):
-                    let why = failure.explained(app: "Messages")
-                    self.logFailed(action, why, contact: to)
-                    if isHelp { self.setHelpDetail("The text did not go out: \(ActionRunner.scrubContacts(why, contact: to))") }
+                    self.logFailed(action, failure.explained(app: "Messages"), contact: to)
                 }
             }
         }
@@ -313,21 +353,30 @@ final class ActionRunner: ObservableObject {
 
     /// Gets another app ready for AppleScript without blocking the main thread: opens it with NSWorkspace if it
     /// is not running, then asks for the Automation permission on a background queue (the popup waits there; motion
-    /// and status keep flowing). Calls `ready` on the main queue only when the permission is given and Armed is
-    /// still on; otherwise logs why not.
-    private func prepareApp(_ action: String, bundleID: String, appName: String, launchWait: TimeInterval,
-                            contact: String? = nil, ready: @escaping () -> Void) {
+    /// and status keep flowing). While this runs the app counts as waited on (`someoneWaits`). Calls `ready` on the
+    /// main queue only when the permission is given and the request may still run (`mayRun`); otherwise logs why not.
+    private func prepareApp(_ ticket: Ticket, bundleID: String, appName: String, launchWait: TimeInterval,
+                            ready: @escaping () -> Void) {
+        let action = ticket.action
+        let since = ProcessInfo.processInfo.systemUptime
+        waitingApps[bundleID] = since
+        let finish: () -> Void = { [weak self] in
+            if self?.waitingApps[bundleID] == since { self?.waitingApps[bundleID] = nil }
+        }
         let askPermission: () -> Void = { [weak self] in
             DispatchQueue.global(qos: .userInitiated).async {
-                let permission = Automation.permission(bundleID, ask: true)
+                let permission = Automation.askPermission(bundleID)
                 DispatchQueue.main.async {
+                    finish()
                     guard let self = self else { return }
                     switch permission {
                     case .allowed:
-                        if self.stillArmed(action) { ready() }
-                    case .denied, .wouldAsk:
+                        if self.mayRun(ticket) { ready() }
+                    case .denied:
                         self.logFailed(action, ActionRunner.notAllowedDetail(appName))
-                        if action == "help" { self.setHelpDetail("The text did not go out: not allowed to control \(appName)") }
+                    case .wouldAsk:
+                        self.logFailed(action, "macOS showed no permission popup for \(appName), so nothing ran. "
+                            + "Reset it (tccutil reset AppleEvents com.spiro.SilentSpeechBridge) and try again")
                     case .notRunning:
                         self.logFailed(action, "\(appName) is not running and could not be started")
                     case .other(let code):
@@ -341,6 +390,7 @@ final class ActionRunner: ObservableObject {
             return
         }
         guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            finish()
             logFailed(action, "\(appName) is not installed on this Mac")
             return
         }
@@ -352,10 +402,15 @@ final class ActionRunner: ObservableObject {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if let problem = problem {
-                    self.logFailed(action, "Could not open \(appName): \(problem)", contact: contact)
+                    finish()
+                    self.logFailed(action, "Could not open \(appName): \(problem)")
                     return
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + launchWait) {
+                    guard self.mayRun(ticket) else {
+                        finish()
+                        return
+                    }
                     askPermission()
                 }
             }
@@ -412,20 +467,25 @@ final class ActionRunner: ObservableObject {
             refuse(action, "Spotify is not installed on this Mac", error: "no_spotify", reply)
             return
         }
+        guard !someoneWaits(for: ActionRunner.spotifyBundleID) else {
+            refuse(action, "Still waiting for Spotify (is a popup open?)", error: "busy", reply)
+            return
+        }
         guard !knownDenied(ActionRunner.spotifyBundleID) else {
             refuse(action, "Not allowed to control Spotify", error: "not_allowed",
                    logDetail: ActionRunner.notAllowedDetail("Spotify"), reply)
             return
         }
+        let ticket = makeTicket(action)
         log.add("Real action: \(action): playing \(uri) in Spotify")
         reply(ActionOutcome(ok: true, dryRun: false, message: "Starting focus music…"))
 
         let app = "application id \"\(ActionRunner.spotifyBundleID)\""
         let play = "with timeout of 20 seconds\n tell \(app) to play track \"\(ActionRunner.appleScriptEscape(uri))\"\nend timeout"
         let state = "with timeout of 10 seconds\n tell \(app) to return (player state as string)\nend timeout"
-        prepareApp(action, bundleID: ActionRunner.spotifyBundleID, appName: "Spotify",
+        prepareApp(ticket, bundleID: ActionRunner.spotifyBundleID, appName: "Spotify",
                    launchWait: ActionRunner.spotifyLaunchWait) { [weak self] in
-            self?.runScriptSoon(action, play) { [weak self] result in
+            self?.runScriptSoon(ticket, play) { [weak self] result in
                 guard let self = self else { return }
                 if case .failure(let failure) = result {
                     self.logFailed(action, failure.explained(app: "Spotify"))
@@ -471,6 +531,7 @@ final class ActionRunner: ObservableObject {
             return
         }
         calendarBusySince = now
+        let ticket = makeTicket(action)
         log.add("Real action: \(action): reading today's events")
         reply(ActionOutcome(ok: true, dryRun: false, message: "Working on it"))
 
@@ -478,28 +539,28 @@ final class ActionRunner: ObservableObject {
         eventStore = store
         let status = EKEventStore.authorizationStatus(for: .event)
         if status == .fullAccess {
-            readToday(action, store)
+            readToday(ticket, store)
         } else if status == .notDetermined {
             log.add("Calendar: asking for access (a popup shows; the answer is Allow Full Access)")
             store.requestFullAccessToEvents { [weak self] granted, _ in
                 DispatchQueue.main.async {
                     guard let self = self else { return }
                     if granted {
-                        self.readToday(action, store)
+                        self.readToday(ticket, store)
                     } else {
-                        self.calendarFailed(action, "Calendar access was not allowed")
+                        self.calendarFailed(ticket, "Calendar access was not allowed")
                     }
                 }
             }
         } else {
             let why = status == .writeOnly ? "Calendar access is add only" : "No calendar access"
-            calendarFailed(action, "\(why): System Settings > Privacy & Security > Calendars > Silent Speech Bridge > Full Access")
+            calendarFailed(ticket, "\(why): System Settings > Privacy & Security > Calendars > Silent Speech Bridge > Full Access")
         }
     }
 
-    private func calendarFailed(_ action: String, _ why: String) {
-        logFailed(action, why)
-        guard isArmed() else {
+    private func calendarFailed(_ ticket: Ticket, _ why: String) {
+        logFailed(ticket.action, why)
+        guard mayRun(ticket, quiet: true) else {
             calendarBusySince = nil
             return
         }
@@ -508,11 +569,12 @@ final class ActionRunner: ObservableObject {
         }
     }
 
-    private func readToday(_ action: String, _ store: EKEventStore) {
+    private func readToday(_ ticket: Ticket, _ store: EKEventStore) {
+        let action = ticket.action
         let calendar = Calendar.current
         let start = calendar.startOfDay(for: Date())
         guard let end = calendar.date(byAdding: .day, value: 1, to: start) else {
-            calendarFailed(action, "could not work out today's date")
+            calendarFailed(ticket, "could not work out today's date")
             return
         }
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
@@ -523,7 +585,7 @@ final class ActionRunner: ObservableObject {
         let once = ReplyOnce()
         let speakIt: (String, Bool) -> Void = { [weak self] sentence, fromModel in
             guard let self = self, once.claim() else { return }
-            guard self.stillArmed(action) else {
+            guard self.mayRun(ticket) else {
                 self.calendarBusySince = nil
                 return
             }
@@ -585,11 +647,11 @@ final class ActionRunner: ObservableObject {
         return .success(result.stringValue ?? "")
     }
 
-    /// Runs a script on the main thread a moment later (the reply goes out first), but only if still Armed then;
-    /// else logs "<action> cancelled: not armed" and runs nothing.
-    private func runScriptSoon(_ action: String, _ source: String, then: @escaping (Result<String, ScriptFailure>) -> Void) {
+    /// Runs a script on the main thread a moment later (the reply goes out first), but only if the request may
+    /// still run then (`mayRun`); else logs "<action> cancelled: ..." and runs nothing.
+    private func runScriptSoon(_ ticket: Ticket, _ source: String, then: @escaping (Result<String, ScriptFailure>) -> Void) {
         DispatchQueue.main.asyncAfter(deadline: .now() + ActionRunner.scriptDelay) { [weak self] in
-            guard let self = self, self.stillArmed(action) else { return }
+            guard let self = self, self.mayRun(ticket) else { return }
             then(ActionRunner.runScript(source))
         }
     }
@@ -601,22 +663,15 @@ final class ActionRunner: ObservableObject {
 
     // MARK: Cleaning and masking
 
-    /// A phone number that starts with + and the country code (kept as + and 8 to 15 digits), or an email
-    /// address. Anything else, such as a number without the country code: nil.
+    /// A phone number that starts with + and the country code, kept as + and 8 to 15 digits. Anything else (a
+    /// number without the country code, an email, a name): nil.
     static func cleanContact(_ raw: String) -> String? {
         let text = raw.trimmingCharacters(in: .whitespaces)
         let phoneChars = Set("+0123456789 ()-.")
-        if !text.isEmpty && text.allSatisfy({ phoneChars.contains($0) }) {
-            let digits = text.filter { $0.isASCII && $0.isNumber }
-            guard text.hasPrefix("+"), !text.dropFirst().contains("+"), !digits.hasPrefix("0"),
-                  (8...15).contains(digits.count) else { return nil }
-            return "+" + digits
-        }
-        let email = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"
-        if text.count <= 100, text.range(of: email, options: .regularExpression) != nil {
-            return text
-        }
-        return nil
+        guard text.hasPrefix("+"), text.allSatisfy({ phoneChars.contains($0) }), !text.dropFirst().contains("+") else { return nil }
+        let digits = text.filter { $0.isASCII && $0.isNumber }
+        guard !digits.hasPrefix("0"), (8...15).contains(digits.count) else { return nil }
+        return "+" + digits
     }
 
     /// Control characters (Unicode Cc) become spaces, then trim and cut to 300 characters. Emoji joiners and
@@ -631,15 +686,15 @@ final class ActionRunner: ObservableObject {
         return text.isEmpty ? nil : text
     }
 
-    /// "+15551234567" -> "••67". Emails -> "•••@•••". Logs and replies never show a whole contact.
+    /// "+15551234567" -> "••67" (anything with @ -> "•••@•••"). Logs and replies never show a whole contact.
     static func mask(_ contact: String) -> String {
         if contact.contains("@") { return "•••@•••" }
         let digits = contact.filter { $0.isASCII && $0.isNumber }
         return "••" + String(digits.suffix(2))
     }
 
-    /// Masks the configured contact (number or email) and anything that looks like a phone number (5 or more
-    /// digits, maybe with + ( ) - . or spaces) or an email in free text, such as an AppleScript error.
+    /// Masks the configured contact and anything that looks like a phone number (5 or more digits, maybe with
+    /// + ( ) - . or spaces) or an email in free text, such as an AppleScript error.
     static func scrubContacts(_ text: String, contact: String?) -> String {
         var out = text
         if let contact = contact, !contact.isEmpty {

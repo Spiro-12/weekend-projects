@@ -37,6 +37,7 @@ final class BridgeModel: ObservableObject {
         // Background steps of an action (AppleScript, Spotify play, speaking the calendar) check this right before
         // they run, so switching Armed off cancels them.
         runner.isArmed = { [weak server] in server?.armed ?? false }
+        runner.armedGeneration = { [weak server] in server?.armedGeneration ?? -1 }
 
         // Keep streaming while the window is in the background: no App Nap.
         activity = ProcessInfo.processInfo.beginActivity(
@@ -90,6 +91,7 @@ final class LogStore: ObservableObject {
     private let file: FileHandle?
     private let timeFormat: DateFormatter = {
         let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX") // always 24 h ASCII digits: setup greps anchor on it
         f.dateFormat = "HH:mm:ss"
         return f
     }()
