@@ -23,6 +23,7 @@ A one line hook, live demo link, a demo GIF or screenshot, and short "what / why
 - Only ask Spiro for: physical actions (wearing AirPods, mouthing sentences, clicking macOS permission popups, typing his Mac password), accounts or money, and anything that reaches real people (real texts, public posts). Sending a real message to a real person always needs his OK first.
 - Updates are short, plain English, 7th grade, no jargon: what changed, what he can see, and the one thing he needs to do (if any).
 - He is fine with Claude merging its own PRs to main, **only** after the ship checklist passes.
+- **Real life tests with Spiro:** whenever something can be tested for real (AirPods, the Mac app, real actions), ask Spiro to test it as early as possible. Give him a short script: what to put on, what to do, what he should see, and what to send back (screenshot, file, or a yes/no). Don't wait until the end of a phase if an earlier test would catch a problem.
 
 ## Ship checklist (every PR, before merge)
 1. Author agent passes its own gate (typecheck, unit, e2e, build).
