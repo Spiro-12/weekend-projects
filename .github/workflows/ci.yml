@@ -50,6 +50,13 @@ jobs:
           set -o pipefail
           xcodegen
           xcodebuild -project SilentSpeechBridge.xcodeproj -target SilentSpeechBridge -configuration Debug CODE_SIGNING_ALLOWED=NO build 2>&1 | xcbeautify --renderer github-actions
+      - if: steps.check.outputs.has == 'true'
+        name: No Xcode build path (build.sh, the way Spiro's Mac builds)
+        working-directory: 01-silent-speech/mac
+        run: |
+          rm -rf build
+          ./build.sh 2>&1 | tee /tmp/build.log || { grep -E "error:" /tmp/build.log | head -20 | sed 's/^/::error::/'; exit 1; }
+          test -x build/Debug/SilentSpeechBridge.app/Contents/MacOS/SilentSpeechBridge
       - if: steps.check.outputs.has != 'true'
         run: echo "No Mac app yet, skipping."
 

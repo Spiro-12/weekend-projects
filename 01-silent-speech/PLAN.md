@@ -150,3 +150,4 @@ Update `01-silent-speech/PLAN.md` with this plan, then start Phase 0 on branch `
 - **Phase 2 tuning:** track "correct accepted" rate, not only none false accepts; recheck dRef factors (1.7 / 0.1 / 1.25) and the threshold on real data; watch quiet (0.5x amplitude) speakers.
 - **Never auto retry** an action that returned `timeout` or `disconnected` (outcome unknown).
 - Track B nits: hovering a stale chart with a still mouse redraws 60/s; DPR change while idle; head angle text keeps last values after a source switch; tests don't count draws (idle) or check canvas label thinning.
+- Mac app: quiet the harmless `POSIXErrorCode 57: Socket is not connected` log line when a client closes; the first real run on Spiro's Mac passed every check (50 Hz, 0% gaps, front and background).

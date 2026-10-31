@@ -19,10 +19,10 @@ git fetch origin && git checkout p1 && git pull --ff-only   # Phase 1 work lives
 ## 0. Prerequisites (check each, install only what is missing)
 Password steps use `osascript ... with administrator privileges`: a normal macOS password box for Spiro, so the
 session never sees or types the password. (In a session with a real terminal, plain `sudo` works too.)
-1. **Xcode** (full Xcode, not only the command line tools): `ls -d /Applications/Xcode.app`.
-   Missing: `open "macappstore://apps.apple.com/app/id497799835"`, ask Spiro to click **Get** / **Install**
-   (his Apple ID, about 10 GB), wait until `/Applications/Xcode.app` exists.
-2. **Xcode license + first launch**, once (Spiro: password box):
+1. **Command Line Tools** (enough to build, no Xcode needed): `xcode-select -p`. Missing: `xcode-select --install`,
+   tell Spiro "a popup asks to install developer tools, click Install", wait until `xcode-select -p` works.
+   **Full Xcode is optional** (about 15 GB; Spiro's Mac didn't have room). Only if `/Applications/Xcode.app` exists:
+2. **Xcode license + first launch** (only with full Xcode), once (Spiro: password box):
    ```bash
    if xcodebuild -version >/dev/null 2>&1 && xcodebuild -checkFirstLaunchStatus; then echo "Xcode ready"; else
    osascript -e 'do shell script "xcode-select -s /Applications/Xcode.app/Contents/Developer && xcodebuild -license accept && xcodebuild -runFirstLaunch" with administrator privileges'; fi
@@ -39,7 +39,7 @@ session never sees or types the password. (In a session with a real terminal, pl
    for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ -x "$b" ] && eval "$("$b" shellenv)" && break; done
    ```
 4. **Node + npm**: `command -v node || brew install node`
-5. **XcodeGen**: `command -v xcodegen || brew install xcodegen`
+5. **XcodeGen** (only with full Xcode): `command -v xcodegen || brew install xcodegen`
 
 ## 1. Signing identity (once; safe to rerun)
 A stable `SilentSpeech Local` identity makes macOS remember the Motion and Automation permissions across rebuilds.
@@ -51,6 +51,13 @@ cd ~/weekend-projects/01-silent-speech/mac && ./make-cert.sh
 It must end with `OK: signing works.` On `FAILED`, run it again. If the identity is already fine there are no popups.
 
 ## 2. Build
+**Default (no Xcode needed):**
+```bash
+cd ~/weekend-projects/01-silent-speech/mac && ./build.sh && codesign -dv build/Debug/SilentSpeechBridge.app 2>&1 | grep -E "Authority|Signature"
+```
+It ends with `OK: built ... (signed: SilentSpeech Local)`. This is how it was first built on Spiro's Mac (Oct 31).
+
+**With full Xcode** (optional, same result):
 ```bash
 cd ~/weekend-projects/01-silent-speech/mac && xcodegen && \
 xcodebuild -quiet -project SilentSpeechBridge.xcodeproj -target SilentSpeechBridge -configuration Debug build CODE_SIGN_IDENTITY="SilentSpeech Local" && \
@@ -105,7 +112,7 @@ cd ~/weekend-projects/01-silent-speech && npm ci && npx tsx mac/check-bridge.ts
    `brew install switchaudio-osx && SwitchAudioSource -a -t output` (find the name), then `SwitchAudioSource -t output -s "<AirPods name>"`.
 2. Relaunch without options (step 3, ending in `open build/Debug/SilentSpeechBridge.app` with no `--args`).
 3. `grep -E "Headphones|Motion" ~/Library/Logs/SilentSpeechBridge.log` shows `Headphones: connected`.
-4. `npx tsx mac/check-bridge.ts` from `01-silent-speech`: all PASS, and the INFO line shows hz 25 to 50 and gapPct under 5.
+4. `npx tsx mac/check-bridge.ts` from `01-silent-speech`: all PASS, and the INFO line shows hz 25 to 55 and gapPct under 5 (AirPods Pro 3 measured 50 Hz, 0% gaps).
    Then put another app in front and wait, to prove App Nap is off:
    `open -a Finder && sleep 60 && cd ~/weekend-projects/01-silent-speech && npx tsx mac/check-bridge.ts`
    gives the same result.
