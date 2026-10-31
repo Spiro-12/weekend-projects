@@ -56,3 +56,10 @@ test('fake sentence picker hides in Record mode and shows in Recognize mode', as
   await page.getByTestId('mode-toggle').click();
   await expect(page.getByTestId('fake-label')).toBeVisible();
 });
+
+test('header rate drops to 0 when data stops', async ({ page }) => {
+  await page.goto('./?mode=fake');
+  await expect(page.getByTestId('hz-browser')).toHaveText(/2[3-7]\.\d Hz/);
+  await page.evaluate(() => window.__ss.app.source?.stop());
+  await expect(page.getByTestId('hz-browser')).toHaveText('0.0 Hz', { timeout: 4000 });
+});

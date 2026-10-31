@@ -43,6 +43,8 @@ app.bus.on('motion', () => {
   while (arrivals.length && arrivals[0] < now - 2000) arrivals.shift();
 });
 setInterval(() => {
+  const now = performance.now();
+  while (arrivals.length && arrivals[0] < now - 2000) arrivals.shift(); // also trims when data stops
   hzEl.textContent = `${(arrivals.length / 2).toFixed(1)} Hz`;
   nEl.textContent = String(app.counts.motion ?? 0);
 }, 250);

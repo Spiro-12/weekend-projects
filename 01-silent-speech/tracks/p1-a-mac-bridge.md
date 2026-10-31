@@ -1,7 +1,7 @@
 # Track A: Mac bridge app (SilentSpeechBridge)
 
 ## Goal
-A tiny macOS 14+ SwiftUI app that reads AirPods Pro 3 head motion with `CMHeadphoneMotionManager` and streams it over a WebSocket server on `ws://localhost:8765`, exactly per `PROTOCOL.md` §2. It also receives action requests (stub runner this phase).
+A tiny macOS 14+ SwiftUI app that reads AirPods Pro 3 head motion with `CMHeadphoneMotionManager` and streams it over a WebSocket server on `ws://127.0.0.1:8765`, exactly per `PROTOCOL.md` §2. It also receives action requests (stub runner this phase).
 
 **Important:** the agent writing this cannot compile Swift (Linux container). The lead compiles it on GitHub CI (macOS job in `.github/workflows/ci.yml`, `xcodebuild -target SilentSpeechBridge CODE_SIGNING_ALLOWED=NO`) and on Spiro's Mac through Remote Control. Spiro is not technical and never builds anything himself. So: small files, stable APIs, no clever generics, no third party packages. Write it like it must compile on the first try. Swift language mode 5 (avoid Swift 6 strict concurrency errors).
 
