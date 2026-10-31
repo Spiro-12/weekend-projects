@@ -54,7 +54,8 @@ export interface ScoredWindow extends TruthWindow {
   accepted?: boolean;
 }
 
-export interface Summary { right: number; wrong: number; unsure: number; scored: number; total: number; done: boolean }
+/** `unscored`: takes that finished without a score (no model ran, or interrupted). Never silently dropped. */
+export interface Summary { right: number; wrong: number; unsure: number; scored: number; unscored: number; total: number; done: boolean }
 
 /** Windows of the current loop (and the one before, for clips that land after the loop seam and "last loop"). */
 export class Scoreboard {
@@ -111,7 +112,10 @@ export class Scoreboard {
     const n = (s: WindowState) => ws.filter((w) => w.state === s).length;
     const right = n('right'), wrong = n('wrong'), unsure = n('unsure');
     const open = ws.filter((w) => w.state === 'upcoming' || w.state === 'now' || w.state === 'waiting').length;
-    return { right, wrong, unsure, scored: right + wrong + unsure, total: ws.length, done: ws.length > 0 && open === 0 };
+    return {
+      right, wrong, unsure, scored: right + wrong + unsure, unscored: n('unscored') + n('skipped'),
+      total: ws.length, done: ws.length > 0 && open === 0,
+    };
   }
 
   /** The window being said now, else the latest one that finished. */

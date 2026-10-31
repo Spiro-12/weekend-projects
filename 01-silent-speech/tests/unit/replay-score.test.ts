@@ -60,11 +60,11 @@ describe('Scoreboard', () => {
     b.clip('c2', 6, 9, true);
     b.prediction('c2', pred('call_back', true, 0.7));
     expect(b.of(0)[1]).toMatchObject({ state: 'wrong', predicted: 'call_back', confidence: 0.7 });
-    expect(b.summary()).toEqual({ right: 1, wrong: 1, unsure: 0, scored: 2, total: 3, done: false });
+    expect(b.summary()).toEqual({ right: 1, wrong: 1, unsure: 0, scored: 2, unscored: 0, total: 3, done: false });
     // third take never got a clip (interrupted): skipped, not scored, and the loop is done
     b.update(15 + 1.4);
     expect(b.of(0)[2].state).toBe('skipped');
-    expect(b.summary()).toEqual({ right: 1, wrong: 1, unsure: 0, scored: 2, total: 3, done: true });
+    expect(b.summary()).toEqual({ right: 1, wrong: 1, unsure: 0, scored: 2, unscored: 1, total: 3, done: true });
     expect(b.focus()?.idx).toBe(2);
   });
 
@@ -84,7 +84,7 @@ describe('Scoreboard', () => {
     b.clip('c2', 6, 9, true);
     b.noPrediction('c2');
     expect(b.of(0)[1].state).toBe('unscored');
-    expect(b.summary().scored).toBe(0);
+    expect(b.summary()).toMatchObject({ scored: 0, unscored: 2, total: 3 });
   });
 
   it('keeps the previous loop for late clips and "last loop", forgets older ones', () => {

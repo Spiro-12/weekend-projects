@@ -69,6 +69,27 @@ describe('SessionRecorder', () => {
     expect(rec.export()).toEqual({ ok: false, errors: ['no motion recorded'] });
   });
 
+  it('a press before any sample (the shell says t = 0) starts at the first sample, like the shell\'s clip', () => {
+    const [a, b, c] = stream(200, 200.1);
+    const rec = new SessionRecorder();
+    rec.start(hello, status);
+    rec.ptt(true, 0, 'help');
+    expect(rec.events).toEqual([]);
+    expect(rec.pttOpen).toBe(true);
+    rec.motion(a);
+    rec.motion(b);
+    rec.ptt(false, b.t);
+    rec.motion(c);
+    expect(rec.toSession().truth).toEqual([{ t0: a.t, t1: b.t, label: 'help' }]);
+    expect(rec.events.filter((e) => e.kind === 'ptt')).toEqual([{ t: a.t, kind: 'ptt', down: true }, { t: b.t, kind: 'ptt', down: false }]);
+    // a time before the first recorded sample (ring cleared by a clock jump) also waits for the next sample
+    rec.ptt(true, 0, 'calendar');
+    rec.ptt(false, 0); // let go before any data: nothing kept
+    expect(rec.nTakes).toBe(1);
+    expect(rec.pttOpen).toBe(false);
+    expect(rec.events).toHaveLength(2);
+  });
+
   it('Stop drops a take whose release never came', () => {
     const samples = stream(0, 4);
     const rec = record(samples, [[0.5, 1, 'help']]);

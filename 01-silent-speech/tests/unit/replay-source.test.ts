@@ -9,7 +9,7 @@ import { synthSession } from '../../web/src/core/synth';
 import * as ml from '../../web/src/ml/index';
 import { mergeDatasets } from '../../web/src/ml/data';
 import { Scoreboard, verdict } from '../../web/src/panels/replay/score';
-import { ReplaySource, resolveSessionUrl, type ReplayEnv, type ReplayMeta } from '../../web/src/sources/replay';
+import { fetchSameSiteJson, ReplaySource, resolveSessionUrl, type ReplayEnv, type ReplayMeta } from '../../web/src/sources/replay';
 
 const root = new URL('../../', import.meta.url);
 const read = (rel: string) => readFileSync(new URL(rel, root), 'utf8');
@@ -74,6 +74,19 @@ describe('resolveSessionUrl', () => {
     expect(resolveSessionUrl('/x.json', base, page)).toMatchObject({ url: 'https://spiro-12.github.io/x.json' });
     expect(resolveSessionUrl('https://evil.example/s.json', base, page)).toEqual({ error: 'Replay files must come from this site.' });
     expect(resolveSessionUrl('//evil.example/s.json', base, page)).toHaveProperty('error');
+  });
+});
+
+describe('fetchSameSiteJson', () => {
+  const res = (url: string, ok = true, status = 200) => ({ url, ok, status, json: async () => ({ hi: 1 }) }) as unknown as Response;
+  const URL0 = 'https://spiro-12.github.io/weekend-projects/01-silent-speech/replay/demo-session.json';
+  it('returns the JSON from this site', async () => {
+    await expect(fetchSameSiteJson(URL0, async () => res(URL0))).resolves.toEqual({ hi: 1 });
+    await expect(fetchSameSiteJson(URL0, async () => res(''))).resolves.toEqual({ hi: 1 }); // no final url reported
+  });
+  it('refuses a redirect to another site, and HTTP errors', async () => {
+    await expect(fetchSameSiteJson(URL0, async () => res('https://evil.example/s.json'))).rejects.toThrow(/another site/);
+    await expect(fetchSameSiteJson(URL0, async () => res(URL0, false, 404))).rejects.toThrow(/HTTP 404/);
   });
 });
 
@@ -226,6 +239,50 @@ describe('ReplaySource playback', () => {
     expect(r.src.headT).toBeLessThan(up + PAD_SEC + 0.1);
   });
 
+  it('hiding the tab right after a release still plays the pad first, so the clip is whole (not cut by the 1.5 s timer)', async () => {
+    let hide!: (h: boolean) => void;
+    const r = await rig(demo, {}, { onHidden: (fn) => { hide = fn; return () => {}; } });
+    const up = demo.truth[0].t1;
+    while (r.src.headT < up + 0.02) r.run(20);
+    expect(r.clips).toHaveLength(0);
+    hide(true);
+    expect(r.clips).toHaveLength(1); // cut right away from samples, not later by the shell's backup timer
+    expect(r.clips[0].samples.at(-1)!.t).toBeGreaterThanOrEqual(up + PAD_SEC - 0.02);
+    const n = r.motion.length;
+    r.run(3000);
+    expect(r.motion).toHaveLength(n); // and then it really is paused
+    hide(false);
+    r.run(200);
+    expect(r.motion.length).toBeGreaterThan(n);
+  });
+
+  it('hiding the tab while a pause waits for the pad finishes the pad and pauses', async () => {
+    let hide!: (h: boolean) => void;
+    const r = await rig(demo, {}, { onHidden: (fn) => { hide = fn; return () => {}; } });
+    const up = demo.truth[0].t1;
+    while (r.src.headT < up + 0.02) r.run(20);
+    r.src.pause();
+    expect(r.src.phase).toBe('playing'); // waiting for the pad
+    hide(true);
+    expect(r.clips).toHaveLength(1);
+    expect(r.src.phase).toBe('paused');
+    hide(false);
+    r.run(2000);
+    expect(r.src.phase).toBe('paused'); // still the visitor's pause
+  });
+
+  it('a tab that opens hidden does not play until it is shown', async () => {
+    let show!: (h: boolean) => void;
+    const r = await rig(demo, {}, { onHidden: (fn) => { show = fn; fn(true); return () => {}; } });
+    expect(r.src.phase).toBe('playing');
+    r.run(3000);
+    expect(r.motion).toHaveLength(0);
+    show(false);
+    r.run(1000);
+    expect(r.motion.length).toBeGreaterThanOrEqual(48);
+    expect(r.motion[0].t).toBe(demo.samples[0].t); // from the start, nothing skipped
+  });
+
   it('after a stall it does not burst more than a second of samples out at once', async () => {
     const r = await rig(demo);
     r.run(400);
@@ -276,8 +333,8 @@ describe('ReplaySource + shell + real classifier', () => {
     const s3 = new Map(files[2].clips.map((c) => [c.id, c]));
     demoMeta.takes!.forEach((id, k) => {
       const take = s3.get(id)!;
-      // The recorded take, moved onto the replay's clock (the raw boot clock is ~1.3e6 s, where float rounding
-      // can change preprocessing's grid length by one point; see the Track K report).
+      // The recorded take, moved onto the replay's clock like build-replay does (5 decimals). On the raw boot clock
+      // (~1.3e6 s) float rounding could change preprocessing's grid length by one point (PROTOCOL §5 grid epsilon).
       const shift = ws[k].t0 - PAD_SEC - take.samples[0].t;
       const offline = model.predict(take.samples.map((s) => ({ ...s, t: Math.round((s.t + shift) * 1e5) / 1e5 })), { loc: 'left' });
       expect(ws[k].label).toBe(take.label);

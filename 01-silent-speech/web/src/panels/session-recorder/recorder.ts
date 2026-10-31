@@ -22,13 +22,15 @@ export class SessionRecorder {
   statusChanged = false;
   private takes: Take[] = [];
   private open: { t: number; label: string | null; ev: number } | null = null;
+  /** Pressed before any sample arrived (the shell then says t = 0): the take starts at the next sample, like the shell's clip. */
+  private early: { label: string | null } | null = null;
 
   get nTakes() { return this.takes.length; }
   get nPredictions() { return this.events.filter((e) => e.kind === 'prediction').length; }
   get nActions() { return this.events.filter((e) => e.kind === 'action').length; }
   get seconds() { return this.samples.length > 1 ? this.samples[this.samples.length - 1].t - this.samples[0].t : 0; }
   get hasData() { return this.samples.length > 0; }
-  get pttOpen() { return this.open !== null; }
+  get pttOpen() { return this.open !== null || this.early !== null; }
 
   start(hello: HelloMsg, status: StatusMsg, at = new Date()) {
     this.recording = true;
@@ -36,6 +38,7 @@ export class SessionRecorder {
     this.events = [];
     this.takes = [];
     this.open = null;
+    this.early = null;
     this.hello = { ...hello };
     this.status = { ...status };
     this.statusChanged = false;
@@ -47,6 +50,7 @@ export class SessionRecorder {
     if (!this.recording) return;
     this.recording = false;
     if (this.open) { this.events.splice(this.open.ev); this.open = null; }
+    this.early = null;
   }
 
   /** Returns false when the time limit stopped the recording. */
@@ -54,6 +58,7 @@ export class SessionRecorder {
     if (!this.recording) return true;
     // Gravity isn't needed to replay or classify: leave it out to keep the file small.
     this.samples.push({ seq: s.seq, t: s.t, q: s.q, rr: s.rr, ua: s.ua });
+    if (this.early) { const { label } = this.early; this.early = null; this.press(s.t, label); }
     if (this.seconds > MAX_SEC) { this.stop(); return false; }
     return true;
   }
@@ -67,15 +72,22 @@ export class SessionRecorder {
   ptt(down: boolean, t: number, label: string | null = null) {
     if (!this.recording) return;
     if (down) {
-      if (this.open) return;
-      this.open = { t, label, ev: this.events.length };
-      this.events.push({ t, kind: 'ptt', down: true });
+      if (this.open || this.early) return;
+      // No sample yet, or a time before the first one (the shell's t is 0 with no data): start at the next sample.
+      if (!this.samples.length || t < this.samples[0].t) this.early = { label };
+      else this.press(t, label);
       return;
     }
+    if (this.early) { this.early = null; return; } // let go before any data: nothing to keep (the shell cuts nothing either)
     if (!this.open) return; // pressed before Record: not a take
     this.events.push({ t, kind: 'ptt', down: false });
     this.takes.push({ t0: this.open.t, t1: t, label: this.open.label, ev: this.open.ev });
     this.open = null;
+  }
+
+  private press(t: number, label: string | null) {
+    this.open = { t, label, ev: this.events.length };
+    this.events.push({ t, kind: 'ptt', down: true });
   }
 
   prediction(label: string, confidence: number, t: number) {

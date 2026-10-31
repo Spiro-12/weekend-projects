@@ -18,7 +18,8 @@
 .rp-score .big { font-size: 15px; }
 .rp-score .big b { font-size: 22px; font-weight: 800; color: var(--good); margin-right: 2px; }
 .rp-score[data-scored="0"] .big { color: var(--muted); font-size: 13px; }
-.rp-score small { font-size: 12px; color: var(--muted); }
+.rp-score small { font-size: 12px; color: var(--muted); white-space: normal; text-align: right; }
+.rp-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .rp-ctl { display: flex; gap: 8px; align-items: center; }
 .rp-ctl button { font-size: 13px; padding: 5px 12px; min-height: 32px; }
 .rp-ctl button:hover { border-color: var(--accent); }
@@ -52,5 +53,6 @@
   .card[data-panel=replay] { padding: 10px 12px; }
   .rp-title { flex-basis: 100%; }
   .rp-score { align-items: flex-start; margin-right: auto; }
+  .rp-score small { text-align: left; }
   .rp-now { font-size: 14px; }
 }

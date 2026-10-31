@@ -45,24 +45,29 @@ export interface ReplayEnv {
   now(): number; // ms, monotonic
   /** false: no timers, the caller drives tick() (unit tests). */
   timers: boolean;
-  /** Pause while the tab is hidden (background tabs only get throttled timers anyway). */
+  /** Pause while the tab is hidden (background tabs only get throttled timers anyway). Calls fn with the current state right away. */
   onHidden?(fn: (hidden: boolean) => void): () => void;
 }
 
 const r5 = (x: number) => Math.round(x * 1e5) / 1e5;
 
+/** Fetches JSON, and refuses it if a redirect took the request to another site. */
+export async function fetchSameSiteJson(url: string, doFetch: (u: string) => Promise<Response> = (u) => fetch(u)): Promise<unknown> {
+  const res = await doFetch(url);
+  if (res.url && new URL(res.url).origin !== new URL(url).origin) throw new Error('redirected to another site');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 const browserEnv = (): ReplayEnv => ({
-  async fetchJson(url) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  },
+  fetchJson: (url) => fetchSameSiteJson(url),
   now: () => performance.now(),
   timers: true,
   onHidden(fn) {
     if (typeof document === 'undefined') return () => {};
     const h = () => fn(document.hidden);
     document.addEventListener('visibilitychange', h);
+    h(); // a tab that opens in the background starts paused
     return () => document.removeEventListener('visibilitychange', h);
   },
 });
@@ -252,7 +257,16 @@ export class ReplaySource implements MotionSource {
 
   private setHidden(h: boolean) {
     if (h === this.hidden) return;
-    if (h && this.running()) this.anchorT = this.playhead();
+    if (h && this.running()) {
+      // Never stop inside a release pad: the shell would cut the clip short on its 1.5 s backup timer.
+      // Play on to the end of the pad (or to a pause that was waiting for it) first.
+      let head = this.playhead();
+      const padEnd = !this.ownDown ? this.lastUpT + PAD_HOLD_SEC : -Infinity;
+      const until = Math.max(head, this.holdUntil ?? -Infinity, padEnd);
+      if (until > head) { this.advance(until); head = until; this.lastTarget = until; }
+      if (this.holdUntil !== null && head >= this.holdUntil) this.freeze(this.holdUntil);
+      else this.anchorT = head;
+    }
     this.hidden = h;
     if (!h) this.anchorWall = this.env.now(); // pick up where it was
   }

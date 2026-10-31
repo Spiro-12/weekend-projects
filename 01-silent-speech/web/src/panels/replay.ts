@@ -45,7 +45,8 @@ const panel: Panel = {
         <div class="rp-row">
           <span class="rp-badge"><i></i>Replay</span>
           <div class="rp-title"><b data-testid="replay-title">Loading the replay…</b><span class="rp-note" data-testid="replay-note"></span></div>
-          <div class="rp-score" data-testid="replay-score" data-scored="0"><span class="big"></span><small></small></div>
+          <div class="rp-score" data-testid="replay-score" data-scored="0"><span class="big"></span>
+            <small data-testid="replay-score-detail"></small><small data-testid="replay-score-last"></small></div>
           <div class="rp-ctl">
             <button class="rp-play" data-testid="replay-play" disabled>Pause</button>
             <div class="rp-speed" role="group" aria-label="Playback speed">
@@ -55,6 +56,7 @@ const panel: Panel = {
         </div>
         <div class="rp-track" data-testid="replay-track" role="img" aria-label="Takes in this replay"><span class="rp-head"></span></div>
         <div class="rp-now" data-testid="replay-now"></div>
+        <div class="rp-sr" data-testid="replay-live" aria-live="polite"></div>
         <div class="rp-err" data-testid="replay-error" hidden><span></span>
           <button data-testid="replay-fallback">Use fake data instead</button></div>
       </div>`;
@@ -62,7 +64,8 @@ const panel: Panel = {
     const root = q('.rp'), titleEl = q('[data-testid=replay-title]'), noteEl = q('[data-testid=replay-note]');
     const scoreEl = q('[data-testid=replay-score]'), playBtn = q<HTMLButtonElement>('[data-testid=replay-play]');
     const track = q('[data-testid=replay-track]'), head = q('.rp-head'), nowEl = q('[data-testid=replay-now]');
-    const errEl = q('[data-testid=replay-error]'), ctl = q('.rp-ctl');
+    const errEl = q('[data-testid=replay-error]'), ctl = q('.rp-ctl'), liveEl = q('[data-testid=replay-live]');
+    const detailEl = q('[data-testid=replay-score-detail]'), lastEl = q('[data-testid=replay-score-last]');
     const speedBtns = [...el.querySelectorAll<HTMLButtonElement>('.rp-speed button')];
 
     let src: ReplaySource | null = null;
@@ -76,7 +79,9 @@ const panel: Panel = {
     const quoted = (id: string) => `“${esc(sentence(id))}”`;
     const pct = (c?: number) => `${Math.round((c ?? 0) * 100)}%`;
     const setText = (n: Element, t: string) => { if (n.textContent !== t) n.textContent = t; };
-    const setHtml = (n: Element, h: string) => { if (n.innerHTML !== h) n.innerHTML = h; };
+    // Compare with what we last set, not innerHTML (the browser normalizes entities, so that never matches).
+    const lastHtml = new WeakMap<Element, string>();
+    const setHtml = (n: Element, h: string) => { if (lastHtml.get(n) !== h) { lastHtml.set(n, h); n.innerHTML = h; } };
 
     playBtn.onclick = () => { if (!src) return; if (src.paused) src.play(); else src.pause(); render(); };
     for (const b of speedBtns) b.onclick = () => { src?.setSpeed(Number(b.dataset.speed)); render(); };
@@ -111,10 +116,26 @@ const panel: Panel = {
       const willPredict = app.mode === 'classify' && !!app.model;
       const w = board.clip(c.id, c.pressT, c.releaseT, willPredict);
       // The shell predicts right after emitting the clip. Nothing by the next microtask = the model threw.
-      if (w && willPredict) queueMicrotask(() => { board.noPrediction(c.id); render(); });
+      if (w && !willPredict) announce(w);
+      if (w && willPredict) queueMicrotask(() => { board.noPrediction(c.id); if (w.state === 'unscored') announce(w); render(); });
       render();
     });
-    app.bus.on('prediction', (p) => { if (src && board.prediction(p.clipId, p)) render(); });
+    app.bus.on('prediction', (p) => {
+      const w = src ? board.prediction(p.clipId, p) : null;
+      if (!w) return;
+      announce(w);
+      render();
+    });
+
+    /** One short line per finished take for screen readers (polite live region). */
+    function announce(w: ScoredWindow) {
+      const said = w.label === NONE ? 'no sentence' : sentence(w.label);
+      const heard = w.predicted === NONE ? 'no sentence' : sentence(w.predicted ?? '');
+      const what = w.state === 'right' ? (w.label === NONE ? 'right, nothing triggered' : `right, heard ${heard}`)
+        : w.state === 'wrong' ? `wrong, heard ${heard}, said ${said}`
+          : w.state === 'unsure' ? `not sure, said ${said}` : `not scored, said ${said}`;
+      liveEl.textContent = `Take ${w.idx + 1}: ${what}.`;
+    }
     app.bus.on('model', () => render());
     app.bus.on('mode', () => render());
 
@@ -203,17 +224,18 @@ const panel: Panel = {
       scoreEl.dataset.wrong = String(sum.wrong);
       scoreEl.dataset.unsure = String(sum.unsure);
       scoreEl.dataset.scored = String(sum.scored);
+      scoreEl.dataset.unscored = String(sum.unscored);
       scoreEl.dataset.pass = String(board.pass);
-      const big = scoreEl.querySelector('.big')!, small = scoreEl.querySelector('small')!;
-      if (sum.scored) {
-        setHtml(big, `<b>${sum.right}</b> of ${sum.scored} right`);
-        const parts = [`${sum.wrong} wrong`, `${sum.unsure} not sure`];
-        if (last?.scored) parts.push(`last loop ${last.right} of ${last.scored}`);
-        setText(small, parts.join(' · '));
-      } else {
-        setHtml(big, !app.model ? 'Waiting for the model…' : app.mode !== 'classify' ? 'Switch to Recognize to score' : 'Score: first take coming up');
-        setText(small, last?.scored ? `last loop ${last.right} of ${last.scored} right` : `${ws.length} takes`);
-      }
+      const big = scoreEl.querySelector('.big')!;
+      // Every take is accounted for: right + wrong + not sure + not scored + still to come = all takes.
+      const detail = sum.scored ? [`${sum.wrong} wrong`, `${sum.unsure} not sure`] : [];
+      if (sum.unscored) detail.push(`${sum.unscored} not scored`);
+      detail.push(`${sum.total} takes`);
+      setText(detailEl, detail.join(' · '));
+      setText(lastEl, last?.done ? `last loop: ${last.right} of ${last.scored} right${last.unscored ? `, ${last.unscored} not scored` : ''}` : '');
+      lastEl.hidden = !lastEl.textContent;
+      if (sum.scored) setHtml(big, `<b>${sum.right}</b> of ${sum.scored} right`);
+      else setHtml(big, !app.model ? 'Waiting for the model…' : app.mode !== 'classify' ? 'Switch to Recognize to score' : 'Score: first take coming up');
       const [state, html] = nowLine(board.focus());
       nowEl.dataset.state = state;
       setHtml(nowEl, html);
