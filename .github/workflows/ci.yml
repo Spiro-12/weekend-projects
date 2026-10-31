@@ -2,6 +2,8 @@ name: CI
 
 on:
   pull_request:
+  push:
+    branches: ['p[0-9]*'] # phase and track branches (p1, p1-a-mac, ...)
   workflow_dispatch:
 
 concurrency:
@@ -39,13 +41,15 @@ jobs:
       - id: check
         run: test -f 01-silent-speech/mac/project.yml && echo "has=true" >> "$GITHUB_OUTPUT" || echo "has=false" >> "$GITHUB_OUTPUT"
       - if: steps.check.outputs.has == 'true'
-        run: brew install xcodegen
+        run: brew install xcodegen xcbeautify
       - if: steps.check.outputs.has == 'true'
         working-directory: 01-silent-speech/mac
+        # xcbeautify turns compile errors into GitHub annotations, which Claude can read through the API
+        # (raw job logs are not reachable from Claude's sandbox).
         run: |
+          set -o pipefail
           xcodegen
-          xcodebuild -project SilentSpeechBridge.xcodeproj -target SilentSpeechBridge -configuration Debug CODE_SIGNING_ALLOWED=NO build | tail -40
-          test "${PIPESTATUS[0]}" -eq 0
+          xcodebuild -project SilentSpeechBridge.xcodeproj -target SilentSpeechBridge -configuration Debug CODE_SIGNING_ALLOWED=NO build 2>&1 | xcbeautify --renderer github-actions
       - if: steps.check.outputs.has != 'true'
         run: echo "No Mac app yet, skipping."
 

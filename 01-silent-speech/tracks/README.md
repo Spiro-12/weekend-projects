@@ -19,4 +19,13 @@ Each file here is a self contained brief for one agent. Hand it to a Claude sess
 | D | `p1-d-dtw.md` | `web/src/ml/**`, `tests/unit/ml/**`, `scripts/{eval-dtw,export-model}.ts`, `ml/results/dtw-knn/` |
 | E | `p1-e-python-bench.md` | `ml/**` (except `ml/results/dtw-knn/`) |
 
+## Ports (parallel worktrees share one machine)
+Run Playwright with your own ports, never the defaults: `E2E_WEB_PORT=<web> E2E_MOCK_PORT=<mock> npx playwright test`. In specs use `MOCK_WS` / `BASE` from `playwright.config.ts`.
+| Track | E2E_WEB_PORT | E2E_MOCK_PORT |
+|---|---|---|
+| B | 4201 | 18801 |
+| C | 4202 | 18802 |
+| lead | 4173 (default) | 18765 (default) |
+Unit tests that need a mock bridge use `startMockBridge({ port: 0 })`. **Never use port 8765** (that's the real Mac app).
+
 Merge order: D before C (C calls `ml.evaluate` / `ml.train`). A, B, E any time.

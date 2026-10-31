@@ -129,7 +129,7 @@ Auto detect when you start mouthing (no Space key), iPhone bridge, LibrePods rou
 | Motion stops when Mac app isn't in front | App Nap off; else load the dashboard inside the Mac app (WKWebView) |
 | No motion on macOS at all | iOS target from the same Swift files + dashboard on the Mac's local dev server |
 | Browser blocks ws://localhost from https | Use Chrome + allow local network prompt; else local dev server |
-| macOS permissions (Automation, Motion) | No sandbox, sign with Personal Team so prompts stick; any action can fall back to a Shortcut |
+| macOS permissions (Automation, Motion) | No sandbox; sign with a stable local self signed identity so permissions stick across rebuilds (fallback: his Apple ID once) |
 | Weak signal / confusion | Exaggerate jaw, ANC off, settings sweep, drop/rename sentences, jaw gesture pivot |
 | A random website trying to send your texts | Loopback only, origin allowlist, action ids only, Armed off by default, cooldown |
 | I can't compile Swift | 6 small files, stable APIs, Simulate toggle, quick paste errors loop |

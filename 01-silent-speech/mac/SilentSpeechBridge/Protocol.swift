@@ -9,8 +9,15 @@ enum ProtocolV1 {
         "https://spiro-12.github.io",
         "http://localhost:5173",
         "http://localhost:4173",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:4173",
     ]
+    /// Origin header names must be compared case insensitively. Missing Origin is rejected
+    /// unless the "Allow non browser clients" dev toggle is on.
     static let actionCooldown: TimeInterval = 3
+    /// Actions that message real people get a longer cooldown.
+    static let sensitiveActions: Set<String> = ["text_mom", "call_back", "help"]
+    static let sensitiveCooldown: TimeInterval = 30
 }
 
 /// Rounds to 5 decimals to keep frames small.
@@ -19,7 +26,7 @@ enum ProtocolV1 {
 enum HeadphoneState: String, Codable { case connected, disconnected, unavailable }
 enum AuthState: String, Codable { case authorized, denied, notDetermined, restricted }
 enum BudLocation: String, Codable { case left, right, `default`, unknown }
-enum ErrorCode: String, Codable { case bad_json, unknown_action, cooldown, not_armed }
+enum ErrorCode: String, Codable { case bad_json, unknown_action, cooldown }
 
 // MARK: Mac -> browser
 
@@ -47,7 +54,7 @@ struct StatusMessage: Codable {
 struct MotionMessage: Codable {
     var type = "motion"
     let seq: Int
-    let t: Double          // CMLogItem.timestamp (seconds, monotonic)
+    let t: Double          // CMLogItem.timestamp (seconds since boot). Simulate mode uses ProcessInfo.processInfo.systemUptime (same clock) and keeps seq counting
     let q: [Double]        // [w, x, y, z]
     let rr: [Double]       // rotationRate rad/s [x, y, z]
     let ua: [Double]       // userAcceleration g [x, y, z]

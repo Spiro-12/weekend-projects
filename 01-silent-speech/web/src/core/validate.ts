@@ -43,11 +43,27 @@ export function parseServerMsg(raw: unknown): ServerMsg | null {
       return isStr(m.id) && isStr(m.action) && isBool(m.ok) && isBool(m.dryRun) && isStr(m.message)
         && isNum(m.ms) && (m.error === undefined || isStr(m.error)) ? (m as unknown as ServerMsg) : null;
     case 'error':
-      return oneOf(m.code, ['bad_json', 'unknown_action', 'cooldown', 'not_armed']) && isStr(m.message)
+      return oneOf(m.code, ['bad_json', 'unknown_action', 'cooldown']) && isStr(m.message)
         && (m.id === undefined || isStr(m.id)) ? (m as unknown as ServerMsg) : null;
     default:
       return null;
   }
+}
+
+const SERVER_TYPES = ['hello', 'status', 'motion', 'actionResult', 'error'];
+
+export type ServerFrame =
+  | { kind: 'msg'; msg: ServerMsg }
+  | { kind: 'unknown'; type: string } // valid JSON with a type we don't know: ignore, not an error
+  | { kind: 'invalid' }; // bad JSON or a known type with bad fields: count it
+
+/** Like parseServerMsg, but tells "unknown type" (ignore) apart from "broken frame" (count as invalid). */
+export function parseServerFrame(raw: unknown): ServerFrame {
+  const m = toObj(raw);
+  if (!m) return { kind: 'invalid' };
+  if (isStr(m.type) && !SERVER_TYPES.includes(m.type)) return { kind: 'unknown', type: m.type };
+  const msg = parseServerMsg(m);
+  return msg ? { kind: 'msg', msg } : { kind: 'invalid' };
 }
 
 /** Parses a browser -> Mac message. */

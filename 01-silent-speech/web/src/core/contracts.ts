@@ -58,7 +58,7 @@ export interface ActionResultMsg {
   ms: number;
 }
 
-export type ErrorCode = 'bad_json' | 'unknown_action' | 'cooldown' | 'not_armed';
+export type ErrorCode = 'bad_json' | 'unknown_action' | 'cooldown';
 export interface ErrorMsg {
   type: 'error';
   code: ErrorCode;

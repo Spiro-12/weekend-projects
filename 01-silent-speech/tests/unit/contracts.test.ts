@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import classes from '../../shared/classes.json';
-import { parseClientMsg, parseServerMsg, validateDataset, validateSession } from '../../web/src/core/validate';
+import { parseClientMsg, parseServerFrame, parseServerMsg, validateDataset, validateSession } from '../../web/src/core/validate';
 
 const fx = (name: string) => readFileSync(new URL(`../../shared/fixtures/${name}`, import.meta.url), 'utf8');
 
@@ -34,6 +34,12 @@ describe('validators reject junk', () => {
     expect(parseServerMsg('{"type":"motion","seq":"oops"}')).toBeNull();
     expect(parseServerMsg('not json')).toBeNull();
     expect(parseServerMsg({ type: 'whatever' })).toBeNull();
+  });
+  it('frames: unknown types are ignored, broken ones are invalid', () => {
+    expect(parseServerFrame('{"type":"future_thing"}')).toEqual({ kind: 'unknown', type: 'future_thing' });
+    expect(parseServerFrame('{"type":"motion","seq":"oops"}')).toEqual({ kind: 'invalid' });
+    expect(parseServerFrame('nope')).toEqual({ kind: 'invalid' });
+    expect(parseServerFrame(JSON.stringify({ type: 'error', code: 'cooldown', message: 'x' })).kind).toBe('msg');
   });
   it('bad dataset', () => {
     expect(validateDataset({ format: 'ss-dataset' }).length).toBeGreaterThan(0);

@@ -49,7 +49,7 @@ setInterval(() => {
 
 fakeSel.innerHTML = `<option value="">random sentence</option>` +
   classes.map((c) => `<option value="${c.id}">${c.sentence}</option>`).join('');
-fakeSel.onchange = () => { app.fakeLabel = fakeSel.value || null; };
+fakeSel.onchange = () => { app.fakeLabel = fakeSel.value || null; fakeSel.blur(); };
 
 const renderMode = () => {
   modeBtn.textContent = app.mode === 'enroll' ? 'Mode: Record' : 'Mode: Recognize';
@@ -67,7 +67,7 @@ addEventListener('keydown', (e) => {
   app.ptt(true);
 });
 addEventListener('keyup', (e) => {
-  if (e.code !== 'Space' || typing(e)) return;
+  if (e.code !== 'Space' || (typing(e) && !app.pttDown)) return;
   e.preventDefault();
   app.ptt(false);
 });
@@ -96,16 +96,22 @@ for (const p of panels) {
 }
 
 // ---------- pick a source ----------
-// ?mode=live|fake|replay forces one. Otherwise: try live for 1.5 s, then replay, then fake.
+// ?mode=live|fake|replay forces one. Otherwise only people who have used the Mac app before
+// (remembered flag) get a 1.5 s live probe; public visitors go straight to replay (or fake).
+// This avoids a "local network access" prompt for every visitor.
+const LIVE_FLAG = 'ss.liveSeen';
+app.bus.on('hello', () => { if (app.source?.kind === 'live') localStorage.setItem(LIVE_FLAG, '1'); });
+
 async function pickSource() {
   const forced = params.mode as SourceKind | undefined;
   if (forced && app.sources.has(forced)) return app.setSource(forced, params);
-  if (app.sources.has('live')) {
+  if (app.sources.has('live') && localStorage.getItem(LIVE_FLAG) === '1') {
     const gotHello = new Promise<boolean>((res) => {
       const off = app.bus.on('hello', () => { off(); res(true); });
       setTimeout(() => { off(); res(false); }, 1500);
     });
-    await app.setSource('live', params);
+    // Not awaited: start() must not block or throw, but don't trust it.
+    app.setSource('live', params).catch((e) => console.error('[source live]', e));
     if (await gotHello) return;
   }
   return app.setSource(app.sources.has('replay') ? 'replay' : 'fake', params);

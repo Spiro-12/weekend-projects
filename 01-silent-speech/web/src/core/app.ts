@@ -59,6 +59,7 @@ export interface Panel {
 
 export interface MotionSource {
   kind: SourceKind;
+  /** Must resolve right away (don't wait for a connection) and must never reject. Report problems via `conn`. */
   start(): Promise<void>;
   stop(): void;
   sendAction?(r: ActionRequestMsg): Promise<ActionResultMsg>;
@@ -71,6 +72,7 @@ export interface SourceDef {
 
 export const PAD_SEC = 0.3;
 const RING_SEC = 30;
+const RING_MAX = 5000; // hard cap in samples, whatever the clock does
 
 let idCounter = 0;
 export const newId = (prefix = 'id') => `${prefix}-${Date.now().toString(36)}-${(idCounter++).toString(36)}`;
@@ -89,7 +91,7 @@ export class App {
   lastStatus: StatusMsg | null = null;
   ring: MotionSample[] = [];
   pttDown = false;
-  private pressT = 0;
+  private pressT: number | null = null; // null = pressed before any sample arrived
   private pending: { pressT: number; releaseT: number; timer: ReturnType<typeof setTimeout> } | null = null;
 
   constructor(classes: ClassDef[], store: ClipStore) {
@@ -109,7 +111,7 @@ export class App {
     const def = this.sources.get(kind);
     if (!def) throw new Error(`no source registered for ${kind}`);
     this.source?.stop();
-    this.ring = [];
+    this.resetCapture();
     this.source = def.create(this, opts);
     this.bus.emit('source', kind);
     await this.source.start();
@@ -118,23 +120,37 @@ export class App {
   setMode(m: Mode) { this.mode = m; this.bus.emit('mode', m); }
   setModel(m: Classifier | null) { this.model = m; this.bus.emit('model', m); }
 
-  ptt(down: boolean) {
+  /** Push to talk. `t` (sample clock) defaults to the latest sample; replay passes it explicitly. */
+  ptt(down: boolean, t: number = this.lastT) {
     if (down === this.pttDown) return;
     this.pttDown = down;
-    const t = this.lastT;
+    const empty = this.ring.length === 0;
     this.bus.emit('ptt', { down, t });
-    if (down) { this.pressT = t; return; }
+    if (down) { this.pressT = empty ? null : t; return; }
     const pressT = this.pressT;
+    this.pressT = null;
+    if (pressT === null || empty) return; // no data while held: nothing to cut
     // Wait for PAD_SEC of samples after release (or give up after 1.5 s and cut what we have).
     if (this.pending) this.finishClip();
     this.pending = { pressT, releaseT: t, timer: setTimeout(() => this.finishClip(), 1500) };
   }
 
+  /** Clears the ring and any half finished push to talk (source switch, clock jump). */
+  private resetCapture() {
+    this.ring = [];
+    if (this.pending) clearTimeout(this.pending.timer);
+    this.pending = null;
+    this.pressT = null;
+    if (this.pttDown) { this.pttDown = false; this.bus.emit('ptt', { down: false, t: 0 }); }
+  }
+
   private onMotion(s: MotionSample) {
+    // Clock went backwards by more than a second (e.g. Simulate toggled): start fresh.
+    if (this.ring.length && s.t < this.lastT - 1) this.resetCapture();
     this.ring.push(s);
-    const hz = this.lastStatus?.hz || 25;
-    const max = Math.ceil(RING_SEC * hz * 1.5);
-    if (this.ring.length > max) this.ring.splice(0, this.ring.length - max);
+    if (this.pttDown && this.pressT === null) this.pressT = s.t; // pressed before data arrived
+    while (this.ring.length > 1 && this.ring[0].t < s.t - RING_SEC) this.ring.shift();
+    if (this.ring.length > RING_MAX) this.ring.splice(0, this.ring.length - RING_MAX);
     if (this.pending && s.t >= this.pending.releaseT + PAD_SEC) this.finishClip();
   }
 
@@ -156,8 +172,12 @@ export class App {
     };
     this.bus.emit('clip', clip);
     if (this.mode === 'classify' && this.model) {
-      const pred = this.model.predict(samples);
-      this.bus.emit('prediction', { ...pred, clipId: clip.id });
+      try {
+        const pred = this.model.predict(samples);
+        this.bus.emit('prediction', { ...pred, clipId: clip.id });
+      } catch (e) {
+        console.error('[model] predict failed', e);
+      }
     }
   }
 

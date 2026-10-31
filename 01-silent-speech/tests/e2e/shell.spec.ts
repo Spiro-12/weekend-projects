@@ -28,3 +28,19 @@ test('panels mount and assets use the Pages base path', async ({ page }) => {
   expect(src).toMatch(/^\/weekend-projects\/01-silent-speech\/assets\//);
   expect(errors).toEqual([]);
 });
+
+test('public visitor (no mode, never used the Mac app) gets a working page fast', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.getByTestId('source-pill')).toHaveText(/(fake|replay) · open/, { timeout: 2500 });
+  await expect.poll(() => page.evaluate(() => window.__ss.counts.motion ?? 0)).toBeGreaterThan(10);
+});
+
+test('Space still works right after picking a fake sentence', async ({ page }) => {
+  await page.goto('./?mode=fake');
+  await page.getByTestId('fake-label').selectOption('help');
+  await page.waitForTimeout(500);
+  await page.keyboard.down('Space');
+  await page.waitForTimeout(1200);
+  await page.keyboard.up('Space');
+  await expect.poll(() => page.evaluate(() => window.__ss.counts.clip ?? 0)).toBe(1);
+});
