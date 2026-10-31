@@ -148,7 +148,12 @@ cd ~/weekend-projects/01-silent-speech && npm ci && npx tsx mac/check-bridge.ts
 - **A text failed**: never send it again straight away. First ask Spiro whether it arrived anyway (Messages may have
   sent it). Only resend after he says no.
 - **Spotify: "did not start (player state: paused)"**: Spotify is not logged in, or the playlist is not available.
-  Put another `uri` in `~/.silentspeech/actions.json` (a `spotify:playlist:...` URI or an `open.spotify.com` link).
+  Pick another one: `cd ~/weekend-projects/01-silent-speech/mac && ./set-music.sh "<spotify:playlist:... or open.spotify.com link>"`.
+  It changes only the music entry. Never `cat` or open `~/.silentspeech/actions.json` (it holds Spiro's number).
+- **No permission popup** (log: `macOS showed no permission popup for Messages`): nothing ran.
+  `tccutil reset AppleEvents com.spiro.SilentSpeechBridge`, relaunch, fire the action again and watch for the popup.
+- **`error busy` / "Still waiting for Messages"**: an earlier request is still waiting on a popup (or Messages is
+  opening). Answer the popup; a waiting request is dropped after 60 s (log: `cancelled: too late`).
 - **Dashboard says "not paired"** (the app's log: `Refused an unpaired action`): open the dashboard again with the pair
   link (Phase 2, step P3). The dashboard keeps the token only while its tab is open, so every session starts from
   the app's link.
@@ -190,14 +195,18 @@ from this link (or the app's link) every session. Before Phase 2 is on Pages, us
 (the shell fills in the token; nothing is printed).
 
 **P4. Contact.** Tell Spiro: "A small box is about to pop up asking for your own mobile number. Type it with + and
-your country code first, like +61 412 345 678, then click Save." Then:
+your country code first, like +61 412 345 678, then click Next. A second box shows the number back: click Yes only if
+it is right." Then run (with a 10 minute timeout, e.g. 600000 ms: it waits for Spiro):
 ```bash
 cd ~/weekend-projects/01-silent-speech/mac && ./set-contact.sh
 ```
-It prints only `Saved: text_mom, call_back and help now text the number ending in NN (••NN)` (Cancel or 3 bad tries:
-nothing saved). It writes `~/.silentspeech/actions.json` (mode 600), keeps any other settings there, and starts from
-`actions.example.json` if there is no file yet. Never write the number into a command, a file in the repo, or a chat.
-A number without `+` and the country code is refused by the app too (`bad_contact`).
+It prints only `Saved: text_mom, call_back and help now text the number ending in NN (••NN)`. Cancel, 3 tries without
+a Yes (a bad number or a No each count), or about 9 minutes: nothing saved, run it again. It writes
+`~/.silentspeech/actions.json` (mode 600), keeps any other settings there, and starts from `actions.example.json` if
+there is no file yet. Never write the number into a command, a file in the repo, or a chat, and **never `cat` or open
+`~/.silentspeech/actions.json`**: the `Contacts:` log line below is the way to check it. Only numbers with `+` and the
+country code work; anything else is refused by the app too (`bad_contact`). To change the number later, run
+`./set-contact.sh` again.
 Relaunch (the P1 `pkill ... open ...` lines), then
 `grep -E '^[0-9:]{8}  Contacts: ' ~/Library/Logs/SilentSpeechBridge.log | tail -1` shows
 `Contacts: text_mom → ••NN, call_back → ••NN, help → ••NN`. Remember NN for the questions in P6.
@@ -215,6 +224,10 @@ firing: a paired dashboard on an Armed app that sees real AirPods motion may sen
 `fire-action.ts` sends one paired action, prints the reply (it must say `REAL`), then prints the app's log lines for
 it until `<action> done`, `failed` or `cancelled` (up to 30 s for texts and music, 40 s for the calendar).
 Permission popups do not freeze the app: the question waits in the background and motion and status keep flowing.
+**Check that the popup really appears** the first time for 3 and 5 (within about 10 s). If none appears and the log
+says `macOS showed no permission popup`, nothing ran: see Troubleshooting ("No permission popup"). While one request
+waits on a popup, another for the same app gets `error busy`; a request that waited over 60 s, or that Armed was
+switched off (or off and on) during, is dropped (log: `cancelled: too late` / `cancelled: not armed`).
 Once allowed, handing the text to Messages (or play to Spotify) runs on the app's main thread: normally well under a
 second, at most 20 s if that app hangs. The popup's button may say **OK** or **Allow**.
 
