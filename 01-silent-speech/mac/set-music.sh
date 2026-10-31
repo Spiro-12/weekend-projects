@@ -22,6 +22,7 @@ try { cfg = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) {
   if (e.code !== "ENOENT") { console.log("FAILED: ~/.silentspeech/actions.json is not valid JSON (nothing saved)"); process.exit(1); }
   cfg = JSON.parse(fs.readFileSync("actions.example.json", "utf8"));
 }
+if (cfg === null || typeof cfg !== "object" || Array.isArray(cfg)) { console.log("FAILED: ~/.silentspeech/actions.json is not a JSON object (nothing saved)"); process.exit(1); }
 cfg.focus_music = { kind: "spotify", uri };
 fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 const tmp = file + ".tmp";

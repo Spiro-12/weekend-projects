@@ -195,7 +195,7 @@ from this link (or the app's link) every session. Before Phase 2 is on Pages, us
 (the shell fills in the token; nothing is printed).
 
 **P4. Contact.** Tell Spiro: "A small box is about to pop up asking for your own mobile number. Type it with + and
-your country code first, like +61 412 345 678, then click Next. A second box shows the number back: click Yes only if
+your country code first (like +61 4xx xxx xxx), then click Next. A second box shows the number back: click Yes only if
 it is right." Then run (with a 10 minute timeout, e.g. 600000 ms: it waits for Spiro):
 ```bash
 cd ~/weekend-projects/01-silent-speech/mac && ./set-contact.sh

@@ -47,7 +47,7 @@ console.log(`Saved: text_mom, call_back and help now text the number ending in $
 NODE
 )
 
-ASK="Your own mobile number, with + and country code (example +61 412 345 678):"
+ASK="Your own mobile number, with + and country code (for example +61 4xx xxx xxx):"
 for TRY in 1 2 3; do
   if [ "$SECONDS" -gt 420 ]; then echo "Timed out: nothing saved."; exit 1; fi
   # The box text comes from the environment too, so nothing is pasted into the AppleScript source.
@@ -63,7 +63,7 @@ for TRY in 1 2 3; do
   set -e
   if [ "$CODE" = "3" ]; then
     echo "That did not look like + and a country code (try $TRY of 3)."
-    ASK="That did not look right. Type it with + and the country code first (example +61 412 345 678):"
+    ASK="That did not look right. Type it with + and the country code first (for example +61 4xx xxx xxx):"
     continue
   fi
   [ "$CODE" = "0" ] || exit "$CODE"
@@ -76,7 +76,7 @@ for TRY in 1 2 3; do
     exit $?
   fi
   echo "Not confirmed (try $TRY of 3)."
-  ASK="OK, let's try again. Your own mobile number, with + and country code (example +61 412 345 678):"
+  ASK="OK, let's try again. Your own mobile number, with + and country code (for example +61 4xx xxx xxx):"
 done
 echo "FAILED: no confirmed number after 3 tries, nothing saved."
 exit 1
