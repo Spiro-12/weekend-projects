@@ -1,15 +1,19 @@
-# Project Name
+# Silent Speech
 
-> One line that makes someone want to click.
+> $0 silent speech on the AirPods you already own.
 
-**Live demo:** https://spiro-12.github.io/weekend-projects/NN-name/
+**Live demo:** https://spiro-12.github.io/weekend-projects/01-silent-speech/
 
-![demo](demo.gif)
+_Work in progress. Full write up, demo GIF and real accuracy numbers land in Phase 3._
 
-## What it does
+- [RESEARCH.md](RESEARCH.md): what AirPods can and can't sense, prior work, competitors
+- [PLAN.md](PLAN.md): the phased build plan
+- [PROTOCOL.md](PROTOCOL.md): the contracts between the Mac app, the dashboard and the ML
 
-## Why it's cool
-
-## How it works
-
-## Built with
+## Dev
+```
+npm ci
+npm run dev            # dashboard on localhost:5173 (add ?mode=fake for fake data)
+npm run bridge         # mock Mac app on ws://127.0.0.1:8765
+npm run typecheck && npm test && npx playwright test
+```

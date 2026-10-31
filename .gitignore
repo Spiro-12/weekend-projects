@@ -3,3 +3,9 @@ dist/
 _site/
 .DS_Store
 .env
+*.xcodeproj/
+.venv/
+__pycache__/
+test-results/
+playwright-report/
+actions.json

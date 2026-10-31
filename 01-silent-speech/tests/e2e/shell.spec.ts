@@ -1,0 +1,30 @@
+import { expect, test } from '@playwright/test';
+
+
+test('fake mode streams ~25 Hz', async ({ page }) => {
+  await page.goto('./?mode=fake');
+  await expect(page.getByTestId('source-pill')).toHaveText(/fake · open/);
+  await page.waitForTimeout(2000);
+  const n = await page.evaluate(() => window.__ss.counts.motion ?? 0);
+  expect(n).toBeGreaterThanOrEqual(40);
+  await expect(page.getByTestId('hz-browser')).toHaveText(/2[3-7]\.\d Hz/);
+});
+
+test('holding Space records one clip', async ({ page }) => {
+  await page.goto('./?mode=fake');
+  await page.waitForTimeout(800);
+  await page.keyboard.down('Space');
+  await page.waitForTimeout(1500);
+  await page.keyboard.up('Space');
+  await expect.poll(() => page.evaluate(() => window.__ss.counts.clip ?? 0)).toBe(1);
+});
+
+test('panels mount and assets use the Pages base path', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('./?mode=fake');
+  await expect(page.locator('[data-panel=about]')).toBeVisible();
+  const src = await page.locator('script[type=module]').getAttribute('src');
+  expect(src).toMatch(/^\/weekend-projects\/01-silent-speech\/assets\//);
+  expect(errors).toEqual([]);
+});
