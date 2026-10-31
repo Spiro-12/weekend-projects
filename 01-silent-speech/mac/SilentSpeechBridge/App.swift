@@ -57,6 +57,8 @@ final class BridgeModel: ObservableObject {
 }
 
 /// The last 20 log lines shown in the window (connections, actions, errors). Main queue only.
+/// Every line also goes to ~/Library/Logs/SilentSpeechBridge.log (new file each launch), so a setup
+/// session can read what happened without looking at the window.
 final class LogStore: ObservableObject {
     struct Line: Identifiable {
         let id: Int
@@ -64,19 +66,27 @@ final class LogStore: ObservableObject {
     }
 
     static let maxLines = 20
+    static let filePath = NSHomeDirectory() + "/Library/Logs/SilentSpeechBridge.log"
 
     @Published private(set) var lines: [Line] = []
     private var nextID = 0
+    private let file: FileHandle?
     private let timeFormat: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss"
         return f
     }()
 
+    init() {
+        _ = FileManager.default.createFile(atPath: LogStore.filePath, contents: nil)
+        file = FileHandle(forWritingAtPath: LogStore.filePath)
+    }
+
     func add(_ text: String) {
         nextID += 1
         let line = "\(timeFormat.string(from: Date()))  \(text)"
         print(line)
+        try? file?.write(contentsOf: Data((line + "\n").utf8))
         lines.append(Line(id: nextID, text: line))
         if lines.count > LogStore.maxLines {
             lines.removeFirst(lines.count - LogStore.maxLines)

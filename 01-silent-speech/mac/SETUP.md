@@ -1,84 +1,113 @@
 # SilentSpeechBridge: build, run, check (Mac)
 
-For the Claude session on Spiro's Mac (Remote Control, `~/Documents/weekend-projects`). Claude runs every command.
-Spiro only: clicks **Allow** on popups, types his Mac password once (step 3), puts his AirPods in (step 9).
+For the Claude Code session running on Spiro's Mac. **Claude runs every command and reads every result.**
+Spiro only types his Mac password into macOS password boxes, clicks **Allow** / **Always Allow** on macOS popups,
+and wears the AirPods. Never ask him to click anything in the app, run commands or edit files. Before each popup,
+tell him in one plain sentence what is about to appear and what to click.
 
-Needs macOS 14+, Xcode (full Xcode, for `xcodebuild`), Homebrew, AirPods with head tracking.
+Repo: `~/Documents/weekend-projects`. The app's log: `~/Library/Logs/SilentSpeechBridge.log` (new file each launch).
+**Quit the app when not in use (it keeps the Mac awake):** `pkill -x SilentSpeechBridge`.
 
-## Build and run
-1. `brew install xcodegen`
-2. `cd ~/Documents/weekend-projects/01-silent-speech/mac && xcodegen`
-   Makes `SilentSpeechBridge.xcodeproj` (git ignored). Run it again after a pull that adds files or changes `project.yml`.
-3. **Once: a stable signing identity** named `SilentSpeech Local`, so macOS remembers the Motion and Automation
-   permissions across rebuilds (ad hoc signing forgets them every build). Skip if this already prints it:
-   `security find-identity -v -p codesigning | grep "SilentSpeech Local"`
+## 0. Prerequisites (check each, install only what is missing)
+Password steps use `osascript ... with administrator privileges`: a normal macOS password box for Spiro, so the
+session never sees or types the password. (In a session with a real terminal, plain `sudo` works too.)
+1. **Xcode** (full Xcode, not only the command line tools): `ls -d /Applications/Xcode.app`.
+   Missing: `open "macappstore://apps.apple.com/app/id497799835"`, ask Spiro to click **Get** / **Install**
+   (his Apple ID, about 10 GB), wait until `/Applications/Xcode.app` exists.
+2. **Xcode license + first launch**, once (Spiro: password box):
    ```bash
-   mkdir -p ~/.silentspeech/cert && cd ~/.silentspeech/cert
-   cat > cert.cnf <<'EOF'
-   [ req ]
-   distinguished_name = dn
-   x509_extensions = ext
-   prompt = no
-   [ dn ]
-   CN = SilentSpeech Local
-   [ ext ]
-   basicConstraints = critical, CA:false
-   keyUsage = critical, digitalSignature
-   extendedKeyUsage = critical, codeSigning
-   EOF
-   /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -config cert.cnf -keyout key.pem -out cert.pem
-   /usr/bin/openssl pkcs12 -export -inkey key.pem -in cert.pem -name "SilentSpeech Local" -out local.p12 -passout pass:silentspeech
-   security import local.p12 -k ~/Library/Keychains/login.keychain-db -P silentspeech -T /usr/bin/codesign
-   security add-trusted-cert -r trustRoot -p codeSign -k ~/Library/Keychains/login.keychain-db cert.pem   # Spiro types his password once
-   security find-identity -v -p codesigning | grep "SilentSpeech Local"
-   cd ~/Documents/weekend-projects/01-silent-speech/mac
+   if xcodebuild -version >/dev/null 2>&1 && xcodebuild -checkFirstLaunchStatus; then echo "Xcode ready"; else
+   osascript -e 'do shell script "xcode-select -s /Applications/Xcode.app/Contents/Developer && xcodebuild -license accept && xcodebuild -runFirstLaunch" with administrator privileges'; fi
    ```
-   Use `/usr/bin/openssl` (LibreSSL). A Homebrew OpenSSL 3 `.p12` is rejected by `security import` unless you add `-legacy`.
-4. Build:
+3. **Homebrew**: `command -v brew || ls /opt/homebrew/bin/brew`. Missing (Spiro: password box):
    ```bash
-   xcodebuild -project SilentSpeechBridge.xcodeproj -target SilentSpeechBridge -configuration Debug build CODE_SIGN_IDENTITY="SilentSpeech Local"
+   PKG_URL=$(curl -fsSL https://api.github.com/repos/Homebrew/brew/releases/latest | grep -o 'https://[^"]*\.pkg' | head -1)
+   curl -fsSL -o /tmp/Homebrew.pkg "$PKG_URL"
+   osascript -e 'do shell script "installer -pkg /tmp/Homebrew.pkg -target /" with administrator privileges'
+   eval "$(/opt/homebrew/bin/brew shellenv)"
    ```
-   - No certificate yet: leave out `CODE_SIGN_IDENTITY=...` (ad hoc; works, but permissions are asked again after each rebuild).
-   - xcodebuild refuses the identity: build unsigned, then sign:
-     ```bash
-     xcodebuild -project SilentSpeechBridge.xcodeproj -target SilentSpeechBridge -configuration Debug build CODE_SIGNING_ALLOWED=NO
-     codesign --force --sign "SilentSpeech Local" --entitlements SilentSpeechBridge/SilentSpeechBridge.entitlements build/Debug/SilentSpeechBridge.app
-     ```
-   - Last resort: Spiro adds his Apple ID once in Xcode > Settings > Accounts (Personal Team), then build with
-     `CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM=<team id> CODE_SIGN_IDENTITY="Apple Development" -allowProvisioningUpdates`.
-5. Check the signature: `codesign -dv build/Debug/SilentSpeechBridge.app 2>&1 | grep -E "Authority|Signature"`
-   shows `Authority=SilentSpeech Local` (or `Signature=adhoc`).
-6. Quit any old copy (`pkill -x SilentSpeechBridge`), then `open build/Debug/SilentSpeechBridge.app`.
-   If macOS asks about Motion, Spiro clicks **Allow**. The window shows `Listening on ws://localhost:8765`.
+   If brew is installed but not on PATH, run `eval "$(/opt/homebrew/bin/brew shellenv)"` at the start of each command.
+4. **Node + npm**: `command -v node || brew install node`
+5. **XcodeGen**: `command -v xcodegen || brew install xcodegen`
 
-## Test
-7. **Simulate:** turn on **Simulate motion** in the app. Open the dashboard in Chrome:
-   https://spiro-12.github.io/weekend-projects/01-silent-speech/?mode=live (the app's "Open dashboard" link).
-   Before Phase 1 is live on Pages: `cd 01-silent-speech && npm ci && npm run dev`, then open
-   http://localhost:5173/weekend-projects/01-silent-speech/?mode=live. Expect ~50 Hz and "Dashboards open: 1" in the app.
-   If Chrome asks to let the page reach apps on this device, Spiro clicks **Allow**.
-8. **Security check** (Armed off, "Allow non browser clients" off, Simulate on). All must pass:
-   - (a) `lsof -nP -iTCP:8765 -sTCP:LISTEN` lists only `127.0.0.1:8765` and/or `[::1]:8765`. `*:8765` = tell the lead.
-   - (b) to (e): `cd ~/Documents/weekend-projects/01-silent-speech && npm ci && node mac/check-bridge.mjs`
-     prints only `PASS` lines: (b) Origin `https://evil.example` rejected, (c) Origin `https://spiro-12.github.io`
-     connects and gets `hello` then `status`, (d) no Origin rejected, (e) protocol: motion rate, unknown `type`
-     ignored, broken JSON gives `bad_json`, unknown action gives `unknown_action`, an action is a dry run answered
-     in under 1 s, the same action again gives `cooldown`. (It only sends actions when the app is not Armed.)
-   - Toggle check: turn on "Allow non browser clients", run the script again: (d) now FAILs (it connects). Turn it off.
-9. **Real AirPods:** Spiro puts both AirPods in; they must be the Mac's sound output. Turn Simulate off.
-   Expect Headphones: Connected, Live rate 25 to 50 Hz, Gaps under 5 %. Watch 60 s with Chrome in front,
-   then 60 s with another app in front (App Nap is off, so the rate should hold).
+## 1. Signing identity (once; safe to rerun)
+A stable `SilentSpeech Local` identity makes macOS remember the Motion and Automation permissions across rebuilds.
+Tell Spiro first: "Two Mac password boxes are coming. Type your password. When one says codesign wants to use a key,
+click Always Allow."
+```bash
+cd ~/Documents/weekend-projects/01-silent-speech/mac && ./make-cert.sh
+```
+It must end with `OK: signing works.` On `FAILED`, run it again. If the identity is already fine there are no popups.
+
+## 2. Build
+```bash
+cd ~/Documents/weekend-projects/01-silent-speech/mac && xcodegen && \
+xcodebuild -quiet -project SilentSpeechBridge.xcodeproj -target SilentSpeechBridge -configuration Debug build CODE_SIGN_IDENTITY="SilentSpeech Local" && \
+codesign -dv build/Debug/SilentSpeechBridge.app 2>&1 | grep -E "Authority|Signature"
+```
+Expect `Authority=SilentSpeech Local`. Rerun `xcodegen` after any pull that adds files or changes `project.yml`.
+- xcodebuild refuses the identity: build unsigned, then sign. No `--deep`: the app is one executable with nothing
+  nested inside (`ENABLE_DEBUG_DYLIB` is off). Add `--deep` only if `codesign --verify --strict` then complains about
+  unsigned nested code.
+  ```bash
+  xcodebuild -quiet -project SilentSpeechBridge.xcodeproj -target SilentSpeechBridge -configuration Debug build CODE_SIGNING_ALLOWED=NO && \
+  codesign --force --sign "SilentSpeech Local" --entitlements SilentSpeechBridge/SilentSpeechBridge.entitlements build/Debug/SilentSpeechBridge.app && \
+  codesign --verify --strict build/Debug/SilentSpeechBridge.app && echo signed
+  ```
+- No identity at all: leave out `CODE_SIGN_IDENTITY=...` (ad hoc). Works, but macOS asks for permissions after every rebuild.
+- Last resort: Spiro adds his Apple ID once in Xcode > Settings > Accounts; build with
+  `CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM=<team id> CODE_SIGN_IDENTITY="Apple Development" -allowProvisioningUpdates`.
+
+## 3. Launch (always like this)
+Launch options (read once at startup): `--simulate` = Simulate motion on, `--allow-no-origin` = "Allow non browser
+clients" on (dev). No option arms actions: Armed is off at every launch. `open --args` only reaches a fresh process,
+so quit the old copy first and wait until it is gone:
+```bash
+cd ~/Documents/weekend-projects/01-silent-speech/mac && pkill -x SilentSpeechBridge; while pgrep -x SilentSpeechBridge >/dev/null; do sleep 0.2; done; open build/Debug/SilentSpeechBridge.app --args --simulate; sleep 3; cat ~/Library/Logs/SilentSpeechBridge.log
+```
+The log shows `Listening on ws://127.0.0.1:8765` and `Launch option --simulate`.
+First launch: tell Spiro "a popup may ask about Motion, click Allow".
+
+## 4. Simulate + security check
+App running with `--simulate` (step 3).
+```bash
+lsof -nP -iTCP:8765 -sTCP:LISTEN
+cd ~/Documents/weekend-projects/01-silent-speech && npm ci && npx tsx mac/check-bridge.ts
+```
+- `lsof` shows only `127.0.0.1:8765`.
+- Every line of the check is `PASS`: (a) lsof says 127.0.0.1 only, and the port is refused on each of the Mac's
+  network addresses; (b) Origin `https://evil.example` rejected; (c) Origin `https://spiro-12.github.io` connects,
+  gets `hello` from `SilentSpeechBridge`, then `status`; (d) no Origin rejected; (e) over 40 Hz with `seq` +1 each
+  step, unknown `type` ignored, broken JSON gives `bad_json`, unknown action gives `unknown_action`, `volume_up` is a
+  dry run answered in under 1 s, again gives `cooldown`, and every frame is valid protocol v1. It only sends
+  `volume_up`, and only while the app says it is not Armed.
+- Toggle check: relaunch (step 3) with `--args --simulate --allow-no-origin`, run
+  `npx tsx mac/check-bridge.ts --expect-no-origin-open` (all PASS), then relaunch with `--args --simulate` again.
+- Dashboard: `open -a "Google Chrome" "https://spiro-12.github.io/weekend-projects/01-silent-speech/?mode=live"`
+  (before Phase 1 is on Pages: `npm run dev` in `01-silent-speech`, then
+  `http://localhost:5173/weekend-projects/01-silent-speech/?mode=live`). If Chrome asks to let the page reach apps
+  on this device, Spiro clicks **Allow**. The log shows `Dashboard connected`; the dashboard shows about 50 Hz.
+
+## 5. Real AirPods
+1. Tell Spiro: "Put both AirPods in." They must be the Mac's sound output:
+   `system_profiler SPAudioDataType | grep -B8 "Default Output Device: Yes"` should name the AirPods. If not:
+   `brew install switchaudio-osx && SwitchAudioSource -a -t output` (find the name), then `SwitchAudioSource -t output -s "<AirPods name>"`.
+2. Relaunch without options (step 3, ending in `open build/Debug/SilentSpeechBridge.app` with no `--args`).
+3. `grep -E "Headphones|Motion" ~/Library/Logs/SilentSpeechBridge.log` shows `Headphones: connected`.
+4. `npx tsx mac/check-bridge.ts` from `01-silent-speech`: all PASS, and the INFO line shows hz 25 to 50 and gapPct under 5.
+   Run it again 60 s later: still the same, with Terminal in front (the app is in the background, App Nap is off).
+5. Leave the app running for the dashboard, or quit it: `pkill -x SilentSpeechBridge`.
 
 ## Troubleshooting
-- **Headphones "Not connected"**: AirPods must be connected to this Mac, be the current sound output
-  (Control Center > Sound) and be in the ears. Take them out and put them back in.
-- **Motion permission Denied**: System Settings > Privacy & Security, allow SilentSpeechBridge. Or
-  `tccutil reset All com.spiro.SilentSpeechBridge`, relaunch, and Spiro clicks Allow again.
+- **Headphones not connected**: AirPods in both ears, connected to this Mac, current sound output (step 5.1).
+  Ask Spiro to take them out and put them back in.
+- **Motion permission denied** (log: `Motion permission: denied`): `tccutil reset All com.spiro.SilentSpeechBridge`,
+  relaunch, tell Spiro to click **Allow** on the Motion popup.
 - **Automation (Phase 2 actions) stuck**: `tccutil reset AppleEvents com.spiro.SilentSpeechBridge`, relaunch.
-- **"Port 8765 is in use"**: quit the other copy (`pkill -x SilentSpeechBridge`; `lsof -nP -iTCP:8765` shows who has it),
-  then press **Retry** in the app.
-- **Dashboard can't connect**: try Chrome if Safari blocks `ws://localhost`. The page's origin must be on the
-  allowlist in `Protocol.swift` (Pages or localhost:5173/4173). The app's Log shows "Blocked a website: ..." if not.
-- **See the log in Terminal**: run `build/Debug/SilentSpeechBridge.app/Contents/MacOS/SilentSpeechBridge` directly.
-- **Actions (Phase 2)**: `mkdir -p ~/.silentspeech && cp actions.example.json ~/.silentspeech/actions.json`, then put the
-  real numbers in that copy only (never in the repo). Phase 1 ignores it: every action is a dry run.
+- **Port 8765 is in use** (log says so): `lsof -nP -iTCP:8765` shows who has it; `pkill -x SilentSpeechBridge` for an
+  old copy. The app retries by itself every 2 s.
+- **Dashboard can't connect**: the log shows `Blocked a website: <origin>` if its origin is not on the allowlist in
+  `Protocol.swift`. Use Chrome if Safari blocks `ws://127.0.0.1`.
+- **Keychain popup during a build**: rerun `./make-cert.sh` and have Spiro click **Always Allow**.
+- **Actions (Phase 2)**: `mkdir -p ~/.silentspeech && cp actions.example.json ~/.silentspeech/actions.json`, then real
+  numbers go in that copy only (never in the repo). Phase 1 ignores it: every action is a dry run.
