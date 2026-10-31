@@ -21,8 +21,11 @@
 //                       It backs a 'none' answer and counts against all other labels. With norm 'global'
 //                       all zeros is the training mean, i.e. nothing moved, so a quiet clip is not accepted even
 //                       by a model with no 'none' takes. With norm 'clip' (the default since Phase 2) every clip
-//                       is z scored on its own, so sum(q^2) is about channels x L for any clip louder than the
-//                       std floor: there it only catches clips quieter than the floor and is otherwise inert.
+//                       is z scored on its own, so sum(q^2) is exactly channels x L for any clip louder than the
+//                       std floor (576 at L 96: stillness at 720) and a little less for a quieter one. So there it
+//                       is a second, fixed distance competitor next to "unknown" (Spiro's public model: dRef 421,
+//                       unknown at 716, stillness at 720): not inert, it makes every non 'none' answer more
+//                       conservative (and backs 'none' answers); it still catches clips quieter than the floor.
 //      Limits: distance is the only cue. A different sentence that lands within ~1.7 x dRef of a template is
 //      still accepted, and a model trained on one sitting is stricter on other sittings (their takes sit farther
 //      than dRef). On Spiro's real recordings with the defaults (norm 'clip'), known sentences from another sitting
