@@ -7,6 +7,7 @@ import type { ClassDef, Clip, DtwKnnModelJSON } from '../../core/contracts';
 import { mulberry32, range } from '../../core/rng';
 import { MotionSynth } from '../../core/synth';
 import * as ml from '../../ml/index';
+import { CONFIDENCE } from './rule';
 
 /** The fake source starts the sentence this long after Space goes down (sources/fake.ts). */
 export const FAKE_SPEAK_DELAY = 0.15;
@@ -15,6 +16,12 @@ export const DEMO_REPS = 14;
 /** People let go 0 to 1.4 s after the sentence ends; templates spread evenly over that, so any hold works. */
 export const DEMO_SLACK: [number, number] = [0, 1.4];
 export const DEMO_SEED = 4242;
+/**
+ * The demo model's accept threshold: the display bar (CONFIDENCE.other), not the ml default (0.85, tuned on
+ * real AirPods data). It never acts, and its made-up data is cleaner than real data, so "You said" from 0.5
+ * keeps fake mode lively without promising anything.
+ */
+export const DEMO_THRESHOLD = CONFIDENCE.other;
 
 /** Deterministic demo clips: every class (including 'none') DEMO_REPS times. */
 export function demoClips(classes: ClassDef[], reps = DEMO_REPS, seed = DEMO_SEED): Clip[] {
@@ -40,7 +47,7 @@ export type DemoResponse = { ok: true; json: DtwKnnModelJSON; n: number } | { ok
 export function buildDemoJSON(classes: ClassDef[]): DemoResponse {
   try {
     const clips = demoClips(classes);
-    return { ok: true, json: ml.train(clips).toJSON(), n: clips.length };
+    return { ok: true, json: ml.train(clips, { threshold: DEMO_THRESHOLD }).toJSON(), n: clips.length };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

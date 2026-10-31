@@ -14,7 +14,8 @@ import {
   EXCLUDED, MIN_TAKES_FOR_ACTIONS, actionReadiness, classCount, fetchPublicModel, fingerprint, planModel, realClips, type Provenance,
 } from '../../web/src/panels/result/model-source';
 import {
-  ACTION_GAP_MS, ActionGuard, BLOCK_REASONS, decideAction, type BlockReason, type GuardInput, type RuleInput,
+  ACTION_GAP_MS, ActionGuard, BLOCK_REASONS, CONFIDENCE, MESSAGING_ACTIONS, clearsBar, decideAction,
+  type BlockReason, type GuardInput, type RuleInput,
 } from '../../web/src/panels/result/rule';
 import {
   OUTCOME_UNKNOWN, TEXTING_ACTIONS, UNPAIRED_TEXT, describeAction, ghostReason, okWords, toastFor,
@@ -46,7 +47,11 @@ describe('decideAction: the strict rule', () => {
 
   // One condition off at a time: blocked, with the right reason.
   const cases: [string, Partial<RuleInput>, BlockReason][] = [
-    ['not accepted', { pred: { label: 'volume_up', accepted: false, confidence: 0.9 } }, 'not-accepted'],
+    ['below 0.5 (not a text)', { pred: { label: 'volume_up', accepted: false, confidence: 0.4999 } }, 'low-confidence'],
+    ['a text the model did not accept, even at 0.95', { action: 'text_mom', pred: { label: 'text_mom', accepted: false, confidence: 0.95 } }, 'low-confidence'],
+    ['a text accepted below 0.85 (a model with a lower threshold)', { action: 'text_mom', pred: { label: 'text_mom', accepted: true, confidence: 0.8499 } }, 'low-confidence'],
+    ['help accepted at 0.6', { action: 'help', pred: { label: 'help', accepted: true, confidence: 0.6 } }, 'low-confidence'],
+    ['call_back not accepted at 0.9', { action: 'call_back', pred: { label: 'call_back', accepted: false, confidence: 0.9 } }, 'low-confidence'],
     ['label none (even if a model says accepted)', { pred: { label: 'none', accepted: true, confidence: 0.99 } }, 'not-accepted'],
     ['confidence NaN', { pred: { label: 'volume_up', accepted: true, confidence: NaN } }, 'not-accepted'],
     ['confidence Infinity', { pred: { label: 'volume_up', accepted: true, confidence: Infinity } }, 'not-accepted'],
@@ -86,6 +91,27 @@ describe('decideAction: the strict rule', () => {
     it(`blocks: ${name}`, () => expect(decideAction(ok(patch))).toEqual({ send: false, reason }));
   }
 
+  it('confidence bars: texts need the model\'s accept and 0.85, other actions 0.5 (accepted or not)', () => {
+    expect(CONFIDENCE).toEqual({ messaging: 0.85, other: 0.5 });
+    expect([...MESSAGING_ACTIONS].sort()).toEqual(['call_back', 'help', 'text_mom']);
+    const send = (action: string, accepted: boolean, confidence: number) =>
+      decideAction(ok({ action, pred: { label: action, accepted, confidence } })).send;
+    for (const a of MESSAGING_ACTIONS) {
+      expect(send(a, true, 0.85)).toBe(true);
+      expect(send(a, true, 0.8499)).toBe(false);
+      expect(send(a, false, 0.99)).toBe(false);
+      expect(send(a, true, 1)).toBe(true);
+    }
+    for (const a of ['volume_up', 'focus_music', 'demo_48h', 'calendar']) {
+      expect(send(a, false, 0.5)).toBe(true); // "probably" is enough for these
+      expect(send(a, true, 0.5)).toBe(true);
+      expect(send(a, false, 0.4999)).toBe(false);
+      expect(send(a, true, 0.4999)).toBe(false); // a model with a lower threshold doesn't lower the bar
+    }
+    expect(clearsBar('volume_up', { accepted: true, confidence: NaN })).toBe(false);
+    expect(clearsBar('text_mom', { accepted: 1 as unknown as boolean, confidence: 0.9 })).toBe(false);
+  });
+
   it('sends again exactly 3 s after the last one', () => {
     expect(decideAction(ok({ lastSentAt: 100_000 - ACTION_GAP_MS }))).toEqual({ send: true, action: 'volume_up' });
     expect(ACTION_GAP_MS).toBe(3000);
@@ -100,7 +126,7 @@ describe('decideAction: the strict rule', () => {
     expect(decideAction(ok({ ownModel: 1 as unknown as boolean })).send).toBe(false);
     expect(decideAction(ok({ connOpen: 'yes' as unknown as boolean })).send).toBe(false);
     expect(decideAction(ok({ inflight: undefined as unknown as boolean })).send).toBe(false);
-    expect(decideAction(ok({ pred: { label: 'volume_up', accepted: 1 as unknown as boolean, confidence: 0.9 } })).send).toBe(false);
+    expect(decideAction(ok({ action: 'text_mom', pred: { label: 'text_mom', accepted: 1 as unknown as boolean, confidence: 0.9 } })).send).toBe(false);
   });
 
   it('a broken hello (no actions list) blocks instead of throwing', () => {
@@ -116,17 +142,17 @@ describe('decideAction: the strict rule', () => {
     }
   });
 
-  it('every class: only accepted sentences with an action send', () => {
+  it('every class: sentences with an action send if sure enough (texts only when the model accepts)', () => {
     for (const c of classes) {
       for (const accepted of [true, false]) {
         const d = decideAction(ok({ pred: { label: c.id, accepted, confidence: 0.95 }, action: c.action }));
-        expect(d.send).toBe(accepted && c.id !== 'none' && !!c.action);
+        expect(d.send).toBe(c.id !== 'none' && !!c.action && (accepted || !MESSAGING_ACTIONS.includes(c.action)));
         if (d.send) expect(d.action).toBe(c.action);
       }
     }
   });
 
-  // Exhaustive: every combination of these values (about 344k inputs) against an independent oracle
+  // Exhaustive: every combination of these values (about 516k inputs) against an independent oracle
   // written straight from the brief. Sends iff all conditions hold; when blocked, the reason is the
   // first failing check in the documented order.
   it('exhaustive grid agrees with the brief', () => {
@@ -137,11 +163,12 @@ describe('decideAction: the strict rule', () => {
     const statuses = [null, status(), status({ armed: false }), status({ simulated: true })];
     const preds = [
       { label: 'volume_up', accepted: true, confidence: 0.9 }, { label: 'volume_up', accepted: false, confidence: 0.4 },
+      { label: 'volume_up', accepted: false, confidence: 0.6 }, { label: 'text_mom', accepted: true, confidence: 0.7 },
       { label: 'none', accepted: true, confidence: 0.9 }, { label: 'volume_up', accepted: true, confidence: NaN },
     ];
-    const actions = ['volume_up', null];
+    const actions = ['volume_up', 'text_mom', null];
     const tokens = ['tok', null];
-    const lasts = [null, NOW - 3000, NOW - 2999];
+    const lasts = [null, NOW - 2999];
     const presses: (PressContext | null)[] = [
       press(), null, press({ mode: 'enroll' }), press({ source: 'fake' }), press({ conn: SERIAL + 1 }),
       press({ simulated: true }), press({ simulated: null }),
@@ -159,8 +186,10 @@ describe('decideAction: the strict rule', () => {
       };
       // The brief, check by check, in order (early returns keep 344k cases fast).
       const oracle = (): BlockReason | undefined => {
-        if (!(pred.accepted && pred.label !== 'none' && Number.isFinite(pred.confidence))) return 'not-accepted';
+        if (!(pred.label !== 'none' && Number.isFinite(pred.confidence))) return 'not-accepted';
         if (!action) return 'no-action';
+        const texting = action === 'text_mom' || action === 'call_back' || action === 'help';
+        if (texting ? !(pred.accepted && pred.confidence >= 0.85) : !(pred.confidence >= 0.5)) return 'low-confidence';
         if (mode !== 'classify') return 'not-recognize';
         if (pr?.mode !== 'classify') return 'press-mode';
         if (source !== 'live') return 'not-live';
@@ -185,9 +214,9 @@ describe('decideAction: the strict rule', () => {
       if (!right && wrong.length < 5) wrong.push({ x, d, firstFail });
     }
     expect(wrong).toEqual([]);
-    expect(n).toBe(344_064);
+    expect(n).toBe(516_096);
     expect(sent).toBeGreaterThan(0);
-    expect(BLOCK_REASONS).toHaveLength(14);
+    expect(BLOCK_REASONS).toHaveLength(15);
   }, 60_000);
 });
 
@@ -292,6 +321,8 @@ describe('words', () => {
     expect(ghostReason('not-armed', 'live')).toMatch(/Armed/);
     expect(ghostReason('not-own-model', 'live', 8, 5)).toBe('Record all 8 sentences (5 each) to run actions');
     expect(ghostReason('unpaired', 'live')).toMatch(/Open this page from the Mac app’s link/);
+    expect(ghostReason('low-confidence', 'live', 8, 5, 'text_mom')).toMatch(/Texts need it to be very sure/);
+    expect(ghostReason('low-confidence', 'live', 8, 5, 'volume_up')).toMatch(/Not sure enough/);
   });
 
   const res = (p: Partial<ActionResultMsg>) => ({ action: 'text_mom', ok: false, dryRun: false, message: 'm', ...p });
@@ -481,7 +512,8 @@ describe('model source', () => {
       if (p.accepted) wronglyAccepted++;
       const action = classes.find((k) => k.id === p.label)?.action ?? null;
       const d = decideAction(ok({ pred: p, action, ownModel })); // everything else allowed: armed, paired, live, real
-      expect(d).toEqual(p.accepted ? { send: false, reason: 'not-own-model' } : { send: false, reason: 'not-accepted' });
+      const expected = p.label === 'none' ? 'not-accepted' : clearsBar(action!, p) ? 'not-own-model' : 'low-confidence';
+      expect(d).toEqual({ send: false, reason: expected });
     }
     // The danger is real: this model accepts many sentences it doesn't know (reviewer: 70 of 90).
     expect(others.length).toBeGreaterThanOrEqual(80);

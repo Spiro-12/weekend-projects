@@ -17,7 +17,7 @@ import {
   MIN_REAL_CLASSES, MIN_TAKES_FOR_ACTIONS, actionReadiness, classCount, fetchPublicModel, fingerprint, planModel, realClips,
   type Provenance, type PublicModel, type Readiness,
 } from './result/model-source';
-import { ActionGuard, type BlockReason, type Decision, type GuardInput, type Sent } from './result/rule';
+import { ActionGuard, CONFIDENCE, clearsBar, type BlockReason, type Decision, type GuardInput, type Sent } from './result/rule';
 import {
   OUTCOME_UNKNOWN, TEXTING_ACTIONS, UNPAIRED_TEXT, describeAction, ghostReason, okWords, recordAllText, recordings, sentenceOf,
   toastFor, type ToastText,
@@ -29,9 +29,9 @@ const SPEAK_KEY = 'ss.result.speak';
 const RING_C = 2 * Math.PI * 52; // ring circumference (r = 52 in a 120 viewBox)
 
 type Tag = { kind: 'own' | 'preview'; n: number; fp: string } | { kind: 'public' | 'demo'; n: number };
-type StageState = 'idle' | 'listening' | 'thinking' | 'accepted' | 'unsure' | 'nomodel';
+type StageState = 'idle' | 'listening' | 'thinking' | 'accepted' | 'probable' | 'unsure' | 'nomodel';
 type ChipState = 'ghost' | 'sending' | 'started' | 'done' | 'dry' | 'failed' | 'unknown';
-interface Seen { label: string; accepted: boolean; confidence: number }
+interface Seen { label: string; accepted: boolean; shown: boolean; confidence: number }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
 const pct = (x: number) => `${Math.round(Math.max(0, Math.min(1, x)) * 100)}%`;
@@ -326,48 +326,51 @@ class ResultPanel {
     this.thinkTimer = null;
     const { app, r } = this;
     const seq = ++this.predSeq;
-    const accepted = p.accepted === true && p.label !== NONE;
     const conf = Number.isFinite(p.confidence) ? Math.max(0, Math.min(1, p.confidence)) : 0;
+    // Shown from CONFIDENCE.other up; "You said" once the model accepts it, "Probably" in between.
+    const shown = p.label !== NONE && Number.isFinite(p.confidence) && p.confidence >= CONFIDENCE.other;
+    const accepted = shown && p.accepted === true;
     const sentence = sentenceOf(app.classes, p.label);
 
     // big sentence
     r.label.dataset.label = p.label;
     r.label.dataset.accepted = accepted ? '1' : '0';
-    if (accepted) {
+    r.label.dataset.probable = shown && !accepted ? '1' : '0';
+    if (shown) {
       r.label.innerHTML = sentence.split(/\s+/).map((w, i) => `<span class="rs-w" style="--i:${i}">${esc(w)}</span>`).join(' ');
-      r.guess.textContent = '';
-      this.setState('accepted', 'You said');
+      r.guess.textContent = accepted ? '' : 'Not fully sure. Say it again to be certain.';
+      this.setState(accepted ? 'accepted' : 'probable', accepted ? 'You said' : 'Probably');
     } else {
       r.label.innerHTML = `<span class="rs-w rs-calm">Not sure, try again</span>`;
       r.guess.textContent = p.label === NONE ? 'Looked like nothing was said.' : `Best guess: ${sentence} (${pct(conf)})`;
       this.setState('unsure', 'Not sure');
     }
-    r.stage.dataset.state = accepted ? 'accepted' : 'unsure';
+    r.stage.dataset.state = accepted ? 'accepted' : shown ? 'probable' : 'unsure';
     r.stage.classList.remove('rs-pop');
     void r.stage.offsetWidth; // restart the glow animation
     r.stage.classList.add('rs-pop');
 
     // confidence ring + top 3
     r.ring.dataset.value = conf.toFixed(3);
-    r.ring.dataset.accepted = accepted ? '1' : '0';
+    r.ring.dataset.accepted = accepted ? '1' : shown ? 'probable' : '0';
     r.ringNum.textContent = pct(conf);
     r.arc.style.strokeDashoffset = `${RING_C * (1 - conf)}`;
     const top = (Array.isArray(p.top) ? p.top : []).slice(0, 3);
     r.top.innerHTML = top.length ? top.map((t, i) => {
       const s = Number.isFinite(t.score) ? Math.max(0, Math.min(1, t.score)) : 0;
-      return `<div class="rs-row" data-first="${i === 0 ? 1 : 0}" data-ok="${i === 0 && accepted ? 1 : 0}" data-label="${esc(t.label)}">
+      return `<div class="rs-row" data-first="${i === 0 ? 1 : 0}" data-ok="${i === 0 && shown ? 1 : 0}" data-label="${esc(t.label)}">
         <span class="rs-name" title="${esc(sentenceOf(app.classes, t.label))}">${esc(sentenceOf(app.classes, t.label))}</span>
         <span class="rs-track"><i style="--w:${(s * 100).toFixed(1)}%"></i></span>
         <span class="rs-pct">${pct(s)}</span></div>`;
     }).join('') : '<div class="rs-empty">No guesses</div>';
 
     // history
-    this.history.unshift({ label: p.label, accepted, confidence: conf });
+    this.history.unshift({ label: p.label, accepted, shown, confidence: conf });
     this.history.length = Math.min(this.history.length, HISTORY);
     r.history.innerHTML = this.history.map((h, i) => {
       const s = sentenceOf(app.classes, h.label);
-      return `<span class="rs-hchip${i === 0 ? ' rs-new' : ''}" data-ok="${h.accepted ? 1 : 0}" data-label="${esc(h.label)}" title="${esc(s)} · ${pct(h.confidence)}">
-        <i aria-hidden="true">${h.accepted ? '✓' : '?'}</i><span>${esc(h.accepted ? s : 'Not sure')}</span></span>`;
+      return `<span class="rs-hchip${i === 0 ? ' rs-new' : ''}" data-ok="${h.accepted ? 1 : 0}" data-probable="${h.shown && !h.accepted ? 1 : 0}" data-label="${esc(h.label)}" title="${esc(s)} · ${pct(h.confidence)}">
+        <i aria-hidden="true">${h.accepted ? '✓' : h.shown ? '~' : '?'}</i><span>${esc(h.shown ? s : 'Not sure')}</span></span>`;
     }).join('');
 
     // action (the strict rule), then moments
@@ -375,13 +378,14 @@ class ResultPanel {
     // The model that MADE this prediction (not whatever app.model is now) and where the take started.
     const input = this.guardInput({ label: p.label, accepted: p.accepted, confidence: p.confidence }, action, p.model, p.press);
     const run = this.guard.run(input, (a) => app.sendAction({ action: a, label: p.label, confidence: p.confidence }));
-    this.renderChip(run.decision, action);
+    this.renderChip(run.decision, action, shown);
     if (run.sent) void run.sent.then((s) => this.onSent(s, action!, seq));
     else if (!run.decision.send && run.decision.reason === 'unpaired') this.showToast({ kind: 'bad', title: 'Not paired', body: UNPAIRED_TEXT });
     this.renderArmed();
 
-    if (accepted && p.label === 'demo_48h') confetti();
-    if (accepted && p.label === 'help') this.openAlert(sentence, run.decision, action);
+    // Moments use the same bars as the actions: the help alert only when texts could go, confetti from 0.5.
+    if (p.label === 'demo_48h' && clearsBar('demo_48h', p)) confetti();
+    if (p.label === 'help' && clearsBar('help', p)) this.openAlert(sentence, run.decision, action);
     if (accepted && this.speak) this.say(sentence);
   }
 
@@ -396,8 +400,8 @@ class ResultPanel {
     };
   }
 
-  private why(reason: BlockReason): string {
-    return ghostReason(reason, this.app.source?.kind ?? null, this.app.classes.length, MIN_TAKES_FOR_ACTIONS);
+  private why(reason: BlockReason, action = ''): string {
+    return ghostReason(reason, this.app.source?.kind ?? null, this.app.classes.length, MIN_TAKES_FOR_ACTIONS, action);
   }
 
   /** The Mac answered (the toast comes from the actionResult event). Updates the chip only if it still shows this prediction. */
@@ -541,10 +545,11 @@ class ResultPanel {
     if (r.armedText.textContent !== text) r.armedText.textContent = text;
   }
 
-  private renderChip(d: Decision, action: string | null) {
+  private renderChip(d: Decision, action: string | null, shown: boolean) {
     if (d.send) { this.setChip('sending', `Doing: ${describeAction(d.action)}`, 'Sent to your Mac…'); return; }
-    if (d.reason === 'not-accepted' || d.reason === 'no-action' || !action) { this.r.chip.hidden = true; return; }
-    this.setChip('ghost', `Would: ${describeAction(action)}`, this.why(d.reason));
+    // Nothing would run for "Not sure" (below 0.5), 'none', or a sentence without an action.
+    if (d.reason === 'not-accepted' || d.reason === 'no-action' || !action || !shown) { this.r.chip.hidden = true; return; }
+    this.setChip('ghost', `Would: ${describeAction(action)}`, this.why(d.reason, action));
     this.r.chip.dataset.reason = d.reason;
   }
 
@@ -617,7 +622,7 @@ class ResultPanel {
     const a = this.alert;
     a.querySelector('.rs-alert-title')!.textContent = sentence;
     const sub = d.send ? 'Asking your Mac to send the text…'
-      : action ? `Would: ${describeAction(action)}. ${this.why(d.reason)}.` : '';
+      : action ? `Would: ${describeAction(action)}. ${this.why(d.reason, action)}.` : '';
     a.querySelector('.rs-alert-sub')!.textContent = sub;
     if (!a.hidden) { this.dismiss.focus(); return; }
     // End a take that is still held, so its key up can't get stuck behind the alert.

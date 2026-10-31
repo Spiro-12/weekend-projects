@@ -1,7 +1,7 @@
 // Plain English words for the Recognize screen (7th grade, no jargon). Pure, no DOM, unit tested.
 import type { SourceKind } from '../../core/app';
 import type { ActionResultMsg } from '../../core/contracts';
-import type { BlockReason } from './rule';
+import { MESSAGING_ACTIONS, type BlockReason } from './rule';
 
 /** What each action does on the Mac (Track I). Unknown actions get a generic line. */
 const ACTION_TEXT: Record<string, string> = {
@@ -17,7 +17,7 @@ const ACTION_TEXT: Record<string, string> = {
 export const describeAction = (action: string): string => ACTION_TEXT[action] ?? `Run “${action}”`;
 
 /** Actions that text a real person. The Mac answers ok once it has STARTED sending (Track I). */
-export const TEXTING_ACTIONS: readonly string[] = ['text_mom', 'call_back', 'help'];
+export const TEXTING_ACTIONS = MESSAGING_ACTIONS;
 /** Actions the Mac starts and finishes in the background (it answers ok right away). */
 const STARTED_ACTIONS: readonly string[] = ['focus_music', 'calendar'];
 
@@ -26,8 +26,10 @@ export const recordAllText = (sentences: number, takes: number) =>
   `Record all ${sentences} sentences (${takes} each) to run actions`;
 
 /** Why the ghost chip says "Would" instead of doing it. */
-export function ghostReason(reason: BlockReason, source: SourceKind | null, sentences = 8, takes = 5): string {
+export function ghostReason(reason: BlockReason, source: SourceKind | null, sentences = 8, takes = 5, action = ''): string {
   switch (reason) {
+    case 'low-confidence':
+      return MESSAGING_ACTIONS.includes(action) ? 'Texts need it to be very sure. Say it again' : 'Not sure enough. Say it again';
     case 'not-live':
       return source === 'replay' ? 'Replay, so just a preview'
         : source === 'fake' ? 'Fake data, so just a preview' : 'No Mac app connected, so just a preview';

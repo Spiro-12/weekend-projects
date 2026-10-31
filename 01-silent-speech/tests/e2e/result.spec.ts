@@ -312,6 +312,47 @@ test('armed, paired, real AirPods, your own model: exactly one action per accept
   }
 });
 
+test('confidence bars: "Probably" from 0.5; other actions may run from 0.5, texts need the model to be sure (0.85)', async ({ page }) => {
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true });
+  try {
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
+    const label = page.getByTestId('result-label');
+    const chip = page.getByTestId('result-action');
+    const state = page.getByTestId('result-state');
+    await assertMockBridge(page);
+    // Below 0.5: "Not sure", nothing would run.
+    await inject(page, { label: 'volume_up', confidence: 0.4, accepted: false });
+    await expect(label).toHaveText('Not sure, try again');
+    await expect(chip).toBeHidden();
+    // 0.6, not accepted by the model: shown softly as "Probably". A text is never sent from that.
+    await inject(page, { label: 'text_mom', confidence: 0.6, accepted: false });
+    await expect(label).toHaveText(sentence('text_mom'));
+    await expect(label).toHaveAttribute('data-probable', '1');
+    await expect(state).toHaveAttribute('data-state', 'probable');
+    await expect(state).toContainText('Probably');
+    await expect(chip).toHaveAttribute('data-reason', 'low-confidence');
+    await expect(chip).toContainText('Texts need it to be very sure');
+    // Accepted by a model, but below 0.85: still no text.
+    await inject(page, { label: 'call_back', confidence: 0.8, accepted: true });
+    await expect(state).toHaveAttribute('data-state', 'accepted');
+    await expect(chip).toHaveAttribute('data-reason', 'low-confidence');
+    await page.waitForTimeout(300);
+    expect(bridge.actions).toEqual([]);
+    expect(await actionResults(page)).toBe(0);
+    // "Probably" turning the volume up is fine: it runs.
+    await inject(page, { label: 'volume_up', confidence: 0.6, accepted: false });
+    await expect(state).toHaveAttribute('data-state', 'probable');
+    await expect(page.getByTestId('result-toast')).toContainText('Done on your Mac');
+    await page.waitForTimeout(300);
+    expect(bridge.actions).toEqual([{ action: 'volume_up', dryRun: false }]);
+    const chips = page.getByTestId('result-history').locator('.rs-hchip');
+    expect(await chips.evaluateAll((els) => els.map((e) => `${(e as HTMLElement).dataset.label}:${(e as HTMLElement).dataset.ok}${(e as HTMLElement).dataset.probable}`)))
+      .toEqual(['volume_up:01', 'call_back:10', 'text_mom:01', 'volume_up:00']);
+  } finally {
+    await bridge.close();
+  }
+});
+
 test('live push to talk end to end: a real prediction sends at most one action, only if accepted', async ({ page }) => {
   test.setTimeout(60_000);
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true, utterEvery: 1 });
@@ -610,6 +651,9 @@ test('help: full screen red alert with a big Dismiss; Space, Enter and Escape cl
   const alert = await helpPage(page);
   await inject(page, { label: 'help', confidence: 0.4, accepted: false });
   await expect(alert).toBeHidden(); // only when it's sure
+  await inject(page, { label: 'help', confidence: 0.8, accepted: true });
+  await expect(alert).toBeHidden(); // as sure as a text must be: accepted and 0.85
+  await expect(page.getByTestId('result-label')).toHaveText(sentence('help')); // but it is shown
   await inject(page, accepted('help'));
   await expect(alert).toBeVisible();
   await expect(alert).toContainText(sentence('help'));

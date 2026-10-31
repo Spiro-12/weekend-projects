@@ -4,8 +4,9 @@
 // the last send. No DOM here.
 //
 // Send only if ALL of these hold, else show a ghost chip "Would: …" (visitors and replay see that):
-//   1. the prediction is accepted, its label isn't 'none', and its confidence is a real number
-//   2. the predicted class has an action
+//   1. the label isn't 'none', and its confidence is a real number
+//   2. the predicted class has an action, and the prediction clears that action's bar (CONFIDENCE):
+//      texting a person needs the model's own accept AND confidence >= 0.85; other actions need >= 0.5
 //   3. the app is in Recognize mode, and the take was STARTED in Recognize mode (press.mode)
 //   4. the source is `live` (the Mac app) now and when the take started (press.source)
 //   5. same connection from key down to now: press.conn === app.connSerial, and this panel saw the key
@@ -25,6 +26,26 @@ import { NONE } from '../../core/contracts';
 
 /** At most one action per this many ms, whatever the action (the Mac has its own cooldowns too). */
 export const ACTION_GAP_MS = 3000;
+
+/** Actions that message a real person (the Mac also gives them a 30 s cooldown). */
+export const MESSAGING_ACTIONS: readonly string[] = ['text_mom', 'call_back', 'help'];
+
+/**
+ * Confidence bars. Track F, Spiro's real data at the Phase 2 defaults (k 3, clip norm, L 96, mirror):
+ * at 0.85, 61.6% of correct sentences accepted, 0% wrong, 0% 'none' false accepts; at 0.5, 85.4% accepted,
+ * 1.0% wrong, 0% 'none'. A wrong text to a real person is the worst mistake, so:
+ * - messaging: texts need the model's own accept (its threshold, 0.85 by default) AND at least this.
+ * - other: everything else (volume, music, calendar, the demo line) may fire from this, and the screen shows
+ *   the sentence from this up (as "probably" below the model's threshold); below it shows "Not sure".
+ */
+export const CONFIDENCE = { messaging: 0.85, other: 0.5 } as const;
+
+/** Does this prediction clear the bar for this action? */
+export function clearsBar(action: string, pred: Pick<Prediction, 'accepted' | 'confidence'>): boolean {
+  const c = pred.confidence;
+  if (typeof c !== 'number' || !Number.isFinite(c)) return false;
+  return MESSAGING_ACTIONS.includes(action) ? pred.accepted === true && c >= CONFIDENCE.messaging : c >= CONFIDENCE.other;
+}
 
 export interface RuleInput {
   mode: Mode;
@@ -58,8 +79,9 @@ export interface RuleInput {
 
 /** Why nothing was sent, in check order. */
 export type BlockReason =
-  | 'not-accepted' // not sure, or 'none'
+  | 'not-accepted' // 'none', or no usable confidence
   | 'no-action' // this sentence doesn't do anything
+  | 'low-confidence' // below this action's bar (CONFIDENCE)
   | 'not-recognize'
   | 'press-mode' // the take started in Record mode
   | 'not-live' // fake, replay or no source: visitors
@@ -74,7 +96,7 @@ export type BlockReason =
   | 'too-soon';
 
 export const BLOCK_REASONS: readonly BlockReason[] = [
-  'not-accepted', 'no-action', 'not-recognize', 'press-mode', 'not-live', 'press-changed', 'not-connected', 'simulated',
+  'not-accepted', 'no-action', 'low-confidence', 'not-recognize', 'press-mode', 'not-live', 'press-changed', 'not-connected', 'simulated',
   'not-armed', 'not-own-model', 'not-offered', 'unpaired', 'busy', 'too-soon',
 ];
 
@@ -85,10 +107,9 @@ const block = (reason: BlockReason): Decision => ({ send: false, reason });
 /** The rule. Pure: same input, same answer. Anything unexpected blocks. */
 export function decideAction(x: RuleInput): Decision {
   const p = x.pred;
-  if (p.accepted !== true || p.label === NONE || typeof p.confidence !== 'number' || !Number.isFinite(p.confidence)) {
-    return block('not-accepted');
-  }
+  if (p.label === NONE || typeof p.confidence !== 'number' || !Number.isFinite(p.confidence)) return block('not-accepted');
   if (typeof x.action !== 'string' || x.action === '') return block('no-action');
+  if (!clearsBar(x.action, p)) return block('low-confidence');
   if (x.mode !== 'classify') return block('not-recognize');
   const pr = x.press;
   if (!pr || pr.mode !== 'classify') return block('press-mode');

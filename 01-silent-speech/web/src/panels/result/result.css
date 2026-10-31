@@ -48,6 +48,7 @@
 .rs-stage[data-state=listening] { border-color: #ff5d6ccc; box-shadow: 0 0 0 5px #ff5d6c1f; background: linear-gradient(180deg, #1c1219 0%, #120e14 100%); }
 .rs-stage[data-state=thinking] { border-color: #7c9cff66; }
 .rs-stage[data-state=unsure] { border-color: #ffb5472e; }
+.rs-stage[data-state=probable] { border-color: #7c9cff33; border-style: dashed; }
 .rs-say { min-width: 0; }
 
 .rs-state { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 1.4px;
@@ -58,12 +59,15 @@
 .rs-state[data-state=listening] .rs-dot { background: var(--bad); box-shadow: 0 0 12px var(--bad); animation: rs-blink .9s ease-in-out infinite; }
 .rs-state[data-state=thinking] { color: var(--accent); }
 .rs-state[data-state=thinking] .rs-dot { background: var(--accent); animation: rs-blink .5s ease-in-out infinite; }
+.rs-state[data-state=probable] { color: #9db4ff; }
+.rs-state[data-state=probable] .rs-dot { background: #9db4ff; }
 .rs-state[data-state=unsure] { color: var(--warn); }
 .rs-state[data-state=unsure] .rs-dot { background: var(--warn); }
 
 .rs-label { margin: 12px 0 10px; font-size: clamp(32px, 5.4vw, 66px); font-weight: 780; line-height: 1.08; letter-spacing: -.022em;
   overflow-wrap: anywhere; min-height: 1.1em; transition: opacity .25s; }
 .rs-label[data-accepted="1"] { text-shadow: 0 0 42px #7c9cff40; }
+.rs-label[data-probable="1"] { color: #c9d1e4; opacity: .82; } /* shown, but softer than a sure result */
 .rs-w { display: inline-block; animation: rs-word .6s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i, 0) * 65ms); }
 .rs-calm { color: #a7afc0; font-weight: 650; font-size: .6em; letter-spacing: -.012em; }
 .rs-stage[data-state=listening] .rs-label, .rs-stage[data-state=thinking] .rs-label { opacity: .25; }
@@ -95,6 +99,7 @@
   transition: stroke-dashoffset .9s cubic-bezier(.2, .8, .2, 1), stroke .3s; }
 .rs-ring[data-accepted="1"] .rs-arc { stroke: url(#rs-ring-grad); filter: drop-shadow(0 0 6px #7c9cff66); }
 .rs-ring[data-accepted="0"] .rs-arc { stroke: #ffb547b0; }
+.rs-ring[data-accepted="probable"] .rs-arc { stroke: #7c9cffb0; }
 .rs-ring-num { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .rs-ring-num b { font-size: 34px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .rs-ring-num small { margin-top: 2px; font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
@@ -122,6 +127,8 @@
   font-size: 11px; font-weight: 800; background: #ffffff10; color: var(--muted); }
 .rs-hchip[data-ok="1"] { border-color: #3ddc9740; color: var(--text); }
 .rs-hchip[data-ok="1"] i { background: #3ddc9726; color: var(--good); }
+.rs-hchip[data-probable="1"] { border-style: dashed; color: #c9d1e4; }
+.rs-hchip[data-probable="1"] i { background: #7c9cff26; color: #9db4ff; }
 .rs-hchip.rs-new { animation: rs-fade .45s ease both; }
 
 /* "Say it out loud" switch */
