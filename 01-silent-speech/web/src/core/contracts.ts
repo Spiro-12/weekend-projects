@@ -158,7 +158,7 @@ export interface DtwKnnOptions {
   L?: number; // resampled length, default 64
   hpHz?: number; // high pass cutoff, default 1.0
   band?: number; // Sakoe-Chiba radius as fraction of L, default 0.1
-  k?: number; // default 3
+  k?: number; // default 1 (PROTOCOL §6)
   norm?: 'global' | 'clip'; // default 'global'
   threshold?: number; // default 0.5
 }
