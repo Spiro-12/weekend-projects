@@ -5,7 +5,7 @@ import type { StatusMsg } from '../core/contracts';
 type Tone = 'good' | 'warn' | 'bad' | 'idle';
 
 const CSS = `
-.ss-status { display: flex; flex-direction: column; gap: 14px; }
+.ss-status { display: flex; flex-direction: column; gap: 14px; container-type: inline-size; }
 .ss-status .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
 .ss-status [data-tone=good] > .dot, .ss-status .dot[data-tone=good] { background: var(--good); box-shadow: 0 0 10px #3ddc9755; }
 .ss-status [data-tone=warn] > .dot, .ss-status .dot[data-tone=warn] { background: var(--warn); }
@@ -27,6 +27,11 @@ const CSS = `
 .ss-status dt, .ss-status dd { padding: 7px 0; border-top: 1px solid var(--line); }
 .ss-status dt { color: var(--muted); padding-right: 16px; }
 .ss-status dd { margin: 0; display: flex; align-items: center; gap: 8px; justify-content: flex-end; text-align: right; }
+@container (max-width: 330px) {
+  .ss-status .tiles { grid-template-columns: minmax(0, 1fr); }
+  .ss-status dl { grid-template-columns: minmax(0, auto) minmax(0, 1fr); }
+}
+.ss-status .tile .val { overflow: hidden; text-overflow: ellipsis; }
 @keyframes ss-pulse { 0%, 100% { box-shadow: 0 0 0 0 #3ddc9766; } 50% { box-shadow: 0 0 0 6px #3ddc9700; } }
 @media (prefers-reduced-motion: reduce) { .ss-status .head .dot { animation: none !important; } }
 `;
@@ -109,7 +114,11 @@ const panel: Panel = {
     const misses: { at: number; n: number }[] = []; // seq jumps seen by the browser, last 10 s
     let lastSeq: number | null = null;
 
-    app.bus.on('conn', (c) => { conn = c; render(); });
+    app.bus.on('conn', (c) => {
+      conn = c;
+      if (c.state !== 'open') status = null; // device info is only true while connected: wait for a fresh status
+      render();
+    });
     app.bus.on('status', (s) => { status = s; render(); });
     app.bus.on('invalid', () => { invalid++; render(); });
     app.bus.on('source', () => {
@@ -145,7 +154,7 @@ const panel: Panel = {
       setTile('browser', bTone, bTone === 'idle' ? '' : rateWord(browserHz));
       const gap = status && open ? status.gapPct : null;
       setText(q('[data-k=gap]'), gap === null ? '–' : `${gap.toFixed(1)}%`);
-      setText(q('[data-k=missed]'), gap === null && !arrivals.length ? '' : ` · ${missed} missed`);
+      setText(q('[data-k=missed]'), gap === null && !missed ? '' : ` · ${missed} missed`);
       const worstGap = Math.max(gap ?? 0, browserGapPct);
       const gapTone: Tone = gap === null && !missed ? 'idle' : worstGap < 5 ? 'good' : worstGap < 20 ? 'warn' : 'bad';
       setTile('gaps', gapTone, gapTone === 'good' ? 'ok' : gapTone === 'idle' ? '' : 'high');
@@ -153,8 +162,8 @@ const panel: Panel = {
       setText(q('[data-testid=status-invalid]'), String(invalid));
       setTile('invalid', invalid ? 'warn' : 'good', invalid ? 'check' : 'ok');
 
-      // device rows
-      if (status) {
+      // device rows (status is cleared whenever the connection is not open)
+      if (status && open) {
         const [hText, hTone] = HEADPHONES[status.headphones] ?? [status.headphones, 'warn'];
         setRow('headphones', hText, hTone);
         const [aText, aTone] = AUTH[status.auth] ?? [status.auth, 'warn'];
@@ -173,11 +182,12 @@ const panel: Panel = {
       let tone: Tone, text: string;
       if (conn.state === 'connecting') [tone, text] = ['warn', 'Connecting to the Mac…'];
       else if (!open) [tone, text] = ['bad', kind === 'live' ? 'Mac app not reachable' : 'Stopped'];
-      else if (status && status.headphones !== 'connected') [tone, text] = ['warn', 'Put in your AirPods'];
-      else if (status && status.auth !== 'authorized') [tone, text] = ['warn', 'Motion access needed'];
+      else if (!status) [tone, text] = ['warn', kind === 'live' ? 'Connected, waiting for the Mac…' : 'Starting…'];
+      else if (status.headphones !== 'connected') [tone, text] = ['warn', 'Put in your AirPods'];
+      else if (status.auth !== 'authorized') [tone, text] = ['warn', 'Motion access needed'];
       else if (browserHz === 0) [tone, text] = ['bad', 'No motion data yet'];
       else if (!rateOk(browserHz) || worstGap >= 5) [tone, text] = ['warn', 'Signal is choppy'];
-      else [tone, text] = ['good', kind === 'live' ? (status?.simulated ? 'Streaming (simulated)' : 'Streaming from AirPods') : `Streaming ${kind} data`];
+      else [tone, text] = ['good', kind === 'live' ? (status.simulated ? 'Streaming (simulated)' : 'Streaming from AirPods') : `Streaming ${kind} data`];
       setTone(head, tone);
       setText(headline, text);
     }

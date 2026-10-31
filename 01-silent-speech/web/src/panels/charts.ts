@@ -7,6 +7,8 @@ const WINDOW_SEC = 10;
 const GAP_SEC = 0.25; // break the line when samples are further apart than this (dropped data)
 const JAW_SEC = 0.3; // jaw energy = RMS of high passed rotation rate over this window
 const JAW_HP_HZ = 1.0;
+const STALE_SEC = 1.5; // no new sample for this long: dim the chart, stop scrolling, go idle
+const MAX_ABS = 1e4; // values beyond this (or not finite) are treated as missing, never drawn or scaled
 
 // Axis colors: categorical slots 1 to 3 (blue, orange, aqua), validated for CVD separation on the dark card.
 const AXES = [
@@ -35,7 +37,8 @@ const CSS = `
 .ss-chart .jaw .track { position: relative; flex: 1; height: 8px; border-radius: 999px; background: #7c9cff1f; overflow: hidden; }
 .ss-chart .jaw .fill { position: absolute; inset: 0; border-radius: 999px; transform-origin: left center; transform: scaleX(0);
   background: linear-gradient(90deg, #5b7cf0, #9db4ff); }
-.ss-chart .jaw .peak { position: absolute; top: 0; bottom: 0; width: 2px; border-radius: 2px; background: #c9d6ff; left: 0; opacity: .8; }
+.ss-chart .jaw .peak { position: absolute; inset: 0; transform: translateX(0); }
+.ss-chart .jaw .peak::before { content: ''; position: absolute; left: -2px; top: 0; bottom: 0; width: 2px; border-radius: 2px; background: #c9d6ff; opacity: .8; }
 .ss-chart .jaw .num { font-variant-numeric: tabular-nums; color: var(--text); min-width: 74px; text-align: right; white-space: nowrap; }
 .ss-chart .jaw .num small { color: var(--muted); }
 .ss-chart canvas { display: block; width: 100%; height: 340px; touch-action: pan-y; cursor: crosshair; }
@@ -70,8 +73,11 @@ const fmtTick = (v: number, step: number) => {
   const d = Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
   return v === 0 ? '0' : `${v > 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}`;
 };
-const fmtVal = (v: number) => `${v < 0 ? '−' : ''}${Math.abs(v).toFixed(3)}`;
+const ok = (v: number) => Number.isFinite(v) && Math.abs(v) <= MAX_ABS;
+const fmtVal = (v: number) => (ok(v) ? `${v < 0 ? '−' : ''}${Math.abs(v).toFixed(3)}` : '–');
 const chan = (s: MotionSample, g: GroupKey, i: number) => s[g][i];
+/** A sample can be drawn for a group only if its time and all 3 channels are sane. */
+const okGroup = (s: MotionSample, g: GroupKey) => Number.isFinite(s.t) && ok(s[g][0]) && ok(s[g][1]) && ok(s[g][2]);
 
 /** First index with ring[i].t >= t (ring is time ordered). */
 function lowerBound(ring: MotionSample[], t: number): number {
@@ -92,16 +98,16 @@ class JawEnergy {
   private prev: MotionSample | null = null;
   private hp = [0, 0, 0];
   private win: { t: number; e: number }[] = [];
-  private sum = 0;
   private floor = -1;
   private peak = 0;
 
   reset() {
-    this.prev = null; this.hp = [0, 0, 0]; this.win = []; this.sum = 0; this.rms = 0; this.level = 0;
+    this.prev = null; this.hp = [0, 0, 0]; this.win = []; this.rms = 0; this.level = 0;
     this.floor = -1; this.peak = 0;
   }
 
   push(s: MotionSample) {
+    if (!okGroup(s, 'rr')) return; // a broken sample is skipped, it never poisons the state
     const p = this.prev;
     this.prev = s;
     if (!p) return;
@@ -115,15 +121,18 @@ class JawEnergy {
       e += this.hp[i] * this.hp[i];
     }
     this.win.push({ t: s.t, e });
-    this.sum += e;
-    while (this.win.length && this.win[0].t <= s.t - JAW_SEC) this.sum -= this.win.shift()!.e;
-    this.rms = Math.sqrt(Math.max(0, this.sum) / Math.max(1, this.win.length));
+    while (this.win.length && this.win[0].t <= s.t - JAW_SEC) this.win.shift();
+    let sum = 0; // recomputed from the window (a dozen samples), so rounding never accumulates
+    for (const w of this.win) sum += w.e;
+    this.rms = Math.sqrt(sum / Math.max(1, this.win.length));
+    if (!Number.isFinite(this.rms)) { this.reset(); return; }
     // Floor follows the quiet level (falls fast, rises slowly); peak decays over a few seconds.
     if (this.floor < 0) this.floor = this.rms;
     this.floor += (this.rms - this.floor) * (this.rms < this.floor ? 0.3 : Math.min(1, dt / 8));
     this.peak = Math.max(this.rms, this.peak * Math.exp(-dt / 6));
     const top = Math.max(this.floor * 2.5, this.peak, 1e-6);
     this.level = Math.min(1, Math.max(0, (this.rms - this.floor) / Math.max(1e-6, top - this.floor)));
+    if (!Number.isFinite(this.level)) this.reset();
   }
 }
 
@@ -179,8 +188,11 @@ const panel: Panel = {
       windows = []; offset = null; lastT = -Infinity; jaw.reset();
       ranges.rr = GROUPS[0].floor; ranges.ua = GROUPS[1].floor;
     };
-    app.bus.on('source', resetAll);
-    app.bus.on('conn', (c) => { conn = c.state; });
+    // Drawing runs on requestAnimationFrame while data flows, and goes idle when it is stale.
+    let raf = 0, needsDraw = true;
+    const wake = () => { needsDraw = true; if (!raf) raf = requestAnimationFrame(frame); };
+    app.bus.on('source', () => { resetAll(); wake(); });
+    app.bus.on('conn', (c) => { conn = c.state; wake(); });
     app.bus.on('motion', (s) => {
       const now = performance.now() / 1000;
       if (s.t < lastT - 1) resetAll(); // clock went backwards (simulate toggled, replay looped)
@@ -192,6 +204,7 @@ const panel: Panel = {
       else offset += (est - offset) * (est > offset ? 0.2 : 0.02);
       jaw.push(s);
       for (const w of windows) if (Number.isNaN(w.t0)) { w.t0 = s.t; w.pressT = s.t; } // pressed before any data
+      wake();
     });
     app.bus.on('ptt', ({ down, t }) => {
       const open = windows.at(-1);
@@ -204,16 +217,19 @@ const panel: Panel = {
       }
       if (windows.length > 40) windows = windows.slice(-40);
       canvas.dataset.pttWindows = String(windows.length);
+      wake();
     });
     app.bus.on('clip', (c) => {
       const w = windows.find((x) => Math.abs(x.pressT - c.pressT) < 1e-6 && x.t1 !== null);
       if (w) w.clipId = c.id;
+      wake();
     });
     app.bus.on('prediction', (p) => {
       const w = windows.find((x) => x.clipId === p.clipId);
       if (!w) return;
       const sentence = app.classes.find((c) => c.id === p.label)?.sentence ?? p.label;
       w.label = p.label === 'none' ? `no sentence · ${Math.round(p.confidence * 100)}%` : `“${sentence}” · ${Math.round(p.confidence * 100)}%`;
+      wake();
     });
 
     // ---------- size ----------
@@ -226,7 +242,7 @@ const panel: Panel = {
       canvas.width = Math.max(1, Math.round(cssW * dpr));
       canvas.height = Math.max(1, Math.round(cssH * dpr));
     };
-    new ResizeObserver(fit).observe(canvas);
+    new ResizeObserver(() => { fit(); wake(); }).observe(canvas);
 
     // ---------- tooltip (built once; values lead, names follow; text via textContent only) ----------
     const tipWhen = document.createElement('div');
@@ -253,25 +269,34 @@ const panel: Panel = {
     }
 
     // ---------- hover ----------
-    canvas.addEventListener('pointermove', (e) => { hoverX = e.clientX - canvas.getBoundingClientRect().left; });
-    canvas.addEventListener('pointerleave', () => { hoverX = null; tip.hidden = true; });
+    canvas.addEventListener('pointermove', (e) => { hoverX = e.clientX - canvas.getBoundingClientRect().left; wake(); });
+    canvas.addEventListener('pointerleave', () => { hoverX = null; tip.hidden = true; wake(); });
 
     // ---------- draw ----------
     const PAD = { l: 52, r: 14, top: 22, gap: 34, bottom: 24 };
     let prevFrame = performance.now() / 1000;
 
+    let drawnStale = false;
     function frame() {
-      requestAnimationFrame(frame);
+      raf = 0;
       fit();
-      if (!ctx || cssW < 10 || cssH < 10) return;
+      if (!ctx || cssW < 10 || cssH < 10) return; // hidden: the ResizeObserver wakes us when it shows
       const now = performance.now() / 1000;
       const dt = Math.min(0.1, Math.max(0, now - prevFrame));
       prevFrame = now;
 
       const ring = app.ring;
       const newest = ring.length ? ring[ring.length - 1].t : null;
-      // Right edge = "now" on the sample clock (keeps scrolling smoothly between 25/50 Hz samples).
-      const tR = offset !== null && newest !== null ? now + offset : (newest ?? 0);
+      const stale = newest === null || now - lastArrival > STALE_SEC;
+      // Idle: data is stale, the stale frame is on screen, nobody hovers, the meter has settled.
+      if (stale && drawnStale && !needsDraw && hoverX === null && jawShown < 0.002 && peakShown < 0.002) return;
+      needsDraw = false;
+      drawnStale = stale;
+      raf = requestAnimationFrame(frame);
+
+      // Right edge = "now" on the sample clock (keeps scrolling smoothly between 25/50 Hz samples),
+      // stopping STALE_SEC after the newest sample so a stale chart holds still.
+      const tR = offset !== null && newest !== null ? Math.min(now + offset, newest + STALE_SEC) : (newest ?? 0);
       const tL = tR - WINDOW_SEC;
       const i0 = Math.max(0, lowerBound(ring, tL - 0.2) - 1);
       const vis = ring.slice(i0);
@@ -279,11 +304,12 @@ const panel: Panel = {
       // Auto scale per group: fast attack, slow release.
       for (const g of GROUPS) {
         let m = 0;
-        for (const s of vis) for (let i = 0; i < 3; i++) m = Math.max(m, Math.abs(chan(s, g.key, i)));
+        for (const s of vis) if (okGroup(s, g.key)) for (let i = 0; i < 3; i++) m = Math.max(m, Math.abs(chan(s, g.key, i)));
         const target = Math.max(g.floor, m * 1.18);
-        const cur = ranges[g.key];
+        const cur = Number.isFinite(ranges[g.key]) ? ranges[g.key] : g.floor;
         const tau = target > cur ? 0.12 : 1.4;
-        ranges[g.key] = cur + (target - cur) * (1 - Math.exp(-dt / tau));
+        const next = cur + (target - cur) * (1 - Math.exp(-dt / tau));
+        ranges[g.key] = Number.isFinite(next) && next > 0 ? next : g.floor;
       }
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -292,7 +318,6 @@ const panel: Panel = {
       const plotH = (cssH - PAD.top - PAD.gap - PAD.bottom) / 2;
       const rects = GROUPS.map((g, gi) => ({ g, top: PAD.top + gi * (plotH + PAD.gap), h: plotH }));
       const xOf = (t: number) => x1 - ((tR - t) / WINDOW_SEC) * pw;
-      const stale = newest === null || now - lastArrival > 1.5;
 
       // Push to talk windows (behind everything), with a small tab label in the title row when it fits.
       const top = rects[0].top - 4, bottom = rects[1].top + rects[1].h;
@@ -329,10 +354,12 @@ const panel: Panel = {
       // Time grid + axis labels.
       ctx.font = `11px ${FONT}`;
       ctx.textBaseline = 'alphabetic';
+      const labelEvery = pw / (WINDOW_SEC / 2) < 48 ? 4 : 2; // narrow screens: label every other line
       for (let k = 0; k <= WINDOW_SEC; k += 2) {
         const x = x1 - (k / WINDOW_SEC) * pw;
         ctx.fillStyle = INK.grid;
         for (const r of rects) ctx.fillRect(Math.round(x) - 0.5, r.top, 1, r.h);
+        if (k % labelEvery !== 0) continue;
         ctx.fillStyle = INK.muted;
         ctx.textAlign = k === 0 ? 'right' : k === WINDOW_SEC ? 'left' : 'center';
         ctx.fillText(k === 0 ? 'now' : `−${k} s`, k === WINDOW_SEC ? Math.max(x, x0) : x, cssH - 7);
@@ -379,6 +406,11 @@ const panel: Panel = {
           ctx.beginPath();
           let px = 0, py = 0, prevT = -Infinity, open = false;
           for (const s of vis) {
+            if (!okGroup(s, g.key)) { // broken sample: treat like a gap
+              if (open) ctx.lineTo(px, py);
+              open = false;
+              continue;
+            }
             const x = xOf(s.t), y = yOf(chan(s, g.key, ai));
             if (!open || s.t - prevT > GAP_SEC) {
               if (open) ctx.lineTo(px, py);
@@ -395,7 +427,7 @@ const panel: Panel = {
         ctx.restore();
 
         // Live end dots with a ring in the card color.
-        if (!stale && vis.length) {
+        if (!stale && vis.length && okGroup(vis[vis.length - 1], g.key)) {
           const s = vis[vis.length - 1];
           const x = Math.min(x1, xOf(s.t));
           for (let ai = 0; ai < AXES.length; ai++) {
@@ -446,8 +478,9 @@ const panel: Panel = {
       const target = stale ? 0 : jaw.level;
       jawShown += (target - jawShown) * (1 - Math.exp(-dt / (target > jawShown ? 0.05 : 0.25)));
       peakShown = Math.max(jawShown, peakShown - dt * 0.35);
-      jawFill.style.transform = `scaleX(${jawShown.toFixed(3)})`;
-      jawPeak.style.left = `calc(${(peakShown * 100).toFixed(1)}% - 2px)`;
+      const fillT = `scaleX(${jawShown.toFixed(3)})`, peakT = `translateX(${(peakShown * 100).toFixed(1)}%)`;
+      if (jawFill.style.transform !== fillT) jawFill.style.transform = fillT;
+      if (jawPeak.style.transform !== peakT) jawPeak.style.transform = peakT;
       const num = stale ? '–' : jaw.rms.toFixed(3);
       if (jawEl.dataset.value !== num) {
         jawEl.dataset.value = num;
@@ -462,14 +495,16 @@ const panel: Panel = {
       if (!ctx) return;
       if (hoverX === null || hoverX < x0 || hoverX > x1 || !vis.length) { tip.hidden = true; return; }
       const tc = tR - ((x1 - hoverX) / pw) * WINDOW_SEC;
-      let best = vis[0];
-      for (const s of vis) if (Math.abs(s.t - tc) < Math.abs(best.t - tc)) best = s;
+      let best: MotionSample | null = null;
+      for (const s of vis) if (Number.isFinite(s.t) && (!best || Math.abs(s.t - tc) < Math.abs(best.t - tc))) best = s;
+      if (!best) { tip.hidden = true; return; }
       const x = xOf(best.t);
       if (x < x0 || x > x1) { tip.hidden = true; return; }
       ctx.fillStyle = '#8a93a680';
       ctx.fillRect(Math.round(x) - 0.5, rects[0].top, 1, rects[1].top + rects[1].h - rects[0].top);
       for (const { g, top, h } of rects) {
         const R = ranges[g.key], mid = top + h / 2;
+        if (!okGroup(best, g.key)) continue;
         for (let ai = 0; ai < AXES.length; ai++) {
           const y = mid - (chan(best, g.key, ai) / R) * (h / 2);
           if (y < top - 2 || y > top + h + 2) continue;
@@ -484,7 +519,7 @@ const panel: Panel = {
       }
       const ago = tR - best.t;
       tipWhen.textContent = ago < 0.05 ? 'now' : `${ago.toFixed(1)} s ago`;
-      for (const g of GROUPS) tipVals[g.key].forEach((v, ai) => { v.textContent = fmtVal(chan(best, g.key, ai)); });
+      for (const g of GROUPS) tipVals[g.key].forEach((v, ai) => { v.textContent = fmtVal(chan(best!, g.key, ai)); });
       tip.hidden = false;
       const cw = canvas.offsetLeft, ct = canvas.offsetTop;
       const tw = tip.offsetWidth;
@@ -493,7 +528,7 @@ const panel: Panel = {
       tip.style.top = `${ct + rects[0].top}px`;
     }
 
-    requestAnimationFrame(frame);
+    wake();
   },
 };
 export default panel;

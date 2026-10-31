@@ -120,6 +120,9 @@ const panel: Panel = {
 
     app.bus.on('source', () => { needRef = true; raw = null; dirty = true; });
     app.bus.on('motion', (s) => {
+      // Attitude must be a (near) unit quaternion with finite parts; anything else is ignored.
+      const n = Math.hypot(...s.q);
+      if (!Number.isFinite(n) || n < 0.5 || n > 1.5) return;
       raw = s.q;
       if (needRef) { ref = normalize(s.q); needRef = false; }
     });
@@ -138,27 +141,22 @@ const panel: Panel = {
     };
 
     const fmt = (v: number, pos: string, neg: string) => (Math.abs(v) < 0.5 ? '0°' : `${Math.abs(v).toFixed(0)}° ${v > 0 ? pos : neg}`);
-    let lastAngles = 0;
-    const updateAngles = (now: number) => {
-      if (now - lastAngles < 100 || !raw) return; // 10 Hz is plenty for text
-      lastAngles = now;
+    // Angle readout: its own 10 Hz timer from mount, with or without three.js / WebGL.
+    const updateAngles = () => {
+      if (!raw) return;
       const a = headAngles(rel());
       const set = (k: string, t: string) => { if (angleEls[k] && angleEls[k].textContent !== t) angleEls[k].textContent = t; };
       set('turn', fmt(a.turn, 'left', 'right'));
       set('nod', fmt(a.nod, 'up', 'down'));
       set('tilt', fmt(a.tilt, 'right', 'left'));
     };
+    setInterval(updateAngles, 100);
 
-    let textLoop = false;
     const showNote = (html: string) => {
       note.innerHTML = html;
       note.hidden = false;
       cap.remove();
       stage.querySelector('canvas')?.remove();
-      if (textLoop) return;
-      textLoop = true;
-      const loop = (now: number) => { updateAngles(now); requestAnimationFrame(loop); };
-      requestAnimationFrame(loop);
     };
 
     const gl = probeWebGL();
@@ -379,7 +377,6 @@ const panel: Panel = {
         requestAnimationFrame(loop);
         const dt = Math.min(0.1, Math.max(0, (now - prev) / 1000));
         prev = now;
-        updateAngles(now);
         target.set(...toThreeMirror(rel()));
         shown.slerp(target, 1 - Math.exp(-dt / 0.06));
         if (!visible || now - lastDraw < minFrameMs) return;

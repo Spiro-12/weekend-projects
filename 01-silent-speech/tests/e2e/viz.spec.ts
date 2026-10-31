@@ -94,3 +94,50 @@ test('without WebGL the head panel shows a note and angles still update', async 
   await expect(page.getByTestId('chart-canvas')).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('one absurd sample does not break the chart scale or the jaw meter', async ({ page }) => {
+  const errors = pageErrors(page);
+  await page.goto('./?mode=fake');
+  const canvas = page.getByTestId('chart-canvas');
+  await expect.poll(async () => (await snapshot(canvas)).colored).toBeGreaterThan(300);
+  await page.evaluate(() => {
+    const app = window.__ss.app;
+    const last = app.ring[app.ring.length - 1];
+    app.bus.emit('motion', { seq: last.seq, t: last.t + 0.001, q: [1, 0, 0, 0], rr: [1.6e308, 0, 0], ua: [0, 0, 1.6e308] });
+  });
+  await page.waitForTimeout(800);
+  const a = await snapshot(canvas);
+  expect(a.colored).toBeGreaterThan(300); // the lines are still drawn (a NaN scale would draw nothing)
+  await page.waitForTimeout(300);
+  expect((await snapshot(canvas)).hash).not.toBe(a.hash); // still live
+  await expect(page.getByTestId('jaw-energy')).toHaveAttribute('data-value', /^\d+\.\d{3}$/);
+  expect(errors).toEqual([]);
+});
+
+test('when the data stops, the chart draws a final frame and then holds still', async ({ page }) => {
+  await page.goto('./?mode=fake');
+  const canvas = page.getByTestId('chart-canvas');
+  await expect.poll(async () => (await snapshot(canvas)).colored).toBeGreaterThan(300);
+  await page.evaluate(() => window.__ss.app.source!.stop());
+  await page.waitForTimeout(3000); // 1.5 s until stale, then the meter settles
+  const a = await snapshot(canvas);
+  await page.waitForTimeout(1000);
+  expect((await snapshot(canvas)).hash).toBe(a.hash);
+  await expect(page.getByTestId('jaw-energy')).toHaveAttribute('data-value', '–');
+});
+
+test('at 320 px wide nothing overflows', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.goto('./?mode=fake');
+  await expect(page.getByTestId('status-browser-hz')).toHaveText(/Hz/);
+  await page.waitForTimeout(1500);
+  const overflow = await page.evaluate(() => {
+    const bad: string[] = [];
+    if (document.documentElement.scrollWidth > window.innerWidth + 1) bad.push(`page ${document.documentElement.scrollWidth}`);
+    for (const sel of ['.ss-status .tile .val', '.ss-status .tile .sub', '.ss-status dd', '.ss-chart .bar', '.ss-head .row']) {
+      document.querySelectorAll<HTMLElement>(sel).forEach((n) => { if (n.scrollWidth > n.clientWidth + 1) bad.push(`${sel}: ${n.textContent}`); });
+    }
+    return bad;
+  });
+  expect(overflow).toEqual([]);
+});
