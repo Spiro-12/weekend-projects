@@ -134,7 +134,8 @@ def test_dtw_model_fits_and_predicts(synthetic):
     st = fit_norm(X)
     y = [c.label for c in synthetic.clips[:24]]
     m = DtwKnn().fit(apply_norm(X, st), y)
-    assert m.radius == 6
+    assert (m.band, m.k, m.threshold) == (0.05, 3, 0.85)  # the JS defaults (web/src/ml/preprocess.ts DEFAULT_OPTS)
+    assert m.radius == band_radius(0.05, 64) == 3
     preds = m.predict(apply_norm(X[:3], st))
     assert [p.label for p in preds] == y[:3]  # a clip's nearest template is itself
 
@@ -149,12 +150,17 @@ def test_matches_js_dtw_knn_clip_by_clip(synthetic):
     from silent.cv import splits
     from silent.preprocess import preprocess_clip
 
-    js = json.loads((Path(__file__).parent / "data" / "js_dtw_knn_loso.json").read_text())["preds"]
-    X = np.stack([preprocess_clip(c.samples) for c in synthetic.clips])
+    from silent.bench import default_opts
+
+    snap = json.loads((Path(__file__).parent / "data" / "js_dtw_knn_loso.json").read_text())
+    assert snap["opts"] == {}  # JS defaults = dtw-py defaults
+    js = snap["preds"]
+    opts = default_opts("dtw-py")
+    X = np.stack([preprocess_clip(c.samples, opts, c.loc) for c in synthetic.clips])
     y = np.array([c.label for c in synthetic.clips], dtype=object)
     got = {}
     for tr, te in splits("loso", [c.session for c in synthetic.clips]):
-        preds, _, _ = run_fold("dtw-py", {}, "global", X, y, tr, te)
+        preds, _, _ = run_fold("dtw-py", {}, opts.norm, X, y, tr, te)
         got.update({synthetic.clips[i].id: p for i, p in zip(te, preds)})
     assert len(js) == len(got) == 120
     for cid, label, conf in js:
@@ -172,14 +178,17 @@ def test_matches_js_dtw_knn_on_real_data_with_bud_mirroring(real_smoke):
     from silent.cv import splits
     from silent.preprocess import preprocess_clip
 
+    from silent.bench import default_opts
+
     js = json.loads((Path(__file__).parent / "data" / "js_dtw_knn_real_smoke_loso.json").read_text())
-    assert js["opts"] == {}  # JS defaults = Python defaults (budNorm mirror, L 64, band 0.1, k 1, global norm)
+    assert js["opts"] == {}  # JS defaults = dtw-py defaults (L 96, band 0.05, k 3, clip norm, threshold 0.85, budNorm mirror)
     clips = real_smoke.clips
-    X = np.stack([preprocess_clip(c.samples, loc=c.loc) for c in clips])
+    opts = default_opts("dtw-py")
+    X = np.stack([preprocess_clip(c.samples, opts, c.loc) for c in clips])
     y = np.array([c.label for c in clips], dtype=object)
     got = {}
     for tr, te in splits("loso", [c.session for c in clips]):
-        preds, _, _ = run_fold("dtw-py", {}, "global", X, y, tr, te)
+        preds, _, _ = run_fold("dtw-py", {}, opts.norm, X, y, tr, te)
         got.update({clips[i].id: p for i, p in zip(te, preds)})
     assert len(js["preds"]) == len(got) == 60
     for cid, label, conf in js["preds"]:

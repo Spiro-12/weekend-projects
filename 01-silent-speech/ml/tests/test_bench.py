@@ -19,7 +19,8 @@ def test_dtw_py_loso_on_synthetic(synthetic, tmp_path):
     assert m["model"] == "dtw-py" and m["protocol"] == "loso" and m["nClips"] == 120
     assert m["accuracy"] >= 0.9, m["accuracy"]  # brief gate
     pr = m["params"]
-    assert pr["band"] == 0.1 and pr["k"] == 1 and pr["radius"] == 6 and pr["L"] == 64  # PROTOCOL §6 defaults
+    # dtw-py defaults = the JS defaults since Phase 2 (web/src/ml/preprocess.ts DEFAULT_OPTS)
+    assert (pr["band"], pr["k"], pr["radius"], pr["L"], pr["norm"], pr["threshold"]) == (0.05, 3, 5, 96, "clip", 0.85)
     assert pr["datasets"] == ["dataset.synthetic.json"] and pr["data"] == ["shared/fixtures/dataset.synthetic.json"]
     assert pr["sources"] == ["fake"] and pr["subjects"] == ["synthetic"]  # so reports can flag synthetic numbers
     assert pr["timing"] == "single process"
@@ -155,16 +156,17 @@ def test_real_smoke_loso_and_cross_bud(real_smoke):
 def test_real_smoke_luck_test_reproduces_the_bench_and_is_seeded(real_smoke):
     from silent.luck import luck_test
 
-    X, _ = bench.preprocess_corpus(real_smoke, bench.DEFAULT_OPTS)
+    opts = bench.default_opts("dtw-py")
+    X, _ = bench.preprocess_corpus(real_smoke, opts)
     m = bench.evaluate(real_smoke, "dtw-py", "loso")
-    a = luck_test(real_smoke, "dtw-py", X, n=30, seed=1, real=m)
+    a = luck_test(real_smoke, "dtw-py", X, n=30, seed=1, opts=opts, real=m)
     assert a["realCorrect"] == round(m["accuracy"] * 60) and a["nClips"] == 60
     assert sum(a["shuffledCorrectHistogram"].values()) == 30
     assert a["pValue"] == (1 + a["atLeastReal"]) / 31 and 0.2 < a["shuffledMean"] < 0.8  # 2 classes: chance is about 50%
-    assert a == luck_test(real_smoke, "dtw-py", X, n=30, seed=1)
+    assert a == luck_test(real_smoke, "dtw-py", X, n=30, seed=1, opts=opts)
     bad = {**m, "confusion": [[1, 0], [0, 59]]}
     with pytest.raises(RuntimeError):
-        luck_test(real_smoke, "dtw-py", X, n=1, real=bad)
+        luck_test(real_smoke, "dtw-py", X, n=1, opts=opts, real=bad)
 
 
 def test_luck_test_minirocket_path_matches_the_model(real_smoke):

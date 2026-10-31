@@ -69,7 +69,7 @@ def test_synthetic_only_banner_counts_and_comparable_cross_check(tmp_path):
     assert "| dtw-knn | LOSO | 90.0% (9/10) | 0.899 | 0.0% | 2.0 | `dataset.synthetic.json` (*synthetic*) |" in md  # reads JS `datasets`
     assert "| ~2.0 |" in md  # rough timing marked
     assert "- Highest LOO on `dataset.synthetic.json`: **cnn**, 10/10 correct (100.0%)." in md
-    assert "- Highest LOSO on `dataset.synthetic.json`: **dtw-knn** and **dtw-py** and **minirocket** (tie), 9/10 correct (90.0%)." in md
+    assert "- Highest LOSO on `dataset.synthetic.json`: **dtw-knn (JS)** and **dtw-py** and **minirocket** (tie), 9/10 correct (90.0%)." in md
     # Phase 1 JS results have no budNorm: irrelevant on all left bud data, so still comparable
     assert "| LOSO | `dataset.synthetic.json` | 90.0% (9/10) | 90.0% (9/10) | 0.0 | 0.0% | 0.0% | yes, same confusion matrix |" in md
     assert "| minirocket | LOSO | 90.0% (9/10) | 0.899 | 20.0% |" in md  # 1 of 5 none clips accepted
@@ -95,8 +95,9 @@ def test_real_section_comes_first_with_counts_buds_folds_xbud_and_luck(tmp_path)
     assert "Synthetic fixture, not real" not in real and "(*synthetic*)" in synth and "| dtw-py | LOSO | 100.0% (10/10)" in synth
     assert "| s1 | **right** | 5 | 2 |" in real and "| s2 | left | 5 | 1 |" in real and "| **all** | | **10** | 3 |" in real
     assert "2 classes (`a`, `none`), so chance is about 50.0%." in real
-    assert "| Model | Accuracy | Macro F1 | test s1 (right bud) | test s2 (left bud) | None false accept | Infer ms/clip |" in real
-    assert "| dtw-py | 70.0% (7/10) | " in real and " | 80.0% (4/5) | 60.0% (3/5) | 20.0% (1/5) | 2.0 |" in real
+    assert "| Model | Accuracy | Macro F1 | test s1 (right bud) | test s2 (left bud) | Settings | None false accept | Infer ms/clip |" in real
+    assert "| dtw-py | 70.0% (7/10) | " in real and " | 80.0% (4/5) | 60.0% (3/5) | fixed before this data | 20.0% (1/5) | 2.0 |" in real
+    assert "Settings picked on these folds" not in real  # Phase 1 DTW settings (REAL): no sweep note
     assert "- Highest LOSO on `s1.json`, `s2.json`: **cnn**, 8/10 correct (80.0%)." in real
     assert "Train on every left bud clip (s2), test on every right bud clip (s1)." in real
     assert "| dtw-py | 30.0% (3/10) | 60.0% (6/10) | +30.0 |" in real
@@ -112,8 +113,8 @@ def test_real_section_comes_first_with_counts_buds_folds_xbud_and_luck(tmp_path)
 def test_loso_table_shows_the_seed_spread(tmp_path):
     spread = {"seeds": [0, 1, 2], "correct": [7, 6, 9], "nClips": 10, "mean": 22 / 30, "min": 0.6, "max": 0.9}
     md = build(tmp_path, [fake("dtw-py", "loso", 8, REAL), fake("cnn", "loso", 7, {**REAL, "seedSpread": spread})])
-    assert "| test s2 (left bud) | Seeds 0 to 2: mean (range) | None false accept |" in md
-    assert "| 80.0% (4/5) | 60.0% (3/5) | 73.3% (60.0% to 90.0%) | 0.0% (0/5) |" in md
+    assert "| test s2 (left bud) | Seeds 0 to 2: mean (range) | Settings | None false accept |" in md
+    assert "| 80.0% (4/5) | 60.0% (3/5) | 73.3% (60.0% to 90.0%) | fixed before this data | 0.0% (0/5) |" in md
     assert "| no randomness |" in md and "Accuracy is the first seed (0), fixed before the run." in md
 
 
@@ -182,3 +183,32 @@ def test_report_with_no_results(tmp_path):
     report.main(["--results", str(tmp_path / "nothing"), "--out", str(out)])
     md = out.read_text()
     assert "No real data results yet" in md and "No synthetic results" in md
+
+
+def test_swept_dtw_settings_are_flagged_and_variants_kept_apart(tmp_path):
+    swept = {**REAL, "L": 96, "band": 0.05, "k": 3, "norm": "clip", "threshold": 0.85}
+    js = {k: v for k, v in swept.items() if k not in ("perSession", "buds", "excludedBySession", "data", "excludeIds")}
+    js |= {"exclude": "exclude.json", "nExcluded": 3}  # what F's eval-dtw writes
+    md = build(tmp_path, [
+        fake("dtw-knn", "loso", 9, js),
+        fake("dtw-py", "loso", 9, swept),
+        fake("dtw-py", "loso", 7, {**REAL, "variant": "phase1-settings"}),
+        fake("cnn", "loso", 7, {**REAL, "L": 96, "norm": "clip", "variant": "L96-clip"}),
+    ], ex_file(tmp_path))
+    assert "| dtw-py | 90.0% (9/10) |" in md and "| picked on these folds (sweep) |" in md
+    assert "| dtw-py (phase1-settings) | 70.0% (7/10) |" in md and "| fixed before this data |" in md
+    assert "| cnn (L96-clip) | 70.0% (7/10) |" in md and "| preprocessing from the DTW sweep |" in md
+    assert "**Settings picked on these folds:**" in md
+    assert "Warning" not in md  # the JS exclude name + count is accepted
+    # the cross check pairs the JS result with the default dtw-py only, never a variant
+    rows = [ln for ln in md.splitlines() if ln.startswith("| LOSO | `s1.json`")]
+    assert rows == ["| LOSO | `s1.json`, `s2.json` | 90.0% (9/10) | 90.0% (9/10) | 0.0 | 0.0% | 0.0% | yes, same confusion matrix |"]
+    assert "##### dtw-py (phase1-settings)" in md
+
+
+def test_js_exclusion_by_name_and_count():
+    m = fake("dtw-knn", "loso", 9, {**JS_SYNTH, "datasets": ["s1.json"], "exclude": "exclude.json", "nExcluded": 3})
+    assert report.exclusion_problem(m, IDS, "data/raw/exclude.json") is None
+    assert report.exclusion_problem(m, IDS, "other.json") == "made with a different exclusion list"
+    m0 = fake("dtw-knn", "loso", 9, {**JS_SYNTH, "datasets": ["s1.json"]})
+    assert report.exclusion_problem(m0, IDS) == "made without the exclusion list"

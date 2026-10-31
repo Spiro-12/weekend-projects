@@ -66,16 +66,28 @@ def excluded_ids(m: dict[str, Any]) -> list[str] | None:
     return None
 
 
-def exclusion_problem(m: dict[str, Any], ids: Sequence[str] | None) -> str | None:
-    """Why a real data result does not match the exclusion list (None = it does, or there is no list)."""
+def excluded_count(m: dict[str, Any]) -> int | None:
+    """Clips a result skipped by its exclusion list: Python `excluded`, the JS eval-dtw `nExcluded`."""
+    for k in ("excluded", "nExcluded"):
+        v = m["params"].get(k)
+        if isinstance(v, int) and not isinstance(v, bool):
+            return v
+    return None
+
+
+def exclusion_problem(m: dict[str, Any], ids: Sequence[str] | None, file: str | None = None) -> str | None:
+    """Why a real data result does not match the exclusion list (None = it does, or there is no list).
+    Python results keep the ids; the JS keeps the file name (`exclude`) and the count (`nExcluded`)."""
     if ids is None:
         return None
     got = excluded_ids(m)
-    if got is None:
-        return "made without the exclusion list" if m["params"].get("excluded") in (0, None) else "exclusion list not recorded"
-    if set(got) != set(ids):
-        return "made with a different exclusion list"
-    return None
+    if got is not None:
+        return "made with a different exclusion list" if set(got) != set(ids) else None
+    name = m["params"].get("exclude")
+    n = excluded_count(m)
+    if isinstance(name, str) and n:
+        return None if file is None or Path(name).name == Path(file).name else "made with a different exclusion list"
+    return "made without the exclusion list" if not n else "exclusion list not recorded"
 
 
 def _result_files(results_dir: Path) -> list[Path]:
@@ -96,7 +108,7 @@ def load_results(results_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
         if errs:
             problems.append(f"`{p.relative_to(results_dir)}`: {'; '.join(errs[:3])}")
             continue
-        key = (m["model"], m["protocol"], m["generatedAt"], m["nClips"], tuple(datasets(m)))
+        key = (m["model"], m["params"].get("variant"), m["protocol"], m["generatedAt"], tuple(datasets(m)), json.dumps(m["confusion"]))
         if key in seen:
             continue
         seen.add(key)
@@ -129,8 +141,33 @@ def _ms(m: dict[str, Any]) -> str:
     return f"{'~' if rough else ''}{m['inferMsPerClip']:.1f}"
 
 
+# Track F picked the JS defaults (web/src/ml/preprocess.ts DEFAULT_OPTS) with a LOSO sweep of 768 configurations on
+# Spiro's 3 real sessions, so a DTW result at exactly these settings on that data is a little optimistic.
+SWEPT_DTW = {"L": 96, "band": 0.05, "k": 3, "norm": "clip"}
+
+
+def _variant(m: dict[str, Any]) -> str | None:
+    v = m["params"].get("variant")
+    return v if isinstance(v, str) and v else None
+
+
 def _model(m: dict[str, Any]) -> str:
-    return "dtw-knn (JS)" if m["model"] == "dtw-knn" else m["model"]
+    name = "dtw-knn (JS)" if m["model"] == "dtw-knn" else m["model"]
+    return f"{name} ({_variant(m)})" if _variant(m) else name
+
+
+def _swept(m: dict[str, Any]) -> bool:
+    return m["model"] in ("dtw-knn", "dtw-py") and all(m["params"].get(k) == v for k, v in SWEPT_DTW.items())
+
+
+def _settings_origin(m: dict[str, Any]) -> str:
+    """Were this result's settings picked by looking at these same folds?"""
+    if _swept(m):
+        return "picked on these folds (sweep)"
+    p = m["params"]
+    if m["model"] in ("minirocket", "cnn") and p.get("L") == SWEPT_DTW["L"] and p.get("norm") == SWEPT_DTW["norm"]:
+        return "preprocessing from the DTW sweep"
+    return "fixed before this data"
 
 
 def _nfa(m: dict[str, Any]) -> str:
@@ -165,6 +202,8 @@ def comparable(js: dict[str, Any], py: dict[str, Any]) -> list[str]:
     a, b = excluded_ids(js), excluded_ids(py)
     if a is not None and b is not None and set(a) != set(b):
         why.append("different exclusion lists")
+    elif (excluded_count(js) or 0) != (excluded_count(py) or 0):
+        why.append(f"excluded {excluded_count(js)} vs {excluded_count(py)} clips")
     return why
 
 
@@ -182,7 +221,7 @@ def _highest(results: Sequence[dict[str, Any]], protocols: Sequence[str] = ("los
             top = max(correct(m) for m in rows)
             winners = [m for m in rows if correct(m) == top]
             w = winners[0]
-            names = " and ".join(f"**{m['model']}**" for m in winners) + (" (tie)" if len(winners) > 1 else "")
+            names = " and ".join(f"**{_model(m)}**" for m in winners) + (" (tie)" if len(winners) > 1 else "")
             data = ", ".join(f"`{x}`" for x in g) or "?"
             lines.append(f"- Highest {proto.upper()} on {data}: {names}, {top}/{w['nClips']} correct ({_pct(w['accuracy'])}).")
     return lines
@@ -191,8 +230,8 @@ def _highest(results: Sequence[dict[str, Any]], protocols: Sequence[str] = ("los
 def _cross_check(results: Sequence[dict[str, Any]]) -> list[str]:
     rows = []
     for proto in ("loso", "loo"):
-        for js in [m for m in results if m["model"] == "dtw-knn" and m["protocol"] == proto]:
-            for py in [m for m in results if m["model"] == "dtw-py" and m["protocol"] == proto]:
+        for js in [m for m in results if m["model"] == "dtw-knn" and m["protocol"] == proto and not _variant(m)]:
+            for py in [m for m in results if m["model"] == "dtw-py" and m["protocol"] == proto and not _variant(m)]:
                 why = comparable(js, py)
                 head = f"| {proto.upper()} | {_names(py)} | {_frac(correct(js), js['nClips'])} | {_frac(correct(py), py['nClips'])} |"
                 nfa = f" {_pct(js['noneFalseAcceptRate'])} | {_pct(py['noneFalseAcceptRate'])} |"
@@ -218,9 +257,9 @@ def _cross_check(results: Sequence[dict[str, Any]]) -> list[str]:
 
 def _confusions(results: Sequence[dict[str, Any]], out_path: Path, level: int = 4) -> list[str]:
     lines = ["Rows = true label, columns = predicted.", ""]
-    for model in dict.fromkeys(m["model"] for m in results):
+    for model in dict.fromkeys(_model(m) for m in results):
         lines += [f"{'#' * level} {model}", ""]
-        for m in [r for r in results if r["model"] == model]:
+        for m in [r for r in results if _model(r) == model]:
             img = m["_path"].parent / f"confusion_{m['protocol']}.png"
             if img.exists():
                 rel = os.path.relpath(img, out_path.parent).replace(os.sep, "/")
@@ -267,15 +306,24 @@ def _loso_table(rows: Sequence[dict[str, Any]], cols: Sequence[tuple[str, str]])
     seed_col = [f"Seeds {seeds[0]} to {seeds[-1]}: mean (range)"] if seeds else []
     head = (
         "| Model | Accuracy | Macro F1 | " + " | ".join(f"test {s} ({b} bud)" for s, b in cols) + " | "
-        + "".join(f"{c} | " for c in seed_col) + "None false accept | Infer ms/clip |"
+        + "".join(f"{c} | " for c in seed_col) + "Settings | None false accept | Infer ms/clip |"
     )
-    lines = [head, "|---|---:|---:|" + "---:|" * (len(cols) + len(seed_col)) + "---:|---:|"]
+    lines = [head, "|---|---:|---:|" + "---:|" * (len(cols) + len(seed_col)) + "---|---:|---:|"]
     for m in rows:
         per = m["params"].get("perSession") or {}
         cells = [_frac(per[s]["correct"], per[s]["n"]) if s in per else "?" for s, _ in cols] + ([_seeds(m)] if seeds else [])
         lines.append(
-            f"| {_model(m)} | {_frac(correct(m), m['nClips'])} | {m['macroF1']:.3f} | " + " | ".join(cells) + f" | {_nfa(m)} | {_ms(m)} |"
+            f"| {_model(m)} | {_frac(correct(m), m['nClips'])} | {m['macroF1']:.3f} | " + " | ".join(cells)
+            + f" | {_settings_origin(m)} | {_nfa(m)} | {_ms(m)} |"
         )
+    if any(_swept(m) for m in rows):
+        lines += [
+            "",
+            "**Settings picked on these folds:** the DTW defaults (L 96, band 0.05, k 3, clip norm, threshold 0.85) were chosen",
+            "by a LOSO sweep of 768 configurations on these same 3 sessions (Track F, `web/src/ml/preprocess.ts`), so those",
+            "rows are a little optimistic (the best of many tries). Rows marked *fixed before this data* had no such tuning.",
+            "The honest check is a session that played no part in choosing anything (the s3 hold out replay of the public model).",
+        ]
     if seeds:
         lines += [
             "",
@@ -353,14 +401,14 @@ def _settings_lines(group: Sequence[dict[str, Any]]) -> list[str]:
     seen: dict[str, str] = {}
     for m in group:
         if m["protocol"] == "loso":
-            seen.setdefault(m["model"], _settings(m))
+            seen.setdefault(_model(m), _settings(m))
     return ["Settings (LOSO runs): " + "; ".join(f"**{k}**: {v}" for k, v in seen.items()) + ".", ""] if seen else []
 
 
-def _real_section(group: Sequence[dict[str, Any]], out_path: Path, ids: Sequence[str] | None) -> list[str]:
+def _real_section(group: Sequence[dict[str, Any]], out_path: Path, ids: Sequence[str] | None, file: str | None = None) -> list[str]:
     lines = [f"### Data: {_names(group[0])}", "", *_sessions_table(group), *_settings_lines(group)]
     for m in group:
-        why = exclusion_problem(m, ids)
+        why = exclusion_problem(m, ids, file)
         if why:
             lines += [f"**Warning:** `{m['_path'].parent.name}/{m['_path'].name}` was {why}.", ""]
     by = {p: [m for m in group if m["protocol"] == p] for p in PROTOCOL_ORDER}
@@ -396,7 +444,10 @@ def _real_section(group: Sequence[dict[str, Any]], out_path: Path, ids: Sequence
     return lines
 
 
-def render(results: Sequence[dict[str, Any]], out_path: Path, problems: Sequence[str] = (), exclude_ids: Sequence[str] | None = None) -> str:
+def render(
+    results: Sequence[dict[str, Any]], out_path: Path, problems: Sequence[str] = (), exclude_ids: Sequence[str] | None = None,
+    exclude_file: str | None = None,
+) -> str:
     real = [m for m in results if not is_synthetic(m)]
     synth = [m for m in results if is_synthetic(m)]
     lines = [
@@ -427,7 +478,7 @@ def render(results: Sequence[dict[str, Any]], out_path: Path, problems: Sequence
             "",
         ]
         for g in _groups(real):
-            lines += _real_section([m for m in real if tuple(datasets(m)) == g], out_path, exclude_ids)
+            lines += _real_section([m for m in real if tuple(datasets(m)) == g], out_path, exclude_ids, exclude_file)
     else:
         lines += ["No real data results yet. Run `uv run python -m silent.bench --real --model all --protocol all`.", ""]
 
@@ -473,7 +524,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ap.error(str(e))
     out = Path(a.out)
     results, problems = load_results(Path(a.results))
-    out.write_text(render(results, out, problems, ids))
+    out.write_text(render(results, out, problems, ids, a.exclude if ids is not None else None))
     print(f"wrote {out} ({len(results)} results{', ' + str(len(problems)) + ' skipped' if problems else ''})")
     return 0
 

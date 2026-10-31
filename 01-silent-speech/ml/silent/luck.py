@@ -22,7 +22,7 @@ import numpy as np
 
 from .cv import splits
 from .data import Corpus
-from .models.dtw import as_f32, band_radius, classify, dtw_many
+from .models.dtw import JS_DEFAULTS, as_f32, band_radius, classify, dtw_many
 from .preprocess import DEFAULT_OPTS, PreOpts, apply_norm, fit_norm
 
 LUCK_MODELS = ("dtw-py", "minirocket")
@@ -36,7 +36,7 @@ def _norm_fold(X: np.ndarray, tr: np.ndarray, te: np.ndarray, norm: str) -> tupl
 
 
 class DtwFold:
-    def __init__(self, X: np.ndarray, tr: np.ndarray, te: np.ndarray, norm: str, band: float = 0.1, k: int = 1, **_: Any):
+    def __init__(self, X: np.ndarray, tr: np.ndarray, te: np.ndarray, norm: str, band: float = JS_DEFAULTS["band"], k: int = JS_DEFAULTS["k"], **_: Any):
         Xtr, Xte = _norm_fold(X, tr, te, norm)
         T = as_f32(Xtr)
         r = band_radius(band, T.shape[2])
@@ -87,7 +87,7 @@ def luck_test(
     X: np.ndarray,
     n: int = 500,
     seed: int = 0,
-    opts: PreOpts = DEFAULT_OPTS,
+    opts: PreOpts = DEFAULT_OPTS,  # the opts X was made with (only .norm is used here)
     model_kw: dict[str, Any] | None = None,
     real: dict[str, Any] | None = None,
     log: Callable[[str], None] | None = None,

@@ -33,10 +33,27 @@ from .data import Corpus, load_corpus
 from .luck import LUCK_MODELS, luck_test
 from .metrics import compute_metrics
 from .models import MODEL_NAMES, Pred, make_model, torch_available
+from .models.dtw import JS_DEFAULTS, PHASE1_DEFAULTS
 from .preprocess import DEFAULT_CHANNELS, DEFAULT_OPTS, PreOpts, apply_norm, fit_norm, preprocess_clip
 
 PROTOCOLS: tuple[Protocol, ...] = ("loo", "loso", "xbud")
 BUD_NORMS = ("mirror", "none")
+# Per model defaults. dtw-py = the JS defaults (models/dtw.py JS_DEFAULTS). MiniRocket and the CNN keep the
+# PROTOCOL §5 preprocessing defaults (L 64, global norm) and the 0.5 threshold: nothing about them was tuned on real data.
+MODEL_DEFAULTS: dict[str, dict[str, Any]] = {
+    "dtw-py": {"L": JS_DEFAULTS["L"], "norm": JS_DEFAULTS["norm"], "threshold": JS_DEFAULTS["threshold"]},
+    "minirocket": {"L": DEFAULT_OPTS.L, "norm": DEFAULT_OPTS.norm, "threshold": 0.5},
+    "cnn": {"L": DEFAULT_OPTS.L, "norm": DEFAULT_OPTS.norm, "threshold": 0.5},
+}
+
+
+def default_opts(model: str) -> PreOpts:
+    d = MODEL_DEFAULTS[model]
+    return replace(DEFAULT_OPTS, L=d["L"], norm=d["norm"])
+
+
+def default_threshold(model: str) -> float:
+    return float(MODEL_DEFAULTS[model]["threshold"])
 
 
 def _rel(p: str) -> str:
@@ -92,12 +109,17 @@ def evaluate(
     corpus: Corpus,
     model: str,
     protocol: Protocol,
-    opts: PreOpts = DEFAULT_OPTS,
-    threshold: float = 0.5,
+    opts: PreOpts | None = None,
+    threshold: float | None = None,
     model_kw: dict[str, Any] | None = None,
     log: Callable[[str], None] | None = None,
     jobs: int = 1,
+    variant: str | None = None,
 ) -> dict[str, Any]:
+    """opts / threshold None = the model's defaults (MODEL_DEFAULTS). variant: a name for a non default run
+    (written to params.variant; the CLI puts it in results/<model>--<variant>/)."""
+    opts = opts or default_opts(model)
+    threshold = default_threshold(model) if threshold is None else threshold
     model_kw = dict(model_kw or {})
     if model == "dtw-py":  # its confidence cap for unsafe models uses the threshold
         model_kw.setdefault("threshold", threshold)
@@ -153,6 +175,8 @@ def evaluate(
         "timing": "single process" if jobs <= 1 else f"rough: {jobs} processes in parallel",
         "evalSec": round(time.perf_counter() - t_all, 2),
     }
+    if variant:
+        params["variant"] = variant
     if protocol == "xbud":
         tr, te = folds[0]
         params["xbud"] = {
@@ -172,12 +196,13 @@ def summary(m: dict[str, Any]) -> dict[str, Any]:
 
 
 def cross_bud(
-    corpus: Corpus, model: str, opts: PreOpts = DEFAULT_OPTS, threshold: float = 0.5, model_kw: dict[str, Any] | None = None,
-    log: Callable[[str], None] | None = None,
+    corpus: Corpus, model: str, opts: PreOpts | None = None, threshold: float | None = None, model_kw: dict[str, Any] | None = None,
+    log: Callable[[str], None] | None = None, variant: str | None = None,
 ) -> dict[str, Any]:
     """xbud with bud normalization on (mirror) and off (raw). Returns the result for opts.bud_norm with
     `params.variants` = {"mirror": ..., "none": ...} holding the numbers of both."""
-    runs = {bn: evaluate(corpus, model, "xbud", replace(opts, bud_norm=bn), threshold, model_kw, log) for bn in BUD_NORMS}
+    opts = opts or default_opts(model)
+    runs = {bn: evaluate(corpus, model, "xbud", replace(opts, bud_norm=bn), threshold, model_kw, log, variant=variant) for bn in BUD_NORMS}
     m = runs[opts.bud_norm]
     m["params"]["variants"] = {bn: summary(r) for bn, r in runs.items()}
     return m
@@ -195,7 +220,7 @@ def seed_spread(
     seed0 = model_kw.get("seed", 0)
     correct = [int(np.trace(np.array(first["confusion"])))]
     for s in range(seed0 + 1, seed0 + n):
-        r = evaluate(corpus, model, first["protocol"], opts, threshold, {**model_kw, "seed": s}, jobs=jobs)
+        r = evaluate(corpus, model, first["protocol"], opts, threshold, {**model_kw, "seed": s}, jobs=jobs, variant=first["params"].get("variant"))
         correct.append(int(np.trace(np.array(r["confusion"]))))
         if log:
             log(f"  {model} {first['protocol']} seed {s}: {correct[-1]}/{r['nClips']}")
@@ -279,8 +304,13 @@ def plot_luck(metrics: dict[str, Any], path: Path) -> None:
     plt.close(fig)
 
 
+def result_dir(metrics: dict[str, Any], out_dir: Path) -> Path:
+    v = metrics["params"].get("variant")
+    return out_dir / (f"{metrics['model']}--{v}" if v else metrics["model"])
+
+
 def write_result(metrics: dict[str, Any], out_dir: Path) -> Path:
-    d = out_dir / metrics["model"]
+    d = result_dir(metrics, out_dir)
     d.mkdir(parents=True, exist_ok=True)
     p = d / f"{metrics['protocol']}.json"
     p.write_text(json.dumps(metrics, indent=2) + "\n")
@@ -319,13 +349,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--no-exclude", action="store_true", help="allow data/raw files without their exclude.json (not for published numbers)")
     ap.add_argument("--out", default=None, help="results folder (default ml/results, or ml/results/synthetic for synthetic data)")
     ap.add_argument("--channels", default=",".join(DEFAULT_CHANNELS))
-    ap.add_argument("--L", type=int, default=64)
+    ap.add_argument("--L", type=int, default=None, help="default: dtw-py 96 (the JS default), others 64")
     ap.add_argument("--hp-hz", type=float, default=1.0)
-    ap.add_argument("--norm", choices=["global", "clip"], default="global")
+    ap.add_argument("--norm", choices=["global", "clip"], default=None, help="default: dtw-py clip (the JS default), others global")
     ap.add_argument("--bud-norm", choices=list(BUD_NORMS), default="mirror", help="step 0: mirror right bud clips (default) or not")
-    ap.add_argument("--threshold", type=float, default=0.5)
-    ap.add_argument("--band", type=float, default=0.1, help="dtw-py Sakoe-Chiba band (fraction of L)")
-    ap.add_argument("--k", type=int, default=1, help="dtw-py neighbours (PROTOCOL §6 default 1)")
+    ap.add_argument("--threshold", type=float, default=None, help="accept threshold; default: dtw-py 0.85 (the JS default), others 0.5")
+    ap.add_argument("--band", type=float, default=JS_DEFAULTS["band"], help="dtw-py Sakoe-Chiba band (fraction of L)")
+    ap.add_argument("--k", type=int, default=JS_DEFAULTS["k"], help="dtw-py neighbours")
+    ap.add_argument("--phase1", action="store_true",
+                    help="dtw-py with the Phase 1 settings (L 64, band 0.1, k 1, global, 0.5), as variant 'phase1-settings'")
+    ap.add_argument("--variant", default=None, help="name a non default run: results/<model>--<variant>/, params.variant")
     ap.add_argument("--kernels", type=int, default=10_000, help="minirocket kernels")
     ap.add_argument("--epochs", type=int, default=300, help="cnn max epochs")
     ap.add_argument("--seed", type=int, default=0)
@@ -354,9 +387,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print("cnn needs torch: run `uv sync --extra cnn` in ml/", file=sys.stderr)
             return 2
-    opts = PreOpts(
-        channels=tuple(c.strip() for c in a.channels.split(",") if c.strip()), L=a.L, hp_hz=a.hp_hz, norm=a.norm, bud_norm=a.bud_norm,
-    )
+    if a.phase1:
+        a.L, a.norm, a.threshold, a.band, a.k = (PHASE1_DEFAULTS[k] for k in ("L", "norm", "threshold", "band", "k"))
+        a.variant = a.variant or "phase1-settings"
+    channels = tuple(c.strip() for c in a.channels.split(",") if c.strip())
+
+    def opts_for(model: str) -> PreOpts:
+        d = default_opts(model)
+        return replace(d, channels=channels, L=a.L or d.L, hp_hz=a.hp_hz, norm=a.norm or d.norm, bud_norm=a.bud_norm)
+
     corpus = load_corpus(data, exclude=a.exclude)
     out = Path(a.out) if a.out else default_out(corpus)
     print(
@@ -377,14 +416,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         protocols.remove("xbud")
     log = lambda s: print(s, flush=True)
     for model in models:
+        opts = opts_for(model)
+        threshold = default_threshold(model) if a.threshold is None else a.threshold
         for protocol in protocols:
             t = time.perf_counter()
             if protocol == "xbud":
-                m = cross_bud(corpus, model, opts, a.threshold, kw[model], log=log)
+                m = cross_bud(corpus, model, opts, threshold, kw[model], log=log, variant=a.variant)
             else:
-                m = evaluate(corpus, model, protocol, opts, a.threshold, kw[model], log=log, jobs=a.jobs)
+                m = evaluate(corpus, model, protocol, opts, threshold, kw[model], log=log, jobs=a.jobs, variant=a.variant)
             if protocol == "loso" and a.seeds > 1 and model in SEEDED_MODELS:
-                m["params"]["seedSpread"] = seed_spread(corpus, model, opts, a.threshold, kw[model], m, a.seeds, log=log, jobs=a.jobs)
+                m["params"]["seedSpread"] = seed_spread(corpus, model, opts, threshold, kw[model], m, a.seeds, log=log, jobs=a.jobs)
             if protocol == "loso" and a.permutations > 0:
                 if model in LUCK_MODELS:
                     X, _ = preprocess_corpus(corpus, opts)

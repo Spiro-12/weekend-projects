@@ -1,307 +1,307 @@
 {
- "_what": "JS dtw-knn held out predictions, LOSO, real data smoke set: data/raw s1 (right bud) + s2 (left bud), labels text_mom + volume_up, exclude list applied, default options (budNorm mirror, k = 1), grid epsilon 1e-6",
- "_from": "p2-f-dtw-real cdbb6ef (Track F WIP, has the PROTOCOL \u00a75 grid epsilon 1e-6), web/src/ml: mergeDatasets(all 3 files) -> applyExclude(exclude.json) -> filter sessions/labels -> crossValidate(clips, {}, 'loso')",
+ "_what": "JS dtw-knn held out predictions, LOSO, real data smoke set: data/raw s1 (right bud) + s2 (left bud), labels text_mom + volume_up, exclude list applied, default options (L 96, band 0.05, k 3, clip norm, threshold 0.85, budNorm mirror), grid epsilon 1e-6",
+ "_from": "origin/p2-f-dtw-real d27c07f, web/src/ml: mergeDatasets(all 3 files) -> applyExclude(exclude.json) -> filter sessions/labels -> crossValidate(clips, {}, 'loso')",
  "opts": {},
  "preds": [
   [
    "s1-mvw4afmw-b",
    "text_mom",
-   0.747177836613431
+   0.9348224187308042
   ],
   [
    "s1-mvw4b6m6-g",
    "volume_up",
-   0.17012176796456213
+   0.8395879009770235
   ],
   [
    "s1-mvw4bsc3-o",
    "text_mom",
-   0.9204397626170725
+   0.965061899980246
   ],
   [
    "s1-mvw4c7h5-u",
    "volume_up",
-   0.9355327844508418
+   0.9770372805923955
   ],
   [
    "s1-mvw4ct80-12",
    "volume_up",
-   0.9250208322835369
+   0.9712793924419579
   ],
   [
    "s1-mvw4dlj8-1c",
    "text_mom",
-   0.37049422468733956
+   0.9590147762146138
   ],
   [
    "s1-mvw4dvxj-1g",
    "text_mom",
-   0.4111679131644745
+   0.9246975704741873
   ],
   [
    "s1-mvw4ehts-1o",
    "volume_up",
-   0.8031731586321572
+   0.9663809588271277
   ],
   [
    "s1-mvw4f5r4-1y",
    "volume_up",
-   1.4563747191329247e-12
+   0.9858171843383888
   ],
   [
    "s1-mvw4fapc-20",
    "text_mom",
-   0.8893224158988948
+   0.9008818070181457
   ],
   [
    "s1-mvw4g5ld-2c",
    "volume_up",
-   0.9051089226048236
+   0.976428534585451
   ],
   [
    "s1-mvw4gjxh-2i",
    "text_mom",
-   0.4277039248815788
+   0.9313202270795646
   ],
   [
    "s1-mvw4hws6-30",
    "text_mom",
-   0.6678070296460394
+   0.2464253705557668
   ],
   [
    "s1-mvw4ibcn-36",
    "volume_up",
-   0.8874721670437167
+   0.9629472650271732
   ],
   [
    "s1-mvw4im8u-3a",
    "text_mom",
-   0.909638818441998
+   0.9575562436821268
   ],
   [
    "s1-mvw4jbzf-3k",
    "volume_up",
-   8.215646472802637e-05
+   0.9558108643527545
   ],
   [
    "s1-mvw4jyla-3s",
    "text_mom",
-   0.9484352066338229
+   0.9531945472527449
   ],
   [
    "s1-mvw4kq9m-42",
    "volume_up",
-   0.6852975162041859
+   0.9844522935377892
   ],
   [
    "s1-mvw4le2h-4a",
    "text_mom",
-   0.7772837860587222
+   0.9268986238681592
   ],
   [
    "s1-mvw4lo85-4e",
    "volume_up",
-   0.18653627096379327
+   0.9406072315602073
   ],
   [
    "s1-mvw4m7ed-4m",
    "volume_up",
-   0.9267538546241648
+   0.9633869573484687
   ],
   [
    "s1-mvw4mq86-4u",
    "text_mom",
-   0.7645047562930033
+   0.8709794232435003
   ],
   [
    "s1-mvw4n5v9-50",
    "text_mom",
-   0.9906220559920257
+   0.9942584040639195
   ],
   [
    "s1-mvw4o7tc-5e",
    "volume_up",
-   0.023113320570729384
+   0.9845194495818785
   ],
   [
    "s1-mvw4ond7-5k",
    "volume_up",
-   0.6695769119779084
+   0.49528297597038656
   ],
   [
    "s1-mvw4oxds-5o",
    "text_mom",
-   0.9706373121318947
+   0.9749458124494805
   ],
   [
    "s1-mvw4rwbe-6c",
    "text_mom",
-   0.007213267533052083
+   0.006078035971783472
   ],
   [
    "s1-mvw4s0y2-6e",
-   "text_mom",
-   0.04664691220761692
+   "volume_up",
+   0.008129502266034
   ],
   [
    "s1-mvw4szkq-6q",
    "text_mom",
-   0.022059710774507798
+   0.020361237975121543
   ],
   [
    "s1-mvw4t4ib-6s",
    "text_mom",
-   0.0022514418582904394
+   0.010039704197518162
   ],
   [
    "s2-mvw4uiru-6w",
    "text_mom",
-   0.02206181717452787
+   0.9488812298249603
   ],
   [
    "s2-mvw4vq2j-78",
    "volume_up",
-   0.9259662483577091
+   0.9732760404268781
   ],
   [
    "s2-mvw4w1ff-7c",
    "text_mom",
-   0.8757702813845778
+   0.7812591526840555
   ],
   [
    "s2-mvw4wzi9-7o",
    "volume_up",
-   0.7935882812069139
+   0.6722969061107933
   ],
   [
    "s2-mvw4xooa-7y",
    "volume_up",
-   0.6671867614063439
+   0.2804153393046072
   ],
   [
    "s2-mvw4y8vi-86",
    "text_mom",
-   0.43854056799459146
+   0.9776577191132927
   ],
   [
    "s2-mvw4yojz-8c",
    "volume_up",
-   0.9430945998035505
+   0.9594189407626675
   ],
   [
    "s2-mvw4zjwj-8m",
    "text_mom",
-   0.9969343123304185
+   0.9861951479267673
   ],
   [
    "s2-mvw50g0t-8w",
    "text_mom",
-   0.9806895668178901
+   0.9750210560391286
   ],
   [
    "s2-mvw50pui-90",
    "volume_up",
-   0.8233141589911295
+   0.9175367491694124
   ],
   [
    "s2-mvw51l8b-9a",
    "text_mom",
-   0.8684661846500722
+   0.9656837191916268
   ],
   [
    "s2-mvw5292g-9i",
    "volume_up",
-   0.6512485723717236
+   0.9437273761826718
   ],
   [
    "s2-mvw52jqg-9m",
    "volume_up",
-   0.9014332953453963
+   0.9776047798475812
   ],
   [
    "s2-mvw5363t-9u",
    "text_mom",
-   0.9868266633433234
+   0.9939669308200736
   ],
   [
    "s2-mvw53m5l-a0",
    "volume_up",
-   0.9932340675697107
+   0.9134270185544706
   ],
   [
    "s2-mvw53rmc-a2",
    "text_mom",
-   0.6986509875337442
+   0.979902591737126
   ],
   [
    "s2-mvw55244-ai",
    "text_mom",
-   0.973688621114675
+   0.9783097563657464
   ],
   [
    "s2-mvw556zv-ak",
    "volume_up",
-   0.9534864147892176
+   0.3687911615570243
   ],
   [
    "s2-mvw56c3e-ay",
    "volume_up",
-   0.8681286616959811
+   0.9094178423189883
   ],
   [
    "s2-mvw56h8e-b0",
    "text_mom",
-   0.904440520492244
+   0.9831254236497441
   ],
   [
    "s2-mvw57dqx-bc",
    "volume_up",
-   0.824411526402988
+   0.9310544352489253
   ],
   [
    "s2-mvw58du5-bo",
    "text_mom",
-   0.836127224573118
+   0.9658414805571451
   ],
   [
    "s2-mvw58svr-bu",
    "volume_up",
-   0.8027855016868994
+   0.8246844691977516
   ],
   [
    "s2-mvw592y9-by",
    "text_mom",
-   0.7236259201311116
+   0.9596888227404033
   ],
   [
    "s2-mvw5b0o6-ck",
    "text_mom",
-   0.9489370699530332
+   0.9785831442821599
   ],
   [
    "s2-mvw5b616-cm",
    "volume_up",
-   0.8978758906616633
+   0.6408153372932663
   ],
   [
    "s2-mvw5bzob-cw",
    "text_mom",
-   0.9812645848923636
+   0.9665049471658317
   ],
   [
    "s2-mvw5c4ty-cy",
    "volume_up",
-   0.9365096354476802
+   0.9763373336809748
   ],
   [
    "s2-mvw5d9kx-dc",
    "text_mom",
-   0.9734985339308369
+   0.9367707629472434
   ],
   [
    "s2-mvw5dk8v-dg",
    "volume_up",
-   0.9220903657408427
+   0.8254801766316041
   ]
  ]
 }
