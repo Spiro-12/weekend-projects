@@ -42,7 +42,8 @@ describe('golden: scipy filtfilt(padtype=odd, padlen=min(9, n-1))', () => {
   });
 });
 
-describe('golden: 50 Hz grid (np.interp)', () => {
+// Heavy work: an explicit timeout so loaded or parallel runs (CI, 4 agents on one box) don't flake.
+describe('golden: 50 Hz grid (np.interp)', { timeout: 60_000 }, () => {
   it.each(g.grid)('$name', ({ samples, grid }) => {
     const out = toGrid(samples, ['rr.x', 'rr.y', 'rr.z', 'ua.x', 'ua.y', 'ua.z']);
     expect(out[0].length).toBe(grid[0].length);

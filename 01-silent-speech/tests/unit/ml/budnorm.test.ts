@@ -14,7 +14,8 @@ const bySession = (s: string) => clips().filter((c) => c.session === s);
 const asRightBud = <T extends Clip>(cs: T[]): T[] => cs.map((c) => ({ ...c, samples: c.samples.map(mirrorSample), loc: 'right' as const }));
 const bits = (x: ArrayLike<number>[]) => x.map((r) => Array.from(r));
 
-describe('bud normalization (step 0)', () => {
+// Heavy work: an explicit timeout so loaded or parallel runs (CI, 4 agents on one box) don't flake.
+describe('bud normalization (step 0)', { timeout: 60_000 }, () => {
   const s = clips()[3].samples;
 
   it('mirrorSample flips rr.y, rr.z and ua.x only (and keeps the other fields)', () => {

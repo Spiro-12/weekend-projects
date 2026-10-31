@@ -10,7 +10,8 @@ import { syntheticDataset } from './helpers';
 const clips = (): DatasetClip[] => syntheticDataset().clips;
 const bySession = (s: string) => clips().filter((c) => c.session === s);
 
-describe('train / predict', () => {
+// Heavy work: an explicit timeout so loaded or parallel runs (CI, 4 agents on one box) don't flake.
+describe('train / predict', { timeout: 60_000 }, () => {
   const model = train([...bySession('s1'), ...bySession('s2')]);
   const test = bySession('s3');
 

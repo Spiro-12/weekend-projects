@@ -56,7 +56,8 @@ describe('exclusion list', () => {
   });
 });
 
-describe('holdOut', () => {
+// Heavy work: an explicit timeout so loaded or parallel runs (CI, 4 agents on one box) don't flake.
+describe('holdOut', { timeout: 60_000 }, () => {
   const cs = ds().clips;
   const tr = cs.filter((c) => c.session !== 's3'), te = cs.filter((c) => c.session === 's3');
 

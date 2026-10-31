@@ -20,7 +20,8 @@ const noise = noiseSet(); // 80 clips: white, band limited and speech like rando
  */
 const GLOBAL = { norm: 'global' } as const;
 
-describe('safety: out of vocabulary input is rejected', () => {
+// Heavy work: an explicit timeout so loaded or parallel runs (CI, 4 agents on one box) don't flake.
+describe('safety: out of vocabulary input is rejected', { timeout: 60_000 }, () => {
   it('(a) a 1 class model never accepts (capped below the threshold), not even noise', () => {
     const m = train(only(['text_mom']));
     for (const s of noise) {

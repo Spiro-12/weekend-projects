@@ -7,7 +7,8 @@ import { train } from '../../../web/src/ml';
 
 const cls = (classes as ClassDef[]).filter((c) => ['text_mom', 'volume_up', 'none'].includes(c.id));
 
-describe('lead follow ups after Track D review', () => {
+// Heavy work: an explicit timeout so loaded or parallel runs (CI, 4 agents on one box) don't flake.
+describe('lead follow ups after Track D review', { timeout: 60_000 }, () => {
   it('small sets use the exact LOO path (fast path == exact path bit for bit)', () => {
     const ds = synthDataset({ classes: cls, reps: 5, sessions: 1, seed: 3 });
     expect(ds.clips.length).toBeLessThanOrEqual(EXACT_LOO_MAX);

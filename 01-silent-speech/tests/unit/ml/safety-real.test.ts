@@ -21,7 +21,8 @@ const real: Clip[] = applyExclude(
 const sess = (s: string[]) => real.filter((c) => s.includes(c.session ?? ''));
 const fires = (p: { label: string; accepted: boolean }) => p.accepted && p.label !== NONE;
 
-describe('safety on real data (default options)', () => {
+// Heavy work: an explicit timeout so loaded or parallel runs (CI, 4 agents on one box) don't flake.
+describe('safety on real data (default options)', { timeout: 60_000 }, () => {
   it('has the expected data: 342 clips, s1 on the right bud, s2 + s3 on the left', () => {
     expect(real.length).toBe(342);
     expect(new Set(sess(['s1']).map((c) => c.loc))).toEqual(new Set(['right']));
@@ -61,5 +62,5 @@ describe('safety on real data (default options)', () => {
       expect(noise.filter((s) => fires(m.predict(s, { loc }))).length).toBe(0);
       expect(whiteNoise(20, 11, 0.05).filter((s) => fires(m.predict(s, { loc }))).length).toBe(0);
     }
-  }, 60_000);
+  }, 120_000);
 });

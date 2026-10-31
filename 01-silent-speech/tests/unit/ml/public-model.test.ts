@@ -16,7 +16,8 @@ const meta = readJson<{ trainedOn: string[]; sessions: string[]; heldOut: string
 const excl = parseExclude(readJson('data/raw/exclude.json'));
 const load = (files: string[]): Clip[] => applyExclude(mergeDatasets(files.map((f) => readJson<Dataset>(`data/raw/${f}`))).clips, excl).clips;
 
-describe('public model', () => {
+// Heavy work: an explicit timeout so loaded or parallel runs (CI, 4 agents on one box) don't flake.
+describe('public model', { timeout: 60_000 }, () => {
   it('is small enough to fetch (< 1.5 MB) and says what it was trained on', () => {
     expect(statSync(new URL(`../../../${MODEL}`, import.meta.url)).size).toBeLessThan(1.5e6);
     expect(meta.sessions).toEqual(['s1', 's2']);

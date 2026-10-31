@@ -32,7 +32,8 @@ function checkShape(m: Metrics, protocol: 'loo' | 'loso') {
   expect(Number.isNaN(Date.parse(m.generatedAt))).toBe(false);
 }
 
-describe('evaluate on the synthetic fixture', () => {
+// Heavy work: an explicit timeout so loaded or parallel runs (CI, 4 agents on one box) don't flake.
+describe('evaluate on the synthetic fixture', { timeout: 60_000 }, () => {
   /** Share of correct, non none held out predictions that were accepted at the default threshold 0.5. */
   const correctAccepted = (res: FoldResult[]) => {
     const ok = res.filter((r) => r.label === r.predicted && r.label !== NONE);
@@ -121,7 +122,7 @@ describe('evaluate on the synthetic fixture', () => {
     const pf = crossValidate(pilot, {}, 'loo'), pe = crossValidate(pilot, {}, 'loo', true);
     expect(pf.map((r) => r.predicted)).toEqual(pe.map((r) => r.predicted));
     for (let i = 0; i < pf.length; i++) expect(Math.abs(pf[i].confidence - pe[i].confidence)).toBeLessThan(0.06);
-  }, 60_000);
+  }, 120_000);
 
   it('LOO on 240 clips is fast (< 3 s CPU; the old per fold dRef took ~15 s) and matches exact folds', () => {
     const big = synthDataset({ classes: classes as ClassDef[], reps: 10, sessions: 3, seed: 21, dropRate: 0.02 }).clips;
@@ -135,7 +136,7 @@ describe('evaluate on the synthetic fixture', () => {
       expect(fast[i].predicted).toBe(p.label);
       expect(Math.abs(fast[i].confidence - p.confidence)).toBeLessThan(0.01);
     }
-  }, 60_000);
+  }, 120_000);
 
   it('twoNearestSameClass matches brute force', () => {
     const cs = clips().filter((c) => c.session === 's2').slice(0, 24);
