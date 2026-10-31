@@ -5,6 +5,18 @@ Weekend project 01 for `Spiro-12/weekend-projects`. Research (see `01-silent-spe
 
 Time: Saturday + Sunday. Lots of parallel agents. Spiro does physical tests and Xcode builds; agents do everything else.
 
+## Who does what (updated)
+Spiro is not technical. Claude reviews, merges, installs and builds (on his Mac through Remote Control). Spiro only does physical things. This overrides the "You" steps below.
+
+| Phase | Claude | Spiro |
+|---|---|---|
+| 0 | Review, CI, merge, install xcodegen on the Mac | Set up Remote Control once (2 min) |
+| 1 | Build + fix the Mac app on his Mac and on GitHub's Macs (CI) | AirPods in, click Allow on popups, ~3 min pilot |
+| 2 | Write `~/.silentspeech/actions.json` on his Mac (numbers asked in chat, never in the repo). Calendar: Mac app reads Calendar, summarizes with Apple's on device AI (Foundation Models), speaks it. No Shortcut | ~40 min of recording |
+| 3 | Record the screen, export the replay, make the GIF, commit | 90 s demo run |
+
+Every PR goes through the ship checklist in the root `CLAUDE.md` before merge.
+
 ## Sentences and what they do
 | id | Sentence | Real action on the Mac |
 |---|---|---|
@@ -13,7 +25,7 @@ Time: Saturday + Sunday. Lots of parallel agents. Spiro does physical tests and 
 | `call_back` | Call me back later | iMessage "Can't talk now, call me back later" to a set contact |
 | `demo_48h` | I created this demo in 48 hours | Mac **speaks the sentence out loud** + confetti on the dashboard (the closing shot of the video) |
 | `help` | I need help right now | iMessage "I need help right now" to emergency contact + red full screen alert + alarm. Never calls 911 |
-| `calendar` | What's on my calendar today? | Runs a Shortcut: today's events → Apple Intelligence "Use Model" summary → spoken in your AirPods |
+| `calendar` | What's on my calendar today? | Mac app reads today's events (EventKit), summarizes with Apple's on device AI (Foundation Models), speaks it in your AirPods. Fallback: plain readout |
 | `focus_music` | Play my focus music | Plays your "Focus" playlist in Music (or Spotify) |
 | `none` | still / swallow / nod / glance | nothing |
 

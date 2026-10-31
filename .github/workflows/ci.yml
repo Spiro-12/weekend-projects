@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web (typecheck, unit, e2e, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 01-silent-speech
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: 01-silent-speech/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx playwright test
+      - name: Pages build
+        working-directory: .
+        run: ./scripts/build-site.sh && test -f _site/01-silent-speech/index.html
+
+  mac:
+    name: Mac app (compile)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: test -f 01-silent-speech/mac/project.yml && echo "has=true" >> "$GITHUB_OUTPUT" || echo "has=false" >> "$GITHUB_OUTPUT"
+      - if: steps.check.outputs.has == 'true'
+        run: brew install xcodegen
+      - if: steps.check.outputs.has == 'true'
+        working-directory: 01-silent-speech/mac
+        run: |
+          xcodegen
+          xcodebuild -project SilentSpeechBridge.xcodeproj -target SilentSpeechBridge -configuration Debug CODE_SIGNING_ALLOWED=NO build | tail -40
+          test "${PIPESTATUS[0]}" -eq 0
+      - if: steps.check.outputs.has != 'true'
+        run: echo "No Mac app yet, skipping."
+
+  python:
+    name: Python bench (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: test -f 01-silent-speech/ml/pyproject.toml && echo "has=true" >> "$GITHUB_OUTPUT" || echo "has=false" >> "$GITHUB_OUTPUT"
+      - if: steps.check.outputs.has == 'true'
+        uses: astral-sh/setup-uv@v6
+      - if: steps.check.outputs.has == 'true'
+        working-directory: 01-silent-speech/ml
+        run: uv sync && uv run pytest -q
+      - if: steps.check.outputs.has != 'true'
+        run: echo "No Python bench yet, skipping."

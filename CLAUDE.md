@@ -16,3 +16,18 @@ One small, fun portfolio project per week. Startup mode: ship something that wor
 
 ## Each project README needs
 A one line hook, live demo link, a demo GIF or screenshot, and short "what / why / how" sections.
+
+## How we work with Spiro
+- Spiro is not technical. **Never ask him to review code, run commands, merge PRs or edit files.** Claude does all of that.
+- Claude reviews, tests, merges, installs and builds. Work on his Mac goes through Remote Control (his `Documents/weekend-projects` folder).
+- Only ask Spiro for: physical actions (wearing AirPods, mouthing sentences, clicking macOS permission popups, typing his Mac password), accounts or money, and anything that reaches real people (real texts, public posts). Sending a real message to a real person always needs his OK first.
+- Updates are short, plain English, 7th grade, no jargon: what changed, what he can see, and the one thing he needs to do (if any).
+- He is fine with Claude merging its own PRs to main, **only** after the ship checklist passes.
+
+## Ship checklist (every PR, before merge)
+1. Author agent passes its own gate (typecheck, unit, e2e, build).
+2. A fresh reviewer agent that did not write the code reviews the diff against its brief and `PROTOCOL.md` (high effort). Fix findings, re-review until clean.
+3. GitHub CI (`.github/workflows/ci.yml`) green: web job, Mac compile job, Python job.
+4. Claude checks it for real: headless browser screenshots and click through; on his Mac when connected.
+5. Merge with the GitHub REST API (`gh api repos/Spiro-12/weekend-projects/pulls/N/merge -X PUT`). After the Pages deploy, load the live URL and confirm.
+6. Plain English update to Spiro.

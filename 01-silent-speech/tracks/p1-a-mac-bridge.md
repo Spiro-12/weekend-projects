@@ -3,7 +3,7 @@
 ## Goal
 A tiny macOS 14+ SwiftUI app that reads AirPods Pro 3 head motion with `CMHeadphoneMotionManager` and streams it over a WebSocket server on `ws://localhost:8765`, exactly per `PROTOCOL.md` §2. It also receives action requests (stub runner this phase).
 
-**Important:** the agent writing this cannot compile Swift (Linux container). Spiro builds it in Xcode. So: small files, stable APIs, no clever generics, no third party packages. Write it like it must compile on the first try. Swift language mode 5 (avoid Swift 6 strict concurrency errors).
+**Important:** the agent writing this cannot compile Swift (Linux container). The lead compiles it on GitHub CI (macOS job in `.github/workflows/ci.yml`, `xcodebuild -target SilentSpeechBridge CODE_SIGNING_ALLOWED=NO`) and on Spiro's Mac through Remote Control. Spiro is not technical and never builds anything himself. So: small files, stable APIs, no clever generics, no third party packages. Write it like it must compile on the first try. Swift language mode 5 (avoid Swift 6 strict concurrency errors).
 
 ## Owns
 `mac/project.yml`, `mac/SETUP.md`, `mac/actions.example.json`, `mac/SilentSpeechBridge/{App,ContentView,MotionStreamer,WebSocketServer,ActionRunner}.swift`, `Info.plist`, `SilentSpeechBridge.entitlements`. Read only: `mac/SilentSpeechBridge/Protocol.swift` (use its types, don't change it).
@@ -20,11 +20,12 @@ A tiny macOS 14+ SwiftUI app that reads AirPods Pro 3 head motion with `CMHeadph
 - **ContentView.swift**: shows headphones state, auth, bud, live Hz, gap %, clients count, port status; toggles **Simulate motion** and **Armed** (off by default; armed changes go out in `status` and future `hello`); last 20 log lines (connections, actions). A "Open dashboard" link to `https://spiro-12.github.io/weekend-projects/01-silent-speech/?mode=live`.
 - Keep everything on the main actor / main queue where it touches UI state. Use `DispatchQueue.main.async` from the motion queue and NWConnection callbacks.
 
-## SETUP.md (for Spiro, short, numbered)
-`brew install xcodegen` → `cd mac && xcodegen` → open project → pick Personal Team → Run → allow Motion. Test: Simulate on, open the dashboard with `?mode=live`, see ~25 Hz. Then AirPods in, Simulate off. Troubleshooting: AirPods must be the Mac's audio output and in ear; `tccutil reset AppleEvents com.spiro.SilentSpeechBridge`; port in use → quit other copy; try Chrome if Safari blocks ws://localhost.
+## SETUP.md (for the lead, who runs it on Spiro's Mac; short, numbered)
+`brew install xcodegen` → `cd mac && xcodegen` → `xcodebuild -project SilentSpeechBridge.xcodeproj -target SilentSpeechBridge -configuration Debug build` (sign to run locally, `CODE_SIGN_IDENTITY=-`) → `open build/Debug/SilentSpeechBridge.app` → Spiro clicks Allow on Motion. Test: Simulate on, open the dashboard with `?mode=live`, see ~25 Hz. Then AirPods in, Simulate off. Troubleshooting: AirPods must be the Mac's audio output and in ear; `tccutil reset AppleEvents com.spiro.SilentSpeechBridge`; port in use → quit other copy; try Chrome if Safari blocks ws://localhost.
 
 ## Gate
 No compiler here, so:
 1. Self review every file against `Protocol.swift` field names and `shared/fixtures/ws-messages.jsonl`.
 2. Double check every Apple API name and signature you use (CoreMotion, Network.framework `NWProtocolWebSocket.Options.setClientRequestHandler`, `NWProtocolWebSocket.Metadata`, `NWConnection.ContentContext`). If unsure of an API, use a simpler one you are sure of.
-3. In your report list any API you are less than sure about, so Spiro knows where a compile error is likely.
+3. `project.yml` must work with `xcodebuild -target SilentSpeechBridge` (no shared scheme needed) and with `CODE_SIGNING_ALLOWED=NO`.
+4. In your report list any API you are less than sure about, so the lead knows where a compile error is likely.

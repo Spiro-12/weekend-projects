@@ -7,7 +7,8 @@ Each file here is a self contained brief for one agent. Hand it to a Claude sess
 2. Only touch the files your brief says you own. New files inside your area are fine.
 3. Branch: `p1-<letter>-<name>` off the phase branch `p1`. Commit only your files. Push your branch. Do not open a PR, the lead merges.
 4. Before you finish, run from `01-silent-speech/`: `npm run typecheck && npm test` (+ `npx playwright test` if you touched web code). All green.
-5. Final report: what you built, how you tested it, anything the lead must check, any contract change you need.
+5. After you, a separate reviewer agent checks your branch against this brief and `PROTOCOL.md`, and GitHub CI must be green. Expect fix requests.
+6. Final report: what you built, how you tested it, anything the lead must check, any contract change you need.
 
 ## Phase 1 tracks (run all 5 at once)
 | Track | Brief | Owns |
