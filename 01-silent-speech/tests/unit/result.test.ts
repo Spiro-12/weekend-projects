@@ -49,7 +49,7 @@ describe('decideAction: the strict rule', () => {
   const cases: [string, Partial<RuleInput>, BlockReason][] = [
     ['below 0.5 (not a text)', { pred: { label: 'volume_up', accepted: false, confidence: 0.4999 } }, 'low-confidence'],
     ['a text the model did not accept, even at 0.95', { action: 'text_mom', pred: { label: 'text_mom', accepted: false, confidence: 0.95 } }, 'low-confidence'],
-    ['a text accepted below 0.85 (a model with a lower threshold)', { action: 'text_mom', pred: { label: 'text_mom', accepted: true, confidence: 0.8499 } }, 'low-confidence'],
+    ['a text accepted below 0.7 (a model with a lower threshold)', { action: 'text_mom', pred: { label: 'text_mom', accepted: true, confidence: 0.6999 } }, 'low-confidence'],
     ['help accepted at 0.6', { action: 'help', pred: { label: 'help', accepted: true, confidence: 0.6 } }, 'low-confidence'],
     ['call_back not accepted at 0.9', { action: 'call_back', pred: { label: 'call_back', accepted: false, confidence: 0.9 } }, 'low-confidence'],
     ['label none (even if a model says accepted)', { pred: { label: 'none', accepted: true, confidence: 0.99 } }, 'not-accepted'],
@@ -91,14 +91,14 @@ describe('decideAction: the strict rule', () => {
     it(`blocks: ${name}`, () => expect(decideAction(ok(patch))).toEqual({ send: false, reason }));
   }
 
-  it('confidence bars: texts need the model\'s accept and 0.85, other actions 0.5 (accepted or not)', () => {
-    expect(CONFIDENCE).toEqual({ messaging: 0.85, other: 0.5 });
+  it('confidence bars: texts need the model\'s accept and 0.7, other actions 0.5 (accepted or not)', () => {
+    expect(CONFIDENCE).toEqual({ messaging: 0.7, other: 0.5 });
     expect([...MESSAGING_ACTIONS].sort()).toEqual(['call_back', 'help', 'text_mom']);
     const send = (action: string, accepted: boolean, confidence: number) =>
       decideAction(ok({ action, pred: { label: action, accepted, confidence } })).send;
     for (const a of MESSAGING_ACTIONS) {
-      expect(send(a, true, 0.85)).toBe(true);
-      expect(send(a, true, 0.8499)).toBe(false);
+      expect(send(a, true, 0.7)).toBe(true);
+      expect(send(a, true, 0.6999)).toBe(false);
       expect(send(a, false, 0.99)).toBe(false);
       expect(send(a, true, 1)).toBe(true);
     }
@@ -112,8 +112,8 @@ describe('decideAction: the strict rule', () => {
     expect([...LOOSE_ACTIONS].sort()).toEqual(['calendar', 'demo_48h', 'focus_music', 'volume_up']);
     for (const a of ['launch_rocket', 'email_boss', 'unlock_door', '']) {
       expect(clearsBar(a, { accepted: false, confidence: 0.99 })).toBe(false);
-      expect(clearsBar(a, { accepted: true, confidence: 0.8499 })).toBe(false);
-      expect(clearsBar(a, { accepted: true, confidence: 0.85 })).toBe(true);
+      expect(clearsBar(a, { accepted: true, confidence: 0.6999 })).toBe(false);
+      expect(clearsBar(a, { accepted: true, confidence: 0.7 })).toBe(true);
     }
     const newAction = (accepted: boolean, confidence: number) => decideAction(ok({
       action: 'launch_rocket', hello: hello([...ACTIONS, 'launch_rocket']), pred: { label: 'launch_rocket', accepted, confidence },
@@ -176,6 +176,7 @@ describe('decideAction: the strict rule', () => {
     const preds = [
       { label: 'volume_up', accepted: true, confidence: 0.9 }, { label: 'volume_up', accepted: false, confidence: 0.4 },
       { label: 'volume_up', accepted: false, confidence: 0.6 }, { label: 'text_mom', accepted: true, confidence: 0.7 },
+      { label: 'text_mom', accepted: true, confidence: 0.65 }, // accepted by a model, below the text bar
       { label: 'none', accepted: true, confidence: 0.9 }, { label: 'volume_up', accepted: true, confidence: NaN },
     ];
     const actions = ['volume_up', 'text_mom', null];
@@ -201,7 +202,7 @@ describe('decideAction: the strict rule', () => {
         if (!(pred.label !== 'none' && Number.isFinite(pred.confidence))) return 'not-accepted';
         if (!action) return 'no-action';
         const loose = ['volume_up', 'focus_music', 'calendar', 'demo_48h'].includes(action); // allowlist
-        if (loose ? !(pred.confidence >= 0.5) : !(pred.accepted && pred.confidence >= 0.85)) return 'low-confidence';
+        if (loose ? !(pred.confidence >= 0.5) : !(pred.accepted && pred.confidence >= 0.7)) return 'low-confidence';
         if (mode !== 'classify') return 'not-recognize';
         if (pr?.mode !== 'classify') return 'press-mode';
         if (source !== 'live') return 'not-live';
@@ -226,7 +227,7 @@ describe('decideAction: the strict rule', () => {
       if (!right && wrong.length < 5) wrong.push({ x, d, firstFail });
     }
     expect(wrong).toEqual([]);
-    expect(n).toBe(516_096);
+    expect(n).toBe(602_112); // 7 predictions x the rest of the grid
     expect(sent).toBeGreaterThan(0);
     expect(BLOCK_REASONS).toHaveLength(15);
   }, 60_000);
@@ -523,10 +524,10 @@ describe('model source', () => {
     const others = ds[2].clips.filter((c) => c.label !== 'none' && c.label !== 'text_mom' && !EXCLUDED.has(c.id));
     expect(others.length).toBeGreaterThanOrEqual(80);
     // Check the rule with the Phase 1 ml settings (where a 2 sentence model is most dangerous) and with the
-    // current defaults (Track F: clip norm, threshold 0.85). The rule must never send with either.
+    // settings the panel trains with today (Track F defaults, threshold CONFIDENCE.messaging). The rule must never send with either.
     const phase1 = { L: 64, band: 0.1, k: 1, norm: 'global' as const, threshold: 0.5 };
     const wrong: Record<string, number> = {};
-    for (const [name, opts] of [['phase1', phase1], ['defaults', {}]] as const) {
+    for (const [name, opts] of [['phase1', phase1], ['panel', { threshold: CONFIDENCE.messaging }]] as const) {
       const model = ml.train(train, opts);
       let wronglyAccepted = 0;
       for (const c of others) {
@@ -539,9 +540,9 @@ describe('model source', () => {
       }
       wrong[name] = wronglyAccepted;
     }
-    // The danger is real with the Phase 1 settings (reviewer: 70 of 90); the defaults are safer but not zero.
+    // The danger is real with the Phase 1 settings (reviewer: 70 of 90); the panel's settings are safer but not zero.
     expect(wrong.phase1).toBeGreaterThan(others.length / 4);
-    expect(wrong.defaults).toBeLessThan(wrong.phase1);
+    expect(wrong.panel).toBeLessThan(wrong.phase1);
   }, 60_000);
 
   it('demo clips: every class, deterministic, long enough, labeled, never airpods', () => {

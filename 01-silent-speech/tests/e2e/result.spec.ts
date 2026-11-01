@@ -322,7 +322,7 @@ test('armed, paired, real AirPods, your own model: exactly one action per accept
   }
 });
 
-test('confidence bars: "Probably" from 0.5; other actions may run from 0.5, texts need the model to be sure (0.85)', async ({ page }) => {
+test('confidence bars: "Probably" from 0.5; other actions may run from 0.5, texts need the model to be sure (0.7)', async ({ page }) => {
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true });
   try {
     await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
@@ -342,8 +342,8 @@ test('confidence bars: "Probably" from 0.5; other actions may run from 0.5, text
     await expect(state).toContainText('Probably');
     await expect(chip).toHaveAttribute('data-reason', 'low-confidence');
     await expect(chip).toContainText('Texts need it to be very sure');
-    // Accepted by a model, but below 0.85: still no text.
-    await inject(page, { label: 'call_back', confidence: 0.8, accepted: true });
+    // Accepted by a model, but below 0.7: still no text.
+    await inject(page, { label: 'call_back', confidence: 0.65, accepted: true });
     await expect(state).toHaveAttribute('data-state', 'accepted');
     await expect(chip).toHaveAttribute('data-reason', 'low-confidence');
     await page.waitForTimeout(300);
@@ -358,6 +358,20 @@ test('confidence bars: "Probably" from 0.5; other actions may run from 0.5, text
     const chips = page.getByTestId('result-history').locator('.rs-hchip');
     expect(await chips.evaluateAll((els) => els.map((e) => `${(e as HTMLElement).dataset.label}:${(e as HTMLElement).dataset.ok}${(e as HTMLElement).dataset.probable}`)))
       .toEqual(['volume_up:01', 'call_back:10', 'text_mom:01', 'volume_up:00']);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test('a text the model accepts between the new bar (0.7) and the old one (0.85) is sent once', async ({ page }) => {
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true });
+  try {
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
+    await assertMockBridge(page);
+    await inject(page, { label: 'text_mom', confidence: 0.75, accepted: true });
+    await expect(page.getByTestId('result-toast')).toContainText('Your Mac is sending the text');
+    await page.waitForTimeout(300);
+    expect(bridge.actions).toEqual([{ action: 'text_mom', dryRun: false }]);
   } finally {
     await bridge.close();
   }
@@ -379,7 +393,7 @@ test('live push to talk end to end: a real prediction sends at most one action, 
     const pred = await next;
     expect(pred.mode).toBe('classify');
     const action = classes.find((c) => c.id === pred.label)?.action ?? null;
-    // the real rule's bar: harmless actions fire from 0.5, texts need accepted and 0.85
+    // the real rule's bar: harmless actions fire from 0.5, texts need accepted and 0.7
     const shouldSend = pred.label !== 'none' && !!action && clearsBar(action, pred);
     await page.waitForTimeout(800);
     expect(bridge.actions).toEqual(shouldSend ? [{ action, dryRun: false }] : []);
@@ -531,6 +545,8 @@ test('your model also learns from imported sessions, once this browser has a ful
     await page.getByTestId('result-retrain').click();
     await expect(page.getByTestId('result-model')).toHaveText(/Your model: 80 recordings/);
     await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'own');
+    // trained to accept at the text bar, so "You said" and "sure enough to text" agree
+    expect(await page.evaluate(() => (window.__ss.app.model as unknown as { toJSON(): { opts: { threshold: number } } }).toJSON().opts.threshold)).toBe(0.7);
     await expect(page.getByTestId('result-model')).toContainText('Can run actions on your Mac');
   } finally {
     await bridge.close();
@@ -683,12 +699,18 @@ async function helpPage(page: Page) {
 const pttEvents = (page: Page) => page.evaluate(() => window.__ss.counts.ptt ?? 0);
 const pttDown = (page: Page) => page.evaluate(() => window.__ss.app.pttDown);
 
+test('help: the red alert opens from the text bar (0.7), not only from the old 0.85', async ({ page }) => {
+  const alert = await helpPage(page);
+  await inject(page, { label: 'help', confidence: 0.75, accepted: true });
+  await expect(alert).toBeVisible();
+});
+
 test('help: full screen red alert with a big Dismiss; Space, Enter and Escape close it', async ({ page }) => {
   const alert = await helpPage(page);
   await inject(page, { label: 'help', confidence: 0.4, accepted: false });
   await expect(alert).toBeHidden(); // only when it's sure
-  await inject(page, { label: 'help', confidence: 0.8, accepted: true });
-  await expect(alert).toBeHidden(); // as sure as a text must be: accepted and 0.85
+  await inject(page, { label: 'help', confidence: 0.65, accepted: true });
+  await expect(alert).toBeHidden(); // as sure as a text must be: accepted and 0.7
   await expect(page.getByTestId('result-label')).toHaveText(sentence('help')); // but it is shown
   await inject(page, accepted('help'));
   await expect(alert).toBeVisible();
