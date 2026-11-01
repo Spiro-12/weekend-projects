@@ -15,7 +15,7 @@ export interface ClipMeta {
   subject: string;
   device: Dataset['device'];
   hz: number; // measured input rate
-  /** 'recorded' in this browser, or 'imported' from a file. Only recorded clips may train a model that runs actions. Missing: treat as imported. */
+  /** 'recorded' in this browser, or 'imported' from a file. Only recorded clips count toward the 5 per sentence gate before a model may run actions. Missing: treat as imported. */
   origin?: 'recorded' | 'imported';
 }
 

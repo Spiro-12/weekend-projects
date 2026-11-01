@@ -212,7 +212,7 @@ class ResultPanel {
     return m ? this.tags.get(m)?.kind ?? 'other' : null;
   }
 
-  /** Only a model this panel trained as "your model" (recorded here, every sentence 5+ times) may act. */
+  /** Only a model this panel trained as "your model" (every sentence 5+ times recorded here) may act. */
   private isOwn(m: Classifier | null | undefined): boolean {
     return !!m && this.tags.get(m)?.kind === 'own';
   }
