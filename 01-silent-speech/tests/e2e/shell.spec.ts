@@ -80,3 +80,24 @@ test('a malformed #pair= is ignored', async ({ page }) => {
   await expect(page.getByTestId('source-pill')).toHaveText(/fake · open/);
   expect(await page.evaluate(() => localStorage.getItem('ss.pair'))).toBeNull();
 });
+
+test('holding Space does not scroll the page (auto repeat keydowns are swallowed too)', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 600 }); // short window so the page can scroll
+  await page.goto('./?mode=fake');
+  await expect(page.getByTestId('source-pill')).toHaveText(/fake · open/);
+  const prevented = await page.evaluate(() => {
+    const ev = (repeat: boolean) => new KeyboardEvent('keydown', { code: 'Space', key: ' ', repeat, cancelable: true, bubbles: true });
+    const first = ev(false), again = ev(true);
+    document.body.dispatchEvent(first);
+    document.body.dispatchEvent(again);
+    document.body.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', key: ' ', cancelable: true, bubbles: true }));
+    return [first.defaultPrevented, again.defaultPrevented];
+  });
+  expect(prevented).toEqual([true, true]);
+  // and a real held key leaves the scroll position alone
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.keyboard.down('Space');
+  await page.waitForTimeout(800);
+  await page.keyboard.up('Space');
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+});
