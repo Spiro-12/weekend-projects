@@ -15,8 +15,9 @@
 //   6. the connection is open, and hello + status came on it
 //   7. not simulated, now (status.simulated === false) and at key down (press.simulated === false)
 //   8. status.armed === true
-//   9. the model that made the prediction is the user's own, action capable model: trained by this
-//      panel on clips recorded in this browser with real AirPods, every sentence 5+ times (model-source.ts)
+//   9. the model that made the prediction is the user's own, action capable model: ready once every
+//      sentence has 5+ takes recorded in this browser with real AirPods, then trained by this panel on
+//      all real AirPods clips, imports included (model-source.ts)
 //  10. the Mac's hello offers this action
 //  11. the page is paired (has a token; the Mac checks it too and answers `unpaired` if it's wrong)
 //  12. no action is waiting for an answer, and none was sent in the last 3 s (any action)

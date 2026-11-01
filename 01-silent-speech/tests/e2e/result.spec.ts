@@ -6,6 +6,7 @@ import { BASE, MOCK_WS } from '../../playwright.config';
 import type { PressContext } from '../../web/src/core/app';
 import type { ClassDef, Dataset, Prediction } from '../../web/src/core/contracts';
 import * as ml from '../../web/src/ml/index';
+import { clearsBar } from '../../web/src/panels/result/rule';
 import { startMockBridge, type MockBridge, type MockBridgeOpts } from '../mock-bridge';
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8');
@@ -368,8 +369,8 @@ test('live push to talk end to end: a real prediction sends at most one action, 
   try {
     await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
     await page.waitForTimeout(1200);
-    const next = page.evaluate(() => new Promise<{ label: string; accepted: boolean; mode: string }>((res) => {
-      const off = window.__ss.app.bus.on('prediction', (p) => { off(); res({ label: p.label, accepted: p.accepted, mode: p.press.mode }); });
+    const next = page.evaluate(() => new Promise<{ label: string; accepted: boolean; confidence: number; mode: string }>((res) => {
+      const off = window.__ss.app.bus.on('prediction', (p) => { off(); res({ label: p.label, accepted: p.accepted, confidence: p.confidence, mode: p.press.mode }); });
     }));
     await assertMockBridge(page);
     await page.keyboard.down('Space');
@@ -378,7 +379,8 @@ test('live push to talk end to end: a real prediction sends at most one action, 
     const pred = await next;
     expect(pred.mode).toBe('classify');
     const action = classes.find((c) => c.id === pred.label)?.action ?? null;
-    const shouldSend = pred.accepted && pred.label !== 'none' && !!action;
+    // the real rule's bar: harmless actions fire from 0.5, texts need accepted and 0.85
+    const shouldSend = pred.label !== 'none' && !!action && clearsBar(action, pred);
     await page.waitForTimeout(800);
     expect(bridge.actions).toEqual(shouldSend ? [{ action, dryRun: false }] : []);
     expect(await actionResults(page)).toBe(shouldSend ? 1 : 0);
@@ -515,6 +517,21 @@ test('imported recordings make a preview model only: shown, never acts', async (
     await page.waitForTimeout(500);
     expect(bridge.actions).toEqual([]);
     expect(await actionResults(page)).toBe(0);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test('your model also learns from imported sessions, once this browser has a full set of its own', async ({ page }) => {
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }); // s1 recorded here: 40
+  try {
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40 recordings/);
+    await addImported(page, { ...REAL, session: 's2', clips: REAL.clips.filter((c) => c.session === 's2') });
+    await expect(page.getByTestId('result-model')).toContainText('New recordings since. Press Re-train.');
+    await page.getByTestId('result-retrain').click();
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 80 recordings/);
+    await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'own');
+    await expect(page.getByTestId('result-model')).toContainText('Can run actions on your Mac');
   } finally {
     await bridge.close();
   }
