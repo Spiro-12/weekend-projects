@@ -520,6 +520,21 @@ test('imported recordings make a preview model only: shown, never acts', async (
   }
 });
 
+test('your model also learns from imported sessions, once this browser has a full set of its own', async ({ page }) => {
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }); // s1 recorded here: 40
+  try {
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40 recordings/);
+    await addImported(page, { ...REAL, session: 's2', clips: REAL.clips.filter((c) => c.session === 's2') });
+    await expect(page.getByTestId('result-model')).toContainText('New recordings since. Press Re-train.');
+    await page.getByTestId('result-retrain').click();
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 80 recordings/);
+    await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'own');
+    await expect(page.getByTestId('result-model')).toContainText('Can run actions on your Mac');
+  } finally {
+    await bridge.close();
+  }
+});
+
 test('only 2 sentences recorded: a preview model that never acts, even for a sure, real looking prediction', async ({ page }) => {
   const two: Dataset = { ...REAL_S1, clips: REAL_S1.clips.filter((c) => c.label === 'none' || c.label === 'text_mom') };
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true }, { clips: two });

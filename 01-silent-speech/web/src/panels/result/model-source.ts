@@ -5,9 +5,9 @@
 // - Replay: Spiro's public model, never your clips, so the replay's held out score stays honest (a model
 //   another panel or a test set on purpose is kept).
 // - Live:
-//   * "Your model" (the ONLY kind that may run actions): clips recorded in this browser (origin
-//     'recorded') with real AirPods, covering EVERY sentence in classes.json, 'none' included, at least
-//     5 times each. A model that knows only a few sentences calls everything one of them (real data: a
+//   * "Your model" (the ONLY kind that may run actions): ready once clips recorded in this browser (origin
+//     'recorded') with real AirPods cover EVERY sentence in classes.json, 'none' included, at least
+//     5 times each. It then learns from all your real AirPods clips, imported ones too. A model that knows only a few sentences calls everything one of them (real data: a
 //     none + text_mom model accepted 70 of 90 other sentences as text_mom), so it must never act.
 //   * Otherwise, real AirPods clips (recorded or imported) for 2+ sentences: a preview model, display only.
 //   * Otherwise: Spiro's public model (`models/templates.json`, Track F). Missing file: "No public model yet".

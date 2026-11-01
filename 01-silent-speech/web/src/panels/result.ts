@@ -2,8 +2,9 @@
 // does it. Track J brief.
 //
 // - Model (Recognize mode), see result/model-source.ts: fake source → demo model; replay → Spiro's public
-//   model; live → "your model" (recorded here with real AirPods, every sentence 5+ times: the only kind
-//   that may run actions), else a preview model from your real clips, else Spiro's public model.
+//   model; live → "your model" (ready once every sentence has 5+ takes recorded here with real AirPods: the
+//   only kind that may run actions; it learns from all your real AirPods takes, imported sessions too),
+//   else a preview model from your real clips, else Spiro's public model.
 // - Actions: one strict rule (result/rule.ts). Anything else shows a ghost chip "Would: …".
 // - Moments: demo_48h → confetti, help → full screen red alert, optional "Say it out loud".
 import './result/result.css';
@@ -99,8 +100,8 @@ class ResultPanel {
   private demo: Classifier | null = null; // built once, on first use in fake mode
   private demoLoad: Promise<DemoBuilt> | null = null;
   private demoWhere: DemoBuilt['where'] | null = null;
-  private realNow: { n: number; classes: number; fp: string; recFp: string; ready: Readiness } =
-    { n: 0, classes: 0, fp: '', recFp: '', ready: { ready: false, done: 0, total: 0 } };
+  private realNow: { n: number; classes: number; fp: string; ready: Readiness } =
+    { n: 0, classes: 0, fp: '', ready: { ready: false, done: 0, total: 0 } };
   private conn = 'connecting';
   private mySerial = 0; // this panel's own count of source and conn changes
   private downSerial: number | null = null; // mySerial at the last key down this panel saw
@@ -203,7 +204,7 @@ class ResultPanel {
   private refreshReal() {
     const real = this.real();
     const rec = this.recorded();
-    this.realNow = { n: real.length, classes: classCount(real), fp: fingerprint(real), recFp: fingerprint(rec), ready: actionReadiness(rec, this.ids()) };
+    this.realNow = { n: real.length, classes: classCount(real), fp: fingerprint(real), ready: actionReadiness(rec, this.ids()) };
   }
 
   private provenance(): Provenance | null {
@@ -227,7 +228,7 @@ class ResultPanel {
     const rec = this.recorded();
     const ready = actionReadiness(rec, this.ids());
     const tag = app.model ? this.tags.get(app.model) : undefined;
-    const fresh = tag?.kind === 'own' ? tag.fp === fingerprint(rec) : tag?.kind === 'preview' ? tag.fp === fingerprint(real) : false;
+    const fresh = (tag?.kind === 'own' || tag?.kind === 'preview') && tag.fp === fingerprint(real);
     const plan = planModel({
       source: app.source?.kind ?? null, ownReady: ready.ready, realClasses: classCount(real), current: this.provenance(), fresh, force,
     });
@@ -262,7 +263,10 @@ class ResultPanel {
       return;
     }
     if (plan === 'own' || plan === 'preview') {
-      const clips = plan === 'own' ? rec : real; // "your model" only ever learns from takes recorded here
+      // Both learn from every real AirPods take, imported sessions too (more sessions = much better on a new
+      // day: Spiro's s1..s4 → s5 98% vs s4 alone 92%). Only the readiness gate (ownReady) counts takes
+      // recorded here, so a model still can't act until this browser has a full set.
+      const clips = real;
       this.setLoading(`Training on your ${recordings(clips.length)}…`);
       await nextFrame();
       if (gen !== this.gen) return;
@@ -503,7 +507,7 @@ class ResultPanel {
     else if (m && tag?.kind === 'own') {
       kind = 'own';
       main = `Your model: ${recordings(tag.n)}`;
-      sub = tag.fp !== this.realNow.recFp ? 'New recordings since. Press Re-train.' : 'Can run actions on your Mac';
+      sub = tag.fp !== this.realNow.fp ? 'New recordings since. Press Re-train.' : 'Can run actions on your Mac';
     } else if (m && tag?.kind === 'preview') {
       kind = 'preview';
       main = `Your model (preview): ${recordings(tag.n)}`;
