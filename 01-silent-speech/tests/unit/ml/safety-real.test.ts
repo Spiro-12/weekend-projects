@@ -18,6 +18,7 @@ import { applyExclude, mergeDatasets, parseExclude } from '../../../web/src/ml/d
 import { crossValidate } from '../../../web/src/ml/eval';
 import { loadModel, train, type DtwKnnModel } from '../../../web/src/ml/index';
 import { noiseSet, readJson, whiteNoise } from './helpers';
+import { CONFIDENCE } from '../../../web/src/panels/result/rule';
 
 const FILES = ['s1-20261031-1621', 's2-20261031-1637', 's3-20261031-1654'].map((s) => `data/raw/ss-dataset-${s}.json`);
 const real: Clip[] = applyExclude(
@@ -78,8 +79,9 @@ describe('safety on real data (default options)', { timeout: 60_000 }, () => {
     for (const loc of [undefined, 'left', 'right'] as const) expect(wrongFires(pub, sess(['s3']), loc), String(loc)).toBe(0);
   }, 120_000);
 
-  it('the full model (LOSO, 3 sessions): <= 3% of sentences fire the wrong action, no none take fires, >= 60% fire the right one', () => {
-    const res = crossValidate(real, {}, 'loso');
+  // At the ml default (0.85) and at the bar "your model" really uses for texts (CONFIDENCE.messaging, 0.70).
+  it.each([['ml default', {}], ['text bar', { threshold: CONFIDENCE.messaging }]] as const)('the full model (LOSO, 3 sessions, %s): <= 3%% of sentences fire the wrong action, no none take fires, >= 60%% fire the right one', (_name, opts) => {
+    const res = crossValidate(real, opts, 'loso');
     const S = res.filter((r) => r.label !== NONE), N = res.filter((r) => r.label === NONE);
     const wrong = (rs: typeof res) => rs.filter((r) => r.accepted && r.predicted !== r.label).length / rs.length;
     expect(wrong(S)).toBeLessThanOrEqual(0.03);
@@ -90,8 +92,8 @@ describe('safety on real data (default options)', { timeout: 60_000 }, () => {
     expect(S.filter((r) => r.accepted && r.predicted === r.label).length / S.length).toBeGreaterThanOrEqual(0.6);
   }, 120_000);
 
-  it('a model trained on all of it rejects noise and stillness (from either bud)', () => {
-    const m = train(real);
+  it.each([['ml default', {}], ['text bar', { threshold: CONFIDENCE.messaging }]] as const)('a model trained on all of it rejects noise and stillness (from either bud, %s)', (_name, opts) => {
+    const m = train(real, opts);
     const noise = noiseSet();
     for (const loc of ['left', 'right'] as const) {
       expect(noise.filter((s) => fires(m.predict(s, { loc }))).length).toBe(0);

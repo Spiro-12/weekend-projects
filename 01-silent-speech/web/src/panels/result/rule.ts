@@ -7,7 +7,7 @@
 //   1. the label isn't 'none', and its confidence is a real number
 //   2. the predicted class has an action, and the prediction clears that action's bar (CONFIDENCE):
 //      only LOOSE_ACTIONS may fire from confidence >= 0.5; every other action (texts, and any added later)
-//      needs the model's own accept AND confidence >= 0.85
+//      needs the model's own accept AND confidence >= CONFIDENCE.messaging (0.70)
 //   3. the app is in Recognize mode, and the take was STARTED in Recognize mode (press.mode)
 //   4. the source is `live` (the Mac app) now and when the take started (press.source)
 //   5. same connection from key down to now: press.conn === app.connSerial, and this panel saw the key
