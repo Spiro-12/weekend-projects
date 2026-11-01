@@ -367,6 +367,20 @@ test('confidence bars: "Probably" from 0.5; other actions may run from 0.5, text
   }
 });
 
+test('a text the model accepts between the new bar (0.7) and the old one (0.85) is sent once', async ({ page }) => {
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true });
+  try {
+    await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
+    await assertMockBridge(page);
+    await inject(page, { label: 'text_mom', confidence: 0.75, accepted: true });
+    await expect(page.getByTestId('result-toast')).toContainText('Your Mac is sending the text');
+    await page.waitForTimeout(300);
+    expect(bridge.actions).toEqual([{ action: 'text_mom', dryRun: false }]);
+  } finally {
+    await bridge.close();
+  }
+});
+
 test('live push to talk end to end: a real prediction sends at most one action, only if accepted', async ({ page }) => {
   test.setTimeout(60_000);
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true, utterEvery: 1 });
@@ -688,6 +702,12 @@ async function helpPage(page: Page) {
 }
 const pttEvents = (page: Page) => page.evaluate(() => window.__ss.counts.ptt ?? 0);
 const pttDown = (page: Page) => page.evaluate(() => window.__ss.app.pttDown);
+
+test('help: the red alert opens from the text bar (0.7), not only from the old 0.85', async ({ page }) => {
+  const alert = await helpPage(page);
+  await inject(page, { label: 'help', confidence: 0.75, accepted: true });
+  await expect(alert).toBeVisible();
+});
 
 test('help: full screen red alert with a big Dismiss; Space, Enter and Escape close it', async ({ page }) => {
   const alert = await helpPage(page);

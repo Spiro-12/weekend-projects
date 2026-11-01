@@ -542,10 +542,10 @@ describe('model source', () => {
     const others = ds[2].clips.filter((c) => c.label !== 'none' && c.label !== 'text_mom' && !EXCLUDED.has(c.id));
     expect(others.length).toBeGreaterThanOrEqual(80);
     // Check the rule with the Phase 1 ml settings (where a 2 sentence model is most dangerous) and with the
-    // current defaults (Track F: clip norm, threshold 0.85). The rule must never send with either.
+    // settings the panel trains with today (Track F defaults, threshold CONFIDENCE.messaging). The rule must never send with either.
     const phase1 = { L: 64, band: 0.1, k: 1, norm: 'global' as const, threshold: 0.5 };
     const wrong: Record<string, number> = {};
-    for (const [name, opts] of [['phase1', phase1], ['defaults', {}]] as const) {
+    for (const [name, opts] of [['phase1', phase1], ['panel', { threshold: CONFIDENCE.messaging }]] as const) {
       const model = ml.train(train, opts);
       let wronglyAccepted = 0;
       for (const c of others) {
@@ -558,9 +558,9 @@ describe('model source', () => {
       }
       wrong[name] = wronglyAccepted;
     }
-    // The danger is real with the Phase 1 settings (reviewer: 70 of 90); the defaults are safer but not zero.
+    // The danger is real with the Phase 1 settings (reviewer: 70 of 90); the panel's settings are safer but not zero.
     expect(wrong.phase1).toBeGreaterThan(others.length / 4);
-    expect(wrong.defaults).toBeLessThan(wrong.phase1);
+    expect(wrong.panel).toBeLessThan(wrong.phase1);
   }, 60_000);
 
   it('demo clips: every class, deterministic, long enough, labeled, never airpods', () => {
