@@ -1026,6 +1026,67 @@ test('demo screen: texts never send (a "Demo: not sent" bubble, help says "Demo:
   }
 });
 
+for (const how of ['Esc', 'the Exit button', 'leaving full screen'] as const) {
+  test(`a take started in the demo screen never sends a text after leaving it (${how})`, async ({ page }) => {
+    const bridge = await livePage(page, { armed: true, token: TOKEN, real: true });
+    try {
+      await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'own');
+      await assertMockBridge(page);
+      await page.getByTestId('result-demo').click();
+      await expect.poll(() => inDemo(page)).toBe(true);
+      await page.evaluate(() => { const app = window.__ss.app; app.bus.emit('ptt', { down: true, t: app.lastT }); app.bus.emit('ptt', { down: false, t: app.lastT }); });
+      if (how === 'Esc') await page.keyboard.press('Escape');
+      else if (how === 'the Exit button') await page.getByTestId('demo-exit').click();
+      else { await expect.poll(() => fullscreen(page)).toBe(true); await page.evaluate(() => document.exitFullscreen()); }
+      await expect.poll(() => inDemo(page)).toBe(false);
+      await inject(page, { ...accepted('text_mom'), ptt: false }); // that take's prediction lands after the exit
+      await page.waitForTimeout(500);
+      expect(bridge.actions).toEqual([]);
+      expect(await actionResults(page)).toBe(0);
+      await inject(page, accepted('text_mom')); // a new take after leaving sends as usual
+      await expect.poll(() => bridge.actions.length).toBe(1);
+    } finally {
+      await bridge.close();
+    }
+  });
+}
+
+test('a take whose key went down before entering the demo screen is held too', async ({ page }) => {
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true });
+  try {
+    await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'own');
+    await assertMockBridge(page);
+    await page.evaluate(() => { const app = window.__ss.app; app.bus.emit('ptt', { down: true, t: app.lastT }); });
+    await page.getByTestId('result-demo').click();
+    await expect.poll(() => inDemo(page)).toBe(true);
+    await page.evaluate(() => { const app = window.__ss.app; app.bus.emit('ptt', { down: false, t: app.lastT }); });
+    await inject(page, { ...accepted('text_mom'), ptt: false });
+    await page.waitForTimeout(500);
+    expect(bridge.actions).toEqual([]);
+    expect(await actionResults(page)).toBe(0);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test('demo screen help: no alarm and no "Demo: no text sent" when the rule would not send; holding Esc to close the alert stays in the demo screen', async ({ page }) => {
+  const alert = await helpPage(page); // fake data: the rule never sends
+  await page.getByTestId('result-demo').click();
+  await expect.poll(() => inDemo(page)).toBe(true);
+  await inject(page, accepted('help'));
+  await expect(alert).toBeVisible();
+  await expect(page.getByTestId('result-alert-sub')).not.toHaveText('Demo: no text sent');
+  await expect(page.getByTestId('result-alert-sub')).toContainText('Would');
+  expect(await alert.getAttribute('data-alarms')).toBeNull();
+  // Esc held down: the first key down closes the alert, its auto repeats must not leave the demo screen.
+  await page.evaluate(() => {
+    const at = document.activeElement ?? document.body; // focus is on Dismiss, like a real key press
+    for (const repeat of [false, true, true]) at.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', repeat, bubbles: true, cancelable: true }));
+  });
+  await expect(alert).toBeHidden();
+  expect(await inDemo(page)).toBe(true);
+});
+
 test('demo screen speaks every sentence it shows ("Probably" too), never "none" or "Not sure"; outside it nothing changes', async ({ page }) => {
   await captureSpeech(page);
   await page.goto('./?mode=fake');

@@ -679,12 +679,13 @@ class ResultPanel {
   private openAlert(sentence: string, d: Decision, action: string | null) {
     const a = this.alert;
     a.querySelector('.rs-alert-title')!.textContent = sentence;
-    const sub = this.demoOn ? DEMO_NO_TEXT // the demo screen never sends a text, whatever the rule said
+    // Demo screen: the rule said send, but the demo screen never sends a text. Otherwise the usual wording.
+    const sub = this.demoOn && d.send ? DEMO_NO_TEXT
       : d.send ? 'Asking your Mac to send the text…'
       : action ? `Would: ${describeAction(action)}. ${this.why(d.reason, action)}.` : '';
     a.querySelector('.rs-alert-sub')!.textContent = sub;
     if (this.app.source?.kind === 'replay') { this.flashHelp(); return; } // a replay plays on: no modal over it
-    if (this.demoOn) this.alarm();
+    if (this.demoOn && d.send) this.alarm(); // only when a real help text would have gone out
     if (!a.hidden) { this.dismiss.focus(); return; }
     // End a take that is still held, so its key up can't get stuck behind the alert. Its prediction must not
     // act behind the alert: bump our own serial first, so the rule blocks it as press-changed ("Say it again").
@@ -783,6 +784,8 @@ class ResultPanel {
   private exitDemo() {
     if (!this.demoOn) return;
     this.demoOn = false;
+    // A take that started in the demo screen must never act after it: the rule blocks it as press-changed.
+    this.mySerial++;
     document.documentElement.classList.remove(DEMO_CLASS);
     delete this.el.dataset.demo;
     document.removeEventListener('fullscreenchange', this.onFullscreen);
@@ -798,7 +801,7 @@ class ResultPanel {
 
   /** Esc leaves the demo screen. While the help alert is open its own handler takes Esc first (it only closes the alert). */
   private demoKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || !this.demoOn || !this.alert.hidden || e.defaultPrevented) return;
+    if (e.key !== 'Escape' || e.repeat || !this.demoOn || !this.alert.hidden || e.defaultPrevented) return; // repeat: Esc held to close the alert
     e.preventDefault();
     this.exitDemo();
   };
