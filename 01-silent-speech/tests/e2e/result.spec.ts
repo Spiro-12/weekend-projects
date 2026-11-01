@@ -112,9 +112,13 @@ async function livePage(
 const UTTER_SEC: Record<string, number> = { text_mom: 1.63, volume_up: 1.2, calendar: 2.11 }; // core/synth timing
 const holdMs = (id: string) => Math.round(1000 * (0.15 + UTTER_SEC[id] * 1.15 + 0.35));
 
-/** Picks a sentence in the header, holds Space like a person would; up to 3 tries in case it's unsure. */
-async function sayFake(page: Page, id: string): Promise<Prediction> {
-  await page.getByTestId('fake-label').selectOption(id);
+/**
+ * Picks a sentence in the header (or straight on the app: the demo screen hides the header), holds Space
+ * like a person would; up to 3 tries in case it's unsure.
+ */
+async function sayFake(page: Page, id: string, o: { header?: boolean } = {}): Promise<Prediction> {
+  if (o.header === false) await page.evaluate((id) => { window.__ss.app.fakeLabel = id; }, id);
+  else await page.getByTestId('fake-label').selectOption(id);
   await page.waitForTimeout(500);
   let pred: Prediction | null = null;
   for (let i = 0; i < 3 && !(pred?.accepted && pred.label === id); i++) {
@@ -815,4 +819,219 @@ test('demo_48h throws confetti; "Say it out loud" (off by default) speaks the se
   await inject(page, { label: 'calendar', confidence: 0.2, accepted: false });
   expect(await said()).toEqual([sentence('volume_up')]); // only sure results
   expect(await page.evaluate(() => localStorage.getItem('ss.result.speak'))).toBe('1');
+});
+
+// ---------- demo screen (for filming) ----------
+
+const inDemo = (page: Page) => page.evaluate(() => document.documentElement.classList.contains('ss-demo'));
+/** Records what the page would say out loud (and how often speech is cut off) instead of speaking. */
+const captureSpeech = (page: Page) => page.addInitScript(() => {
+  const w = window as unknown as { __said: string[]; __cuts: number };
+  w.__said = [];
+  w.__cuts = 0;
+  speechSynthesis.speak = (u: SpeechSynthesisUtterance) => { w.__said.push(u.text); };
+  speechSynthesis.cancel = () => { w.__cuts++; };
+});
+const spoken = (page: Page) => page.evaluate(() => (window as unknown as { __said: string[] }).__said);
+const speechCuts = (page: Page) => page.evaluate(() => (window as unknown as { __cuts: number }).__cuts);
+const fullscreen = (page: Page) => page.evaluate(() => !!document.fullscreenElement);
+/** Everything that isn't the recognition (the shell's header and push to talk bar, other cards, the panel's extras). */
+const NOT_IN_DEMO = ['source-pill', 'mode-toggle', 'ptt', 'result-model', 'result-armed', 'result-retrain', 'result-demo',
+  'result-confidence', 'result-top', 'result-history'];
+
+async function expectDemoScreen(page: Page) {
+  await expect.poll(() => inDemo(page)).toBe(true);
+  await expect(page.locator('header.top')).toBeHidden();
+  for (const id of NOT_IN_DEMO) await expect(page.getByTestId(id)).toBeHidden();
+  const others = page.locator('.card:not([data-panel=result])');
+  expect(await others.count()).toBeGreaterThanOrEqual(4);
+  expect(await others.evaluateAll((els) => els.filter((e) => getComputedStyle(e).display !== 'none').length)).toBe(0);
+  for (const id of ['result-label', 'result-state', 'demo-exit', 'demo-dot']) await expect(page.getByTestId(id)).toBeVisible();
+  // The stage fills the window, with no scrollbars.
+  const fit = await page.getByTestId('result-stage').evaluate((st) => {
+    const b = st.getBoundingClientRect();
+    return {
+      fills: Math.abs(b.left) < 1 && Math.abs(b.top) < 1 && b.width >= innerWidth - 1 && b.height >= innerHeight - 1,
+      overflow: [getComputedStyle(document.documentElement).overflow, getComputedStyle(document.body).overflow],
+    };
+  });
+  expect(fit).toEqual({ fills: true, overflow: ['hidden', 'hidden'] });
+}
+
+async function expectNormalScreen(page: Page) {
+  await expect.poll(() => inDemo(page)).toBe(false);
+  await expect.poll(() => fullscreen(page)).toBe(false);
+  await expect(page.locator('header.top')).toBeVisible();
+  for (const id of NOT_IN_DEMO) await expect(page.getByTestId(id)).toBeVisible();
+  await expect(page.locator('.card[data-panel=enroll]')).toBeVisible();
+  for (const id of ['demo-exit', 'demo-dot', 'demo-hint']) await expect(page.getByTestId(id)).toBeHidden();
+}
+
+test('demo screen: only the sentence, full screen; Space still works; Esc, Exit, leaving full screen or Record mode bring everything back', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = pageErrors(page);
+  await page.goto('./?mode=fake');
+  await recognize(page);
+  await expect(page.getByTestId('result-model')).toContainText('Demo model (fake data)');
+  const demo = page.getByTestId('result-demo');
+  await demo.click();
+  await expectDemoScreen(page);
+  await expect.poll(() => fullscreen(page)).toBe(true); // headless Chromium allows it
+  await expect(page.getByTestId('demo-dot')).toHaveAttribute('data-live', '0'); // fake: never live
+  await expect(page.getByTestId('result-label')).toContainText('mouth a sentence');
+
+  // Push to talk with Space still works (fake AirPods; the header's sentence picker is hidden here).
+  const pred = await sayFake(page, 'volume_up', { header: false });
+  expect(pred).toMatchObject({ label: 'volume_up', accepted: true });
+  await expect(page.getByTestId('result-label')).toHaveText(sentence('volume_up'));
+  await expect(page.getByTestId('result-state')).toHaveAttribute('data-state', 'accepted');
+  await expect(page.getByTestId('result-action')).toHaveAttribute('data-reason', 'not-live'); // fake never sends
+  await expect(page.getByTestId('demo-hint')).toHaveText('Hold Space and mouth a sentence');
+  // "Probably" and "Not sure" show here too.
+  await inject(page, { label: 'calendar', confidence: 0.6, accepted: false });
+  await expect(page.getByTestId('result-state')).toContainText('Probably');
+  await inject(page, { label: 'calendar', confidence: 0.3, accepted: false });
+  await expect(page.getByTestId('result-label')).toHaveText('Not sure, try again');
+  // Confetti still shows, on top of the demo screen.
+  await inject(page, accepted('demo_48h'));
+  await expect(page.getByTestId('result-confetti')).toBeAttached();
+  expect(await page.evaluate(() => Number(getComputedStyle(document.querySelector('.rs-confetti')!).zIndex)
+    > Number(getComputedStyle(document.querySelector('.card[data-panel=result]')!).zIndex))).toBe(true);
+  expect(await actionResults(page)).toBe(0);
+
+  // Esc leaves it.
+  await page.keyboard.press('Escape');
+  await expectNormalScreen(page);
+  // So does the faint Exit control.
+  await demo.click();
+  await expectDemoScreen(page);
+  await page.getByTestId('demo-exit').click();
+  await expectNormalScreen(page);
+  // So does leaving the browser's full screen (its own Esc, which the page may never see).
+  await demo.click();
+  await expect.poll(() => fullscreen(page)).toBe(true);
+  await page.evaluate(() => document.exitFullscreen());
+  await expectNormalScreen(page);
+  // And going back to Record mode.
+  await demo.click();
+  await expectDemoScreen(page);
+  await page.evaluate(() => window.__ss.app.setMode('enroll'));
+  await expect.poll(() => inDemo(page)).toBe(false);
+  await expect(page.locator('header.top')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('demo screen: texts never send (a "Demo: not sent" bubble, help says "Demo: no text sent"), harmless actions still run once', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors = pageErrors(page);
+  await captureSpeech(page);
+  const bridge = await livePage(page, { armed: true, token: TOKEN, real: true });
+  try {
+    await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'own');
+    await expect(page.getByTestId('result-armed')).toHaveAttribute('data-live', '1');
+    await page.getByTestId('result-demo').click();
+    await expectDemoScreen(page);
+    await expect(page.getByTestId('demo-dot')).toHaveAttribute('data-live', '1'); // live and armed
+    await assertMockBridge(page);
+    const bubble = page.getByTestId('result-bubble');
+    const chip = page.getByTestId('result-action');
+    const alert = page.getByTestId('result-alert');
+
+    // A sure "Text mom" that clears every gate: the demo screen only shows the text.
+    await inject(page, accepted('text_mom'));
+    await expect(page.getByTestId('result-label')).toHaveText(sentence('text_mom'));
+    await expect(bubble).toBeVisible();
+    await expect(bubble).toHaveAttribute('data-action', 'text_mom');
+    await expect(bubble).toContainText('To: Mom');
+    await expect(bubble).toContainText('On my way!');
+    await expect(bubble).toContainText('Demo: not sent');
+    await expect(chip).toBeHidden();
+    await inject(page, accepted('call_back', 0.97));
+    await expect(bubble).toHaveAttribute('data-action', 'call_back');
+    await expect(bubble).toContainText('Can’t talk now, call me back later');
+    await expect(bubble).toContainText('Demo: not sent');
+    // Help: the red alert on top, an alarm, and no text.
+    await inject(page, accepted('help'));
+    await expect(alert).toBeVisible();
+    await expect(page.getByTestId('result-alert-sub')).toHaveText('Demo: no text sent');
+    await expect(alert).not.toContainText(/Asking your Mac|sending|Would/);
+    await expect(alert).toHaveAttribute('data-alarms', '1');
+    expect(await page.evaluate(() => !!document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('.rs-alert'))).toBe(true);
+    await page.waitForTimeout(600);
+    expect(bridge.actions).toEqual([]);
+    expect(await actionResults(page)).toBe(0);
+    // Esc with the alert open only closes the alert.
+    await page.keyboard.press('Escape');
+    await expect(alert).toBeHidden();
+    expect(await inDemo(page)).toBe(true);
+
+    // A harmless one still runs on the Mac, exactly once.
+    await inject(page, accepted('volume_up'));
+    const sentAt = await pageNow(page);
+    await expect(chip).toHaveAttribute('data-state', 'done');
+    await expect(page.getByTestId('result-toast')).toContainText('Done on your Mac');
+    await expect(bubble).toBeHidden();
+    await page.waitForTimeout(500);
+    expect(bridge.actions).toEqual([{ action: 'volume_up', dryRun: false }]);
+    expect(await actionResults(page)).toBe(1);
+    // Every sentence it showed was said out loud...
+    const said = ['text_mom', 'call_back', 'help', 'volume_up'].map(sentence);
+    expect(await spoken(page)).toEqual(said);
+    // ...except the demo line once the Mac was asked to say it (no double speech).
+    await pageWait(page, sentAt, 3100);
+    await inject(page, accepted('demo_48h'));
+    let sentAt2 = await pageNow(page);
+    await expect(page.getByTestId('result-toast')).toContainText('Done on your Mac');
+    await page.waitForTimeout(300);
+    expect(bridge.actions).toEqual([{ action: 'volume_up', dryRun: false }, { action: 'demo_48h', dryRun: false }]);
+    expect(await spoken(page)).toEqual(said);
+
+    // Esc leaves (no reload: still paired), and outside the demo screen a sure text sends again.
+    await page.keyboard.press('Escape');
+    await expectNormalScreen(page);
+    expect(await page.evaluate(() => window.__ss.app.pairToken)).toBe(TOKEN);
+    await pageWait(page, sentAt2, 3100);
+    await inject(page, accepted('text_mom'));
+    sentAt2 = await pageNow(page);
+    await expect(chip).toHaveAttribute('data-state', 'started');
+    await expect(chip).toContainText('Sending: Text Mom');
+    await expect(bubble).toBeHidden();
+    expect(bridge.actions).toEqual([
+      { action: 'volume_up', dryRun: false }, { action: 'demo_48h', dryRun: false }, { action: 'text_mom', dryRun: false },
+    ]);
+    expect(await spoken(page)).toEqual(said); // "Say it out loud" is off out here
+    expect(errors).toEqual([]);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test('demo screen speaks every sentence it shows ("Probably" too), never "none" or "Not sure"; outside it nothing changes', async ({ page }) => {
+  await captureSpeech(page);
+  await page.goto('./?mode=fake');
+  await recognize(page);
+  await expect(page.getByTestId('result-model')).toContainText('Demo model (fake data)');
+  await expect(page.getByTestId('result-speak')).not.toBeChecked(); // "Say it out loud" is off
+  await page.getByTestId('result-demo').click();
+  await expect.poll(() => inDemo(page)).toBe(true);
+  await inject(page, { label: 'volume_up', confidence: 0.6, accepted: false });
+  await expect(page.getByTestId('result-state')).toContainText('Probably');
+  expect(await spoken(page)).toEqual([sentence('volume_up')]);
+  const cuts = await speechCuts(page);
+  await inject(page, { label: 'none', confidence: 0.95, accepted: false });
+  expect(await speechCuts(page)).toBeGreaterThan(cuts); // a new result cuts the last one off
+  await inject(page, { label: 'none', confidence: 0.99, accepted: true });
+  await inject(page, { label: 'calendar', confidence: 0.4, accepted: false });
+  await expect(page.getByTestId('result-label')).toHaveText('Not sure, try again');
+  expect(await spoken(page)).toEqual([sentence('volume_up')]);
+  await inject(page, accepted('demo_48h')); // fake data: the Mac isn't asked to say it, so the browser does
+  expect(await spoken(page)).toEqual([sentence('volume_up'), sentence('demo_48h')]);
+  // Outside the demo screen: today's behavior, and the setting was never touched.
+  await page.keyboard.press('Escape');
+  await expect.poll(() => inDemo(page)).toBe(false);
+  await expect(page.getByTestId('result-speak')).not.toBeChecked();
+  expect(await page.evaluate(() => localStorage.getItem('ss.result.speak'))).toBeNull();
+  await inject(page, accepted('volume_up'));
+  await inject(page, { label: 'calendar', confidence: 0.6, accepted: false });
+  expect(await spoken(page)).toHaveLength(2);
 });

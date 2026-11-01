@@ -188,6 +188,70 @@ body.rs-alert-open { overflow: hidden; }
 
 .rs-confetti { position: fixed; inset: 0; z-index: 70; width: 100vw; height: 100vh; pointer-events: none; }
 
+/* ---------- demo screen (html.ss-demo): only the recognition, full screen, for filming ---------- */
+.rs-demo-ui { display: none; }
+html:not(.ss-demo) .rs-bubble { display: none !important; }
+html.ss-demo, html.ss-demo body { overflow: hidden; scrollbar-width: none; }
+html.ss-demo ::-webkit-scrollbar { display: none; }
+html.ss-demo body { background: #05070b; }
+html.ss-demo :is(header.top, button.ptt, .replay-note, .card:not([data-panel=result]), .card[data-panel=result] > h2) { display: none !important; }
+html.ss-demo .card[data-panel=result] { position: fixed; inset: 0; z-index: 40; margin: 0; padding: 0; border: 0; border-radius: 0; background: #05070b; }
+html.ss-demo .rs { height: 100%; }
+html.ss-demo .rs-main { position: relative; height: 100%; gap: 0; }
+html.ss-demo :is(.rs-top, .rs-lower, .rs-ring) { display: none !important; }
+html.ss-demo .rs-stage { display: flex; align-items: center; justify-content: center; height: 100%; min-height: 0; padding: 7vh 6vw 11vh;
+  border: 0; border-radius: 0; text-align: center; box-shadow: none;
+  background: radial-gradient(110% 85% at 50% 45%, #0e1322 0%, #06080d 62%, #04050a 100%); }
+html.ss-demo .rs-stage[data-state=listening] { box-shadow: inset 0 0 0 5px #ff5d6c55, inset 0 0 240px #ff5d6c26;
+  background: radial-gradient(110% 85% at 50% 45%, #1b0f17 0%, #08060a 62%, #050407 100%); }
+html.ss-demo .rs-stage[data-state=thinking] { box-shadow: inset 0 0 0 3px #7c9cff33; }
+html.ss-demo .rs-stage[data-moment=help] { box-shadow: inset 0 0 0 5px #ff5d6c88; background: radial-gradient(110% 85% at 50% 45%, #2a1017 0%, #12070b 70%); }
+html.ss-demo .rs-glow { inset: -10%; background: radial-gradient(42% 40% at 50% 46%, #7c9cff2b 0%, transparent 70%),
+  radial-gradient(28% 26% at 50% 58%, #3ddc9712 0%, transparent 70%); }
+html.ss-demo .rs-say { width: min(1500px, 100%); display: flex; flex-direction: column; align-items: center; }
+html.ss-demo .rs-state { font-size: clamp(13px, 1.45vw, 22px); letter-spacing: .2em; gap: .65em; }
+html.ss-demo .rs-state .rs-dot { width: .6em; height: .6em; }
+html.ss-demo .rs-label { max-width: 100%; margin: 3.2vh 0 2.6vh; font-size: clamp(40px, min(8.2vw, 15vh), 164px); line-height: 1.05; text-wrap: balance; }
+html.ss-demo .rs-label[data-accepted="1"] { text-shadow: 0 0 70px #7c9cff52; }
+html.ss-demo .rs-label kbd { font: inherit; font-size: .82em; padding: 0 .3em; border-width: 2px; border-radius: .22em; }
+/* the help alert fully opaque here, so the same sentence on the stage doesn't ghost through it */
+html.ss-demo .rs-alert { background: radial-gradient(85% 75% at 50% 40%, #e3263d 0%, #a8101f 55%, #5c0611 100%); }
+html.ss-demo .rs-guess { min-height: 1.4em; font-size: clamp(16px, 1.65vw, 27px); color: #8a93a6; }
+html.ss-demo .rs-chip { margin-top: 3vh; padding: .5em 1.15em .5em .95em; font-size: clamp(15px, 1.45vw, 23px); }
+html.ss-demo .rs-chip-why { font-size: .78em; }
+html.ss-demo .rs-chip-ico { width: .5em; height: .5em; }
+
+html.ss-demo .rs-demo-ui { display: block; }
+.rs-demo-dot { position: absolute; top: 22px; left: 22px; z-index: 2; width: 9px; height: 9px; border-radius: 50%; background: #8a93a655; }
+.rs-demo-dot[data-live="1"] { background: var(--good); box-shadow: 0 0 10px #3ddc9799; }
+.rs-demo-exit { position: absolute; top: 12px; right: 14px; z-index: 2; display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; opacity: .4; cursor: pointer;
+  transition: opacity .2s, background .2s; }
+.rs-demo-exit:hover, .rs-demo-exit:focus-visible { opacity: 1; background: #ffffff0d; }
+.rs-demo-exit kbd { font-size: 11px; }
+.rs-demo-hint { position: absolute; left: 0; right: 0; bottom: 4.5vh; z-index: 1; text-align: center; color: var(--muted); opacity: .5;
+  font-size: clamp(14px, 1.3vw, 20px); pointer-events: none; transition: opacity .3s; }
+.rs-demo-hint kbd { font-size: .8em; }
+/* not twice (the idle stage says it already), not while talking, not under a toast */
+.rs-main:has(.rs-stage:is([data-state=idle], [data-state=nomodel], [data-state=listening], [data-state=thinking])) .rs-demo-hint,
+html.ss-demo:has(.rs-toast:not([hidden])) .rs-demo-hint { opacity: 0; }
+
+/* the text the demo screen shows instead of sending it: an iMessage style bubble */
+.rs-bubble { --bub: #0a84ff; --pane: #1c1c1e; width: min(600px, 88vw); margin-top: 3.4vh; padding: .7em .95em .55em; border-radius: 1.15em;
+  border: 1px solid #ffffff17; background: var(--pane); box-shadow: 0 34px 90px -34px #000; text-align: left;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", ui-sans-serif, system-ui, sans-serif; font-size: clamp(18px, 1.9vw, 30px);
+  animation: rs-bubble-in .55s cubic-bezier(.2, .9, .25, 1.15) both; }
+.rs-bubble-to { margin-bottom: .75em; padding-bottom: .5em; border-bottom: 1px solid #ffffff17; color: #8e8e93; font-size: .6em; }
+.rs-bubble-to b { color: #f2f2f7; font-weight: 600; }
+.rs-bubble-row { display: flex; justify-content: flex-end; padding-right: .35em; }
+.rs-bubble-msg { position: relative; max-width: 85%; padding: .4em .8em .45em; border-radius: 1em; background: var(--bub); color: #fff;
+  line-height: 1.28; animation: rs-bubble-msg .5s .12s cubic-bezier(.2, .9, .25, 1.2) both; }
+.rs-bubble-msg::before, .rs-bubble-msg::after { content: ""; position: absolute; bottom: 0; height: 1em; }
+.rs-bubble-msg::before { right: -.3em; width: .9em; background: var(--bub); border-bottom-left-radius: .75em .65em; }
+.rs-bubble-msg::after { right: -.6em; width: .6em; background: var(--pane); border-bottom-left-radius: .45em; }
+.rs-bubble-note { margin-top: .35em; padding-right: .4em; text-align: right; color: #8e8e93; font-size: .5em; font-weight: 600; }
+html.ss-demo .rs-stage:is([data-state=listening], [data-state=thinking]) .rs-bubble { opacity: .3; transition: opacity .2s; }
+
 @container (max-width: 640px) {
   .rs-stage { grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 22px 20px; }
   .rs-ring { width: 108px; height: 108px; }
@@ -204,6 +268,8 @@ body.rs-alert-open { overflow: hidden; }
 @keyframes rs-toast-in { from { opacity: 0; transform: translate(-50%, 16px) scale(.98); } to { opacity: 1; transform: translate(-50%, 0); } }
 @keyframes rs-ping { 0% { box-shadow: 0 0 0 0 #ffffffaa; } 100% { box-shadow: 0 0 0 34px #ffffff00; } }
 @keyframes rs-alarm { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+@keyframes rs-bubble-in { from { opacity: 0; transform: translateY(22px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes rs-bubble-msg { from { opacity: 0; transform: translateY(10px) scale(.9); transform-origin: right bottom; } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   .rs *, .rs-toast, .rs-alert, .rs-alert *, .rs-alert::before { animation: none !important; transition: none !important; }
 }
