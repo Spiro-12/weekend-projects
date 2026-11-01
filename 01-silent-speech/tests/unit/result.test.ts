@@ -10,6 +10,7 @@ import { MotionSynth } from '../../web/src/core/synth';
 import * as ml from '../../web/src/ml/index';
 import { buildDemoModelJSON } from '../../web/src/panels/result/demo-build';
 import { DEMO_REPS, FAKE_SPEAK_DELAY, buildDemoJSON, demoClips } from '../../web/src/panels/result/demo-model';
+import { demoBubble, demoHolds } from '../../web/src/panels/result/demo-screen';
 import {
   EXCLUDED, MIN_TAKES_FOR_ACTIONS, actionReadiness, classCount, fetchPublicModel, fingerprint, planModel, realClips, type Provenance,
 } from '../../web/src/panels/result/model-source';
@@ -319,6 +320,23 @@ describe('ActionGuard: at most one send, 3 s apart, never a retry', () => {
     const r2 = g.run(input(), () => Promise.reject(boom));
     expect(await r2.sent).toEqual({ error: boom });
     expect(g.inflight).toBe(false);
+  });
+});
+
+describe('demo screen: what it holds back', () => {
+  it('holds every action that messages a person, and any action not on the harmless allowlist', () => {
+    for (const a of MESSAGING_ACTIONS) expect(demoHolds(a)).toBe(true);
+    expect(demoHolds('launch_rocket')).toBe(true); // added later: held until someone decides it is harmless
+    for (const a of LOOSE_ACTIONS) expect(demoHolds(a)).toBe(false); // these still run on the Mac
+    for (const a of [null, undefined, '']) expect(demoHolds(a)).toBe(false); // nothing to hold
+    // every action in classes.json is either held or harmless, and the texts are held
+    for (const a of ACTIONS) expect(demoHolds(a)).toBe(!LOOSE_ACTIONS.includes(a));
+  });
+
+  it('shows a text bubble for texts (help gets the red alert instead)', () => {
+    expect(demoBubble('text_mom')).toEqual({ to: 'Mom', text: 'On my way!' });
+    expect(demoBubble('call_back')).toEqual({ to: 'Mom', text: 'Can’t talk now, call me back later' });
+    expect(demoBubble('help')).toBeNull();
   });
 });
 

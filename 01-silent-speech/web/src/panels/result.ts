@@ -7,6 +7,8 @@
 //   else a preview model from your real clips, else Spiro's public model.
 // - Actions: one strict rule (result/rule.ts). Anything else shows a ghost chip "Would: …".
 // - Moments: demo_48h → confetti, help → full screen red alert, optional "Say it out loud".
+// - Demo screen (for filming): only the sentence, full screen, spoken out loud. Texts never send from it
+//   (demo-screen.ts).
 import './result/result.css';
 import type { App, Panel, PressContext } from '../core/app';
 import type { ActionResultMsg, Classifier, HelloMsg, Prediction, StatusMsg } from '../core/contracts';
@@ -14,6 +16,7 @@ import { NONE } from '../core/contracts';
 import * as ml from '../ml/index';
 import { confetti } from './result/confetti';
 import { buildDemoModelJSON, type DemoBuilt } from './result/demo-build';
+import { DEMO_BUBBLE_MS, DEMO_NOT_SENT, DEMO_NO_TEXT, demoBubble, demoHolds, playAlarm } from './result/demo-screen';
 import {
   MIN_REAL_CLASSES, MIN_TAKES_FOR_ACTIONS, actionReadiness, classCount, fetchPublicModel, fingerprint, planModel, realClips,
   type Provenance, type PublicModel, type Readiness,
@@ -29,6 +32,7 @@ const THINK_TIMEOUT_MS = 2600; // the shell cuts the clip at most 1.5 s after re
 const SPEAK_KEY = 'ss.result.speak';
 const HELP_FLASH_MS = 3000; // a replay shows the help moment as a red flash on the stage, this long
 const RING_C = 2 * Math.PI * 52; // ring circumference (r = 52 in a 120 viewBox)
+const DEMO_CLASS = 'ss-demo'; // on <html> while the demo screen is on (result.css hides everything else)
 
 type Tag = { kind: 'own' | 'preview'; n: number; fp: string } | { kind: 'public' | 'demo'; n: number };
 type StageState = 'idle' | 'listening' | 'thinking' | 'accepted' | 'probable' | 'unsure' | 'nomodel';
@@ -51,6 +55,8 @@ const TEMPLATE = `
       <span class="rs-dot"></span><b data-ref="modelMain">Loading…</b><span class="rs-sub" data-ref="modelSub"></span>
     </div>
     <button class="rs-btn rs-small" data-testid="result-retrain" data-ref="retrain">Re-train</button>
+    <button class="rs-btn rs-small" data-testid="result-demo" data-ref="demoBtn"
+      title="Full screen with only the sentence, for filming. Texts never send from it.">Demo screen</button>
     <span class="rs-pill" data-testid="result-armed" data-ref="armed" data-live="0"><span class="rs-dot"></span><span data-ref="armedText"></span></span>
   </div>
   <div class="rs-stage" data-testid="result-stage" data-ref="stage" data-state="idle">
@@ -63,6 +69,11 @@ const TEMPLATE = `
         <span class="rs-chip-ico" aria-hidden="true"></span>
         <span class="rs-chip-main" data-ref="chipMain"></span>
         <span class="rs-chip-why" data-ref="chipWhy"></span>
+      </div>
+      <div class="rs-bubble" data-testid="result-bubble" data-ref="bubble" hidden>
+        <div class="rs-bubble-to">To: <b data-ref="bubbleTo"></b></div>
+        <div class="rs-bubble-row"><div class="rs-bubble-msg" data-ref="bubbleMsg"></div></div>
+        <div class="rs-bubble-note">${DEMO_NOT_SENT}</div>
       </div>
     </div>
     <div class="rs-ring" data-testid="result-confidence" data-ref="ring" data-value="">
@@ -86,6 +97,11 @@ const TEMPLATE = `
       <label class="rs-speak" data-ref="speakWrap"><input type="checkbox" data-testid="result-speak" data-ref="speak">
         <span class="rs-switch" aria-hidden="true"></span>Say it out loud</label>
     </div>
+  </div>
+  <div class="rs-demo-ui">
+    <span class="rs-demo-dot" data-testid="demo-dot" data-ref="demoDot" data-live="0" role="img"></span>
+    <button class="rs-demo-exit" data-testid="demo-exit" data-ref="demoExit">Exit <kbd>Esc</kbd></button>
+    <div class="rs-demo-hint" data-testid="demo-hint" data-ref="demoHint"></div>
   </div>
 </div>`;
 
@@ -119,6 +135,11 @@ class ResultPanel {
   private inerted: HTMLElement[] = [];
   private spaceDownInAlert = false;
   private alertTimer: ReturnType<typeof setTimeout> | null = null;
+  private alertClosedAt = -Infinity; // performance.now() when the help alert last closed
+  private demoOn = false; // the demo screen: texts never send while it is on
+  private bubbleTimer: ReturnType<typeof setTimeout> | null = null;
+  private audio: AudioContext | null = null; // for the demo screen's help alarm (made on a click, so it may play)
+  private alarms = 0;
 
   constructor(private el: HTMLElement, private app: App) {
     el.classList.add('rs');
@@ -146,6 +167,8 @@ class ResultPanel {
     });
     click(r.go, () => app.setMode('classify'));
     click(r.retrain, () => void this.ensureModel(true));
+    click(r.demoBtn, () => this.enterDemo());
+    click(r.demoExit, () => this.exitDemo());
     const speak = r.speak as HTMLInputElement;
     speak.addEventListener('change', () => {
       this.speak = speak.checked;
@@ -157,7 +180,7 @@ class ResultPanel {
     app.bus.on('mode', (m) => {
       this.renderMode();
       if (m === 'classify') void this.ensureModel(false);
-      else this.closeAlert();
+      else { this.closeAlert(); this.exitDemo(); }
     });
     app.bus.on('model', (m) => {
       if (m && !this.tags.has(m)) this.gen++; // another panel set a model: drop any load in flight
@@ -174,6 +197,8 @@ class ResultPanel {
       this.history = [];
       this.r.history.innerHTML = '<div class="rs-empty">Nothing yet</div>';
       this.r.chip.hidden = true;
+      this.hideBubble();
+      this.renderDemoHint();
       this.renderArmed();
       this.renderIdle();
       if (app.mode === 'classify') void this.ensureModel(false); // fake ↔ live/replay need different models
@@ -188,6 +213,7 @@ class ResultPanel {
     app.bus.on('status', (s) => { this.status = s; this.renderArmed(); });
     app.bus.on('ptt', ({ down }) => {
       if (down) this.downSerial = this.mySerial;
+      if (down && this.demoOn) this.wakeAudio(); // a key press: the browser lets audio start now
       this.onPtt(down);
     });
     app.bus.on('prediction', (p) => this.onPrediction(p));
@@ -343,6 +369,9 @@ class ResultPanel {
     const accepted = shown && p.accepted === true;
     const sentence = sentenceOf(app.classes, p.label);
 
+    this.hideBubble(); // a new result replaces the last demo text bubble
+    if (this.demoOn) try { speechSynthesis.cancel(); } catch { /* no speech here */ } // a new result cuts the last one off
+
     // big sentence
     r.label.dataset.label = p.label;
     r.label.dataset.accepted = accepted ? '1' : '0';
@@ -389,8 +418,13 @@ class ResultPanel {
     const action = app.classes.find((c) => c.id === p.label)?.action ?? null;
     // The model that MADE this prediction (not whatever app.model is now) and where the take started.
     const input = this.guardInput({ label: p.label, accepted: p.accepted, confidence: p.confidence }, action, p.model, p.press);
-    const run = this.guard.run(input, (a) => app.sendAction({ action: a, label: p.label, confidence: p.confidence }));
-    this.renderChip(run.decision, action, shown);
+    // Demo screen: an action that could message someone is only decided (same rule, same answer), and the
+    // rule is never handed a way to send it. If it says "send", the screen shows what would have gone out.
+    const held = this.demoOn && demoHolds(action);
+    const run = held ? { decision: this.guard.decide(input), sent: null }
+      : this.guard.run(input, (a) => app.sendAction({ action: a, label: p.label, confidence: p.confidence }));
+    if (held && run.decision.send) { r.chip.hidden = true; this.showBubble(run.decision.action); }
+    else this.renderChip(run.decision, action, shown);
     if (run.sent) void run.sent.then((s) => this.onSent(s, action!, seq));
     else if (!run.decision.send && run.decision.reason === 'unpaired') this.showToast({ kind: 'bad', title: 'Not paired', body: UNPAIRED_TEXT });
     this.renderArmed();
@@ -398,7 +432,12 @@ class ResultPanel {
     // Moments use the same bars as the actions: the help alert only when texts could go, confetti from 0.5.
     if (p.label === 'demo_48h' && clearsBar('demo_48h', p)) confetti();
     if (p.label === 'help' && clearsBar('help', p)) this.openAlert(sentence, run.decision, action);
-    if (accepted && this.speak) this.say(sentence);
+    // Speech: outside the demo screen "Say it out loud" (off by default) speaks sure results. The demo screen
+    // always speaks what it shows ("Probably" too), except a demo line the Mac was just asked to say itself.
+    if (this.demoOn) {
+      const macSaysIt = run.decision.send && run.decision.action === 'demo_48h';
+      if (shown && !macSaysIt) this.say(sentence);
+    } else if (accepted && this.speak) this.say(sentence);
   }
 
   private guardInput(
@@ -487,7 +526,8 @@ class ResultPanel {
     r.label.innerHTML = kind === 'replay'
       ? `<span class="rs-w rs-calm">Watching Spiro's real session</span>`
       : `<span class="rs-w rs-calm">Hold <kbd>Space</kbd> and mouth a sentence</span>`;
-    r.guess.textContent = kind === 'fake' ? 'Fake AirPods: pick a sentence at the top, then hold Space.'
+    r.guess.textContent = kind === 'fake'
+      ? (this.demoOn ? 'Fake AirPods: hold Space and they mouth a sentence for you.' : 'Fake AirPods: pick a sentence at the top, then hold Space.')
       : kind === 'replay' ? 'Watching a replay of a real session.' : 'Let go when you finish.';
     r.stage.dataset.state = 'idle';
   }
@@ -557,6 +597,10 @@ class ResultPanel {
     r.armed.dataset.live = live ? '1' : '0';
     const text = live ? 'Live: sentences run on your Mac' : `Preview only · ${this.why((d as { reason: BlockReason }).reason)}`;
     if (r.armedText.textContent !== text) r.armedText.textContent = text;
+    // The demo screen's corner dot: green when live and armed (texts still never send from the demo screen).
+    r.demoDot.dataset.live = live ? '1' : '0';
+    const dot = live ? 'Live and armed (texts never send from the demo screen)' : 'Preview only';
+    if (r.demoDot.title !== dot) { r.demoDot.title = dot; r.demoDot.setAttribute('aria-label', dot); }
   }
 
   private renderChip(d: Decision, action: string | null, shown: boolean) {
@@ -635,10 +679,13 @@ class ResultPanel {
   private openAlert(sentence: string, d: Decision, action: string | null) {
     const a = this.alert;
     a.querySelector('.rs-alert-title')!.textContent = sentence;
-    const sub = d.send ? 'Asking your Mac to send the text…'
+    // Demo screen: the rule said send, but the demo screen never sends a text. Otherwise the usual wording.
+    const sub = this.demoOn && d.send ? DEMO_NO_TEXT
+      : d.send ? 'Asking your Mac to send the text…'
       : action ? `Would: ${describeAction(action)}. ${this.why(d.reason, action)}.` : '';
     a.querySelector('.rs-alert-sub')!.textContent = sub;
     if (this.app.source?.kind === 'replay') { this.flashHelp(); return; } // a replay plays on: no modal over it
+    if (this.demoOn && d.send) this.alarm(); // only when a real help text would have gone out
     if (!a.hidden) { this.dismiss.focus(); return; }
     // End a take that is still held, so its key up can't get stuck behind the alert. Its prediction must not
     // act behind the alert: bump our own serial first, so the rule blocks it as press-changed ("Say it again").
@@ -710,8 +757,106 @@ class ResultPanel {
     this.inerted = [];
     this.spaceDownInAlert = false;
     this.alert.hidden = true;
+    this.alertClosedAt = performance.now();
     document.body.classList.remove('rs-alert-open');
     this.dismiss.blur();
+  }
+
+  // ---------- demo screen ----------
+  /** In page (no reload: the pairing token lives in memory only). Full screen if the browser allows it. */
+  private enterDemo() {
+    if (this.demoOn || this.app.mode !== 'classify') return;
+    this.demoOn = true;
+    document.documentElement.classList.add(DEMO_CLASS);
+    this.el.dataset.demo = '1';
+    this.wakeAudio(); // a click: the browser lets audio start now
+    document.addEventListener('fullscreenchange', this.onFullscreen);
+    addEventListener('keydown', this.demoKeyDown); // bubble phase: the help alert's capture handler goes first
+    try {
+      const root = document.documentElement;
+      if (!document.fullscreenElement && root.requestFullscreen) void root.requestFullscreen().catch(() => { /* fills the window */ });
+    } catch { /* no full screen: the demo screen still fills the window */ }
+    this.renderDemoHint();
+    this.renderIdle();
+    this.renderArmed();
+  }
+
+  private exitDemo() {
+    if (!this.demoOn) return;
+    this.demoOn = false;
+    // A take that started in the demo screen must never act after it: the rule blocks it as press-changed.
+    this.mySerial++;
+    document.documentElement.classList.remove(DEMO_CLASS);
+    delete this.el.dataset.demo;
+    document.removeEventListener('fullscreenchange', this.onFullscreen);
+    removeEventListener('keydown', this.demoKeyDown);
+    this.hideBubble();
+    try {
+      if (document.fullscreenElement === document.documentElement) void document.exitFullscreen().catch(() => { /* ignore */ });
+    } catch { /* ignore */ }
+    try { void this.audio?.close().catch(() => { /* ignore */ }); } catch { /* ignore */ }
+    this.audio = null;
+    this.renderIdle();
+  }
+
+  /** Esc leaves the demo screen. While the help alert is open its own handler takes Esc first (it only closes the alert). */
+  private demoKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape' || e.repeat || !this.demoOn || !this.alert.hidden || e.defaultPrevented) return; // repeat: Esc held to close the alert
+    e.preventDefault();
+    this.exitDemo();
+  };
+
+  /** Leaving browser full screen (its own Esc, which the page may never see) leaves the demo screen too. */
+  private onFullscreen = () => {
+    if (!this.demoOn || document.fullscreenElement) return;
+    if (!this.alert.hidden) { this.closeAlert(); return; } // Esc with the help alert open only closes the alert
+    if (performance.now() - this.alertClosedAt < 600) return; // that same Esc already closed the alert
+    this.exitDemo();
+  };
+
+  private renderDemoHint() {
+    const replay = this.app.source?.kind === 'replay';
+    this.r.demoHint.innerHTML = replay ? 'Watching a replay of Spiro’s real session' : 'Hold <kbd>Space</kbd> and mouth a sentence';
+  }
+
+  /** The text the demo screen shows instead of sending it. */
+  private showBubble(action: string) {
+    const b = demoBubble(action);
+    if (!b) return; // help: the red alert is its moment
+    const { r } = this;
+    r.bubbleTo.textContent = b.to;
+    r.bubbleMsg.textContent = b.text;
+    r.bubble.dataset.action = action;
+    r.bubble.hidden = true;
+    void r.bubble.offsetWidth; // restart the pop in animation
+    r.bubble.hidden = false;
+    if (this.bubbleTimer) clearTimeout(this.bubbleTimer);
+    this.bubbleTimer = setTimeout(() => this.hideBubble(), DEMO_BUBBLE_MS);
+  }
+
+  private hideBubble() {
+    if (this.bubbleTimer) clearTimeout(this.bubbleTimer);
+    this.bubbleTimer = null;
+    this.r.bubble.hidden = true;
+  }
+
+  private wakeAudio() {
+    try {
+      const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AC) return;
+      this.audio ??= new AC();
+      if (this.audio.state === 'suspended') void this.audio.resume().catch(() => { /* ignore */ });
+    } catch (e) {
+      console.warn('[result] no audio', e);
+      this.audio = null;
+    }
+  }
+
+  /** The demo screen's help moment: about 1 s of alarm beeps. */
+  private alarm() {
+    this.wakeAudio();
+    playAlarm(this.audio);
+    this.alert.dataset.alarms = String(++this.alarms); // test hook
   }
 
   private say(text: string) {
