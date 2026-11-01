@@ -80,7 +80,7 @@ describe('safety on real data (default options)', { timeout: 60_000 }, () => {
   }, 120_000);
 
   // At the ml default (0.85) and at the bar "your model" really uses for texts (CONFIDENCE.messaging, 0.70).
-  it.each([['ml default', {}], ['text bar', { threshold: CONFIDENCE.messaging }]] as const)('the full model (LOSO, 3 sessions, %s): <= 3%% of sentences fire the wrong action, no none take fires, >= 60%% fire the right one', (_name, opts) => {
+  it.each([['ml default', {}], ['text bar', { threshold: CONFIDENCE.messaging }]] as const)('the full model (LOSO, 3 sessions, %s): at most 3 percent of sentences fire the wrong action, no none take fires, at least 60 percent fire the right one', (_name, opts) => {
     const res = crossValidate(real, opts, 'loso');
     const S = res.filter((r) => r.label !== NONE), N = res.filter((r) => r.label === NONE);
     const wrong = (rs: typeof res) => rs.filter((r) => r.accepted && r.predicted !== r.label).length / rs.length;
