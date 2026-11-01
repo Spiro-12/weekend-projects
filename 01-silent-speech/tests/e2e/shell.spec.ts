@@ -94,10 +94,13 @@ test('holding Space does not scroll the page (auto repeat keydowns are swallowed
     return [first.defaultPrevented, again.defaultPrevented];
   });
   expect(prevented).toEqual([true, true]);
-  // and a real held key leaves the scroll position alone
+  // and a real held key leaves the scroll position alone (a second down() sends a real repeat keydown)
+  expect(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight)).toBe(true);
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.keyboard.down('Space');
-  await page.waitForTimeout(800);
+  await page.keyboard.down('Space');
+  await page.keyboard.down('Space');
+  await page.waitForTimeout(300);
   await page.keyboard.up('Space');
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
