@@ -67,8 +67,9 @@ const typing = (e: Event) => (e.target as HTMLElement)?.closest?.('input, textar
 // In a replay the recording presses push to talk itself; the visitor's Space, clicks and window blur must not.
 const replaying = () => app.source?.kind === 'replay';
 addEventListener('keydown', (e) => {
-  if (e.code !== 'Space' || e.repeat || typing(e) || replaying()) return;
-  e.preventDefault();
+  if (e.code !== 'Space' || typing(e) || replaying()) return;
+  e.preventDefault(); // also for the auto repeat while Space is held, or the browser scrolls the page down
+  if (e.repeat) return;
   app.ptt(true);
 });
 addEventListener('keyup', (e) => {
