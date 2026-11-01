@@ -271,7 +271,7 @@ class ResultPanel {
       await nextFrame();
       if (gen !== this.gen) return;
       try {
-        const model = ml.train(clips);
+        const model = ml.train(clips, { threshold: CONFIDENCE.messaging }); // "You said" = sure enough to text
         this.tags.set(model, { kind: plan, n: clips.length, fp: fingerprint(clips) });
         this.failure = null;
         this.loading = null;

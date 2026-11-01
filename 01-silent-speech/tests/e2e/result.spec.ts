@@ -322,7 +322,7 @@ test('armed, paired, real AirPods, your own model: exactly one action per accept
   }
 });
 
-test('confidence bars: "Probably" from 0.5; other actions may run from 0.5, texts need the model to be sure (0.85)', async ({ page }) => {
+test('confidence bars: "Probably" from 0.5; other actions may run from 0.5, texts need the model to be sure (0.7)', async ({ page }) => {
   const bridge = await livePage(page, { armed: true, token: TOKEN, real: true });
   try {
     await expect(page.getByTestId('result-model')).toHaveText(/Your model: 40/);
@@ -342,8 +342,8 @@ test('confidence bars: "Probably" from 0.5; other actions may run from 0.5, text
     await expect(state).toContainText('Probably');
     await expect(chip).toHaveAttribute('data-reason', 'low-confidence');
     await expect(chip).toContainText('Texts need it to be very sure');
-    // Accepted by a model, but below 0.85: still no text.
-    await inject(page, { label: 'call_back', confidence: 0.8, accepted: true });
+    // Accepted by a model, but below 0.7: still no text.
+    await inject(page, { label: 'call_back', confidence: 0.65, accepted: true });
     await expect(state).toHaveAttribute('data-state', 'accepted');
     await expect(chip).toHaveAttribute('data-reason', 'low-confidence');
     await page.waitForTimeout(300);
@@ -379,7 +379,7 @@ test('live push to talk end to end: a real prediction sends at most one action, 
     const pred = await next;
     expect(pred.mode).toBe('classify');
     const action = classes.find((c) => c.id === pred.label)?.action ?? null;
-    // the real rule's bar: harmless actions fire from 0.5, texts need accepted and 0.85
+    // the real rule's bar: harmless actions fire from 0.5, texts need accepted and 0.7
     const shouldSend = pred.label !== 'none' && !!action && clearsBar(action, pred);
     await page.waitForTimeout(800);
     expect(bridge.actions).toEqual(shouldSend ? [{ action, dryRun: false }] : []);
@@ -531,6 +531,8 @@ test('your model also learns from imported sessions, once this browser has a ful
     await page.getByTestId('result-retrain').click();
     await expect(page.getByTestId('result-model')).toHaveText(/Your model: 80 recordings/);
     await expect(page.getByTestId('result-model')).toHaveAttribute('data-kind', 'own');
+    // trained to accept at the text bar, so "You said" and "sure enough to text" agree
+    expect(await page.evaluate(() => (window.__ss.app.model as unknown as { toJSON(): { opts: { threshold: number } } }).toJSON().opts.threshold)).toBe(0.7);
     await expect(page.getByTestId('result-model')).toContainText('Can run actions on your Mac');
   } finally {
     await bridge.close();
@@ -687,8 +689,8 @@ test('help: full screen red alert with a big Dismiss; Space, Enter and Escape cl
   const alert = await helpPage(page);
   await inject(page, { label: 'help', confidence: 0.4, accepted: false });
   await expect(alert).toBeHidden(); // only when it's sure
-  await inject(page, { label: 'help', confidence: 0.8, accepted: true });
-  await expect(alert).toBeHidden(); // as sure as a text must be: accepted and 0.85
+  await inject(page, { label: 'help', confidence: 0.65, accepted: true });
+  await expect(alert).toBeHidden(); // as sure as a text must be: accepted and 0.7
   await expect(page.getByTestId('result-label')).toHaveText(sentence('help')); // but it is shown
   await inject(page, accepted('help'));
   await expect(alert).toBeVisible();

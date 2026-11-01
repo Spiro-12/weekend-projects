@@ -37,13 +37,16 @@ export const LOOSE_ACTIONS: readonly string[] = ['volume_up', 'focus_music', 'ca
 /**
  * Confidence bars. Track F, Spiro's real data at the Phase 2 defaults (k 3, clip norm, L 96, mirror):
  * at 0.85, 61.6% of correct sentences accepted, 0% wrong, 0% 'none' false accepts; at 0.5, 85.4% accepted,
- * 1.0% wrong, 0% 'none'. A wrong text to a real person is the worst mistake, so:
+ * 1.0% wrong, 0% 'none'. Nov 1, all 5 sessions, left bud LOSO (420 sentences, 57 none): at 0.85, 65.5%
+ * accepted and 0 wrong; at 0.70, 82.1% and 0 wrong (cross bud: 1.0% wrong); 0 wrong down to 0.60. Spiro chose
+ * to make texts work more often on the first try (they only go to his own number for now): 0.70. A wrong text to a real person is
+ * the worst mistake, so:
  * - messaging: every action NOT in LOOSE_ACTIONS (texts, and any action added later) needs the model's own
- *   accept (its threshold, 0.85 by default) AND at least this.
+ *   accept AND at least this. "Your model" is trained with this as its threshold (result.ts), so the two agree.
  * - other: LOOSE_ACTIONS (volume, music, calendar, the demo line) may fire from this, and the screen shows
  *   the sentence from this up (as "probably" below the model's threshold); below it shows "Not sure".
  */
-export const CONFIDENCE = { messaging: 0.85, other: 0.5 } as const;
+export const CONFIDENCE = { messaging: 0.7, other: 0.5 } as const;
 
 /** Does this prediction clear the bar for this action? */
 export function clearsBar(action: string, pred: Pick<Prediction, 'accepted' | 'confidence'>): boolean {
