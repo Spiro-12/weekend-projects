@@ -32,6 +32,12 @@ export function withFleet(s: Scenario, type: AgentTypeId, count: number): Scenar
   return { ...s, fleet: { ...s.fleet, [type]: Math.max(0, Math.floor(count)) } };
 }
 
+/** The same operation without picking robots (cart robots and humanoids); forklifts unchanged. Picker uplift
+ *  compares capacity runs with and without them (PROTOCOL §6). */
+export function withoutPickingRobots(s: Scenario): Scenario {
+  return { ...s, fleet: { ...s.fleet, amr: 0, humanoid: 0 } };
+}
+
 /** Every robot count set to zero ("People only"). */
 export function peopleOnly(s: Scenario): Scenario {
   return { ...s, fleet: { ...s.fleet, amr: 0, forklift: 0, humanoid: 0 } };

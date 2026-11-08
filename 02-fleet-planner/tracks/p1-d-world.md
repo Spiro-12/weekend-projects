@@ -11,7 +11,7 @@ Make the building look like the reference demos: a bright industrial hall with a
 - `public/assets/manifest.json`, `scripts/assets/**`, `CREDITS.md`, `spikes/c-assets-RESULTS.md`.
 - `spikes/a-render/src/static-world.ts`, `textures.ts` and `RESULTS.md` (instancing patterns and measured costs).
 
-**Reference frames (look at them):** `.refs/` in the main checkout (`git worktree list` shows it first; gitignored, never commit). Read-only; never commit them.
+**Reference frames (look at them):** `02-fleet-planner/.refs/` in the main checkout (`git worktree list` shows it first; gitignored, never commit). Read-only; never commit them.
 
 ## You own
 - `src/render/world/**`

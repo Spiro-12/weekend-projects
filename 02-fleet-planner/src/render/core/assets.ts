@@ -15,9 +15,13 @@ export interface ManifestModel {
   tris: number;
   trisLo?: number;
   drawCalls: number;
+  drawCallsLo?: number;
   bytes: number;
+  bytesLo?: number;
   gzBytes: number;
   gzBytesLo?: number;
+  textures: string[];
+  texturesLo?: string[];
   /** Named child nodes that move (forks, mast, carriage, tiller…). */
   parts: string[];
   clips?: string[];
@@ -31,6 +35,7 @@ export interface ManifestModel {
 export interface Manifest {
   format: 'fp-assets';
   v: 1;
+  generated: string;
   source: Record<string, string>;
   decoder: { name: string; gzBytes: number };
   models: Record<string, ManifestModel>;

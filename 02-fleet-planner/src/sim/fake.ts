@@ -63,6 +63,9 @@ interface FAgent {
   charger: number;
   blockedTicks: number;
   waitOn: number;
+  /** Best distance to the current goal so far, and ticks without beating it (a side step never resets this). */
+  bestDist: number;
+  noProgress: number;
   removing: boolean;
 }
 
@@ -175,6 +178,8 @@ export class FakeSim implements Sim {
         charger: -1,
         blockedTicks: 0,
         waitOn: -1,
+        bestDist: 0xffff,
+        noProgress: 0,
         removing: false,
       };
       this.occ[cell] = a.id;
@@ -225,6 +230,7 @@ export class FakeSim implements Sim {
     // Remove agents marked for removal once they stand still.
     for (const a of this.agents.filter((x) => x.removing && x.to < 0)) {
       this.occ[a.cell] = -1;
+      if (a.state === 'charge') this.events.push({ t: 'chargeEnd', tick, agent: a.id });
       if (a.charger >= 0) this.chargerUse[a.charger] = -1;
     }
     this.agents = this.agents.filter((x) => !(x.removing && x.to < 0));
@@ -294,6 +300,16 @@ export class FakeSim implements Sim {
       a.state = 'idle';
       return;
     }
+    // Progress toward the goal: a side step and a walk back never count as progress.
+    const d = this.dist.to(a.cls, a.goal)[a.cell];
+    if (d < a.bestDist) {
+      a.bestDist = d;
+      a.noProgress = 0;
+    } else a.noProgress++;
+    if (a.noProgress > 60) {
+      this.dropGoal(a); // 30 s without getting closer: give up and pick another goal (fake recovery)
+      return;
+    }
     const occupant = this.occ[next];
     if (occupant >= 0) {
       a.waitOn = occupant;
@@ -301,26 +317,39 @@ export class FakeSim implements Sim {
       a.state = 'blocked';
       waitFor[a.id] = occupant;
       this.heat[a.cell]++;
-      if (a.blockedTicks > 4 + (a.id % 4)) {
-        // Fake recovery: step aside into any free neighbour (breaks head-on standoffs), else pick another goal.
+      // Most agents step aside after a few ticks; every fifth one is patient (so real jams can form, as on a floor).
+      const patience = a.id % 10 === 0 ? 24 : 4 + (a.id % 4);
+      if (a.blockedTicks > patience) {
         const pass = this.world.passable[a.cls === 'small' ? 0 : a.cls === 'forklift' ? 1 : 2];
         for (let k = 0; k < 4; k++) {
-          const d = (k + a.id + tick) % 4;
-          const side = this.world.nbr[a.cell * 4 + d];
+          const dir = (k + a.id + tick) % 4;
+          const side = this.world.nbr[a.cell * 4 + dir];
           if (side < 0 || side === next || !pass[side] || this.world.isPocket[side] || this.occ[side] >= 0) continue;
           this.startMove(a, side, tick);
           return;
         }
-        if (a.goalKind === 'charger' && a.charger >= 0) {
-          this.chargerUse[a.charger] = -1;
-          a.charger = -1;
-        }
-        a.goal = -1;
-        a.blockedTicks = 0;
+        // Boxed in: yield for a moment without waiting on anyone (breaks symmetric standoffs), then re-plan.
+        this.dropGoal(a);
+        a.dwellUntil = tick + 3 + (a.id % 5);
+        waitFor[a.id] = -1;
+        a.waitOn = -1;
       }
       return;
     }
     this.startMove(a, next, tick);
+  }
+
+  private dropGoal(a: FAgent): void {
+    if (a.goalKind === 'charger' && a.charger >= 0) {
+      this.chargerUse[a.charger] = -1;
+      a.charger = -1;
+    }
+    a.goal = -1;
+    a.goalKind = 'none';
+    a.blockedTicks = 0;
+    a.noProgress = 0;
+    a.bestDist = 0xffff;
+    a.state = 'idle';
   }
 
   private startMove(a: FAgent, next: number, tick: number): void {
@@ -416,6 +445,8 @@ export class FakeSim implements Sim {
 
   private setGoal(a: FAgent, cell: number, kind: FAgent['goalKind'], task: TaskKind, tick: number): void {
     a.goal = cell;
+    a.bestDist = 0xffff;
+    a.noProgress = 0;
     a.goalKind = kind;
     if (a.taskKind !== task || a.taskId < 0 || kind === 'charger') {
       a.taskId = this.nextTask++;
@@ -506,7 +537,7 @@ export class FakeSim implements Sim {
     mix(this.nextOrder);
     mix(this.shipped);
     for (const a of this.agents)
-      for (const v of [a.id, a.cell, a.to, a.moveStart, a.moveEnd, a.heading, a.goal, a.dwellUntil, a.carry, a.battery, a.blockedTicks, a.taskId])
+      for (const v of [a.id, a.cell, a.to, a.moveStart, a.moveEnd, a.heading, a.goal, a.dwellUntil, a.carry, a.battery, a.blockedTicks, a.taskId, a.bestDist, a.noProgress])
         mix(v);
     for (const v of this.rng.state()) mix(v);
     for (const v of this.arrivals.state()) mix(v);

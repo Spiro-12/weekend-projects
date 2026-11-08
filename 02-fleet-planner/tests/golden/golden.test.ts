@@ -7,6 +7,7 @@ import type { AgentsFile, LayoutFile, Scenario } from '../../src/contracts/types
 import { validateScenario } from '../../src/contracts/validate.ts';
 import { GOLDEN_RECORDER, GOLDEN_IMPL } from './setup.ts';
 import { createInlineRunner } from '../../src/host/runner/inline.ts';
+import { withoutPickingRobots } from '../../src/host/settings.ts';
 
 const dir = new URL('./', import.meta.url);
 const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
@@ -42,7 +43,7 @@ describe.skipIf(files.length === 0)('golden scenarios', () => {
       if (e.pickerUplift) {
         // Units per picker-hour with this fleet vs people only, both at capacity (PROTOCOL §6).
         const withRobots = await runner.evaluate(s, { saturate: true });
-        const peopleOnly = await runner.evaluate({ ...s, fleet: { ...s.fleet, amr: 0, humanoid: 0 } }, { saturate: true });
+        const peopleOnly = await runner.evaluate(withoutPickingRobots(s), { saturate: true });
         inRange(withRobots.kpis.unitsPerPickerHour / Math.max(1e-9, peopleOnly.kpis.unitsPerPickerHour), e.pickerUplift, 'picker uplift');
       }
     });

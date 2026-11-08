@@ -87,15 +87,23 @@ export function createHost(data: AppData, runner: Runner, opts: { scenario?: str
       p = econ.findBaseline(s, runner);
       baselineCache.set(key, p);
     }
-    const b = await p;
-    if (token !== runToken) return;
-    baseline.value = b;
-    money.value = econ.computeMoney({ scenario: s, agents: data.agents, candidate: r, baseline: b.result, baselineCrew: b.crew });
-    moneyPending.value = false;
+    try {
+      const b = await p;
+      if (token !== runToken) return;
+      baseline.value = b;
+      money.value = econ.computeMoney({ scenario: s, agents: data.agents, candidate: r, baseline: b.result, baselineCrew: b.crew });
+    } catch (e) {
+      // A failed baseline search is not cached: the next change retries it.
+      baselineCache.delete(key);
+      console.error('[money] baseline or money failed', e);
+    } finally {
+      if (token === runToken) moneyPending.value = false;
+    }
   };
   const recalc = () => {
     const s = settings.value;
     const token = ++runToken;
+    moneyPending.value = true;
     const cached = runner.peek(s);
     if (cached) {
       result.value = cached;

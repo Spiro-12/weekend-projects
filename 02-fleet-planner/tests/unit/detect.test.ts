@@ -47,3 +47,18 @@ describe('JamTracker', () => {
     expect(j.total).toBe(1);
   });
 });
+
+describe('detectors map positions to agent ids', () => {
+  it('DeadlockTracker reports ids when given idOf', () => {
+    const t = new DeadlockTracker();
+    let r = { started: [] as { ids: number[] }[] };
+    for (let tick = 0; tick < DEADLOCK_MIN_TICKS; tick++) r = t.update(tick, [1, 0, -1], [40, 17, 3]);
+    expect(r.started.map((d) => d.ids)).toEqual([[17, 40]]);
+  });
+  it('JamTracker reports ids when given idOf', () => {
+    const j = new JamTracker(20);
+    const cells = [20 * 5 + 5, 20 * 5 + 6, 20 * 5 + 7];
+    const r = j.update(0, cells, [JAM_MIN_TICKS, JAM_MIN_TICKS, JAM_MIN_TICKS], [9, 4, 12]);
+    expect(r.started[0].agents).toEqual([4, 9, 12]);
+  });
+});

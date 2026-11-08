@@ -23,8 +23,8 @@ for (let t = 0; t < 60; t++) {
   snaps.push(t === 59 ? s : { ...s, heat: [] });
 }
 out('snapshots-default.json', { note: 'FakeSim, default scenario, ticks 601-660 (30 s). Not a model.', snapshots: snaps });
-sim.step(1200);
-out('events-default.json', { note: 'FakeSim events for 10 simulated minutes after warm-up. Not a model.', events: sim.drainEvents() });
+sim.step(3600);
+out('events-default.json', { note: 'FakeSim events for 30 simulated minutes after warm-up. Not a model.', events: sim.drainEvents() });
 
 out('runresult.json', { note: 'Fake runner output (toy model) for the default scenario.', result: fakeEvaluate(scenario), capacity: fakeEvaluate(scenario, { saturate: true }) });
 

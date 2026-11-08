@@ -83,4 +83,4 @@ Also take desktop and phone screenshots (`npx tsx scripts/shots.ts --url http://
   - a single-row chip strip that scrolls sideways, about 60% of today's height, with short labels that never wrap ("Orders/h", "Utilization", "Jams/h", "Order time"; the lead added short labels to the Phase 0 tiles)
   - no box-shadow band behind the strip
   - money panel and follow card as bottom sheets
-- **Follow card:** bottom-right on desktop (ID, task, speed, battery, next stop), like An Xuan's "Forklift FL-1" card (slot `overlay`, absolutely positioned; overlay sections never block clicks). Fleet controls: slot `left`. Money: slot `right`.
+- **Follow card:** bottom-right on desktop (ID, task, speed, battery, next stop), like An Xuan's "Forklift FL-1" card (slot `overlay`, absolutely positioned; overlay sections never block clicks). Fleet controls: slot `left`. Money: slot `right`. **On phones the overlay slot does not become a sheet tab:** style the follow card as a compact card above the `.sheet-tabs` bar (bottom ≈ 60 px) so it never covers the tabs.

@@ -63,7 +63,7 @@ Plus glowing route lines on the floor, visible jams and deadlocks, click-to-foll
 - Draw calls for agents ≤ 20 at the overview with 150 robots.
 - No console errors.
 
-**Visual check (required):** screenshots of a followed AMR in an aisle, a forklift at a face, people and a humanoid near the pack area, and a deadlock. Compare them with the reference frames in `.refs/` in the main checkout (`git worktree list` shows it first; gitignored, never commit) (read-only). Iterate until they look in league.
+**Visual check (required):** screenshots of a followed AMR in an aisle, a forklift at a face, people and a humanoid near the pack area, and a deadlock. Compare them with the reference frames in `02-fleet-planner/.refs/` in the main checkout (`git worktree list` shows it first; gitignored, never commit) (read-only). Iterate until they look in league.
 
 ## Done when
 `E2E_WEB_PORT=5202 npm run gate` is green, the budgets are met (report the numbers), the screenshots are reviewed, and the work is committed on your branch.

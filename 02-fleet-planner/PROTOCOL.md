@@ -176,7 +176,7 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
   | `avgOrderSec`, `p90OrderSec` | (ship tick − arrive tick) × 0.5 s for orders shipped in the window |
   | `backlogEnd` | open orders at the end of the window |
   | `backlogTrendPerHour` | least-squares slope of open orders over the window. **`keepsUp`** = trend ≤ +2% of demand per hour. |
-  | `pickerUplift` | units per picker-hour with AMRs ÷ people-only units per picker-hour, both at capacity. **An output, not an input**: it comes from walk speed, `pickSecPerLine` and zones, calibrated so the default lands near 75 → 135 units/h. |
+  | `pickerUplift` | units per picker-hour with this fleet ÷ units per picker-hour without picking robots (`withoutPickingRobots`: cart robots and humanoids set to 0, forklifts unchanged), both at capacity. **An output, not an input**: it comes from walk speed, `pickSecPerLine` and zones, calibrated so the default lands near 75 → 135 units/h. |
   | `unitsPerPickerHour`, `resetsPerHour`, `retasksPerHour`, `deadlocksOver2MinPerShift` | |
 
 - **`fp-sweep v1`** = `{ axes, base, results: RunResult[] }`.
