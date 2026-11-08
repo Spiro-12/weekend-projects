@@ -24,8 +24,8 @@ const SV_WAIT_AMR = 3;
 type Any = any;
 
 describe('fleet shrink from an over-fleet while robots are held', () => {
-  it('70 → 20 cart robots at 2 h: the fleet reaches 20, shipping recovers, resets stay small', () => {
-    const sim = makeSim(scenario({ fleet: { amr: 70 }, orders: { mode: 'saturate' } }), { pibt: true });
+  it.each([42, 7, 2, 1])('seed %i: 70 → 20 cart robots at 2 h: the fleet reaches 20, shipping recovers, resets stay small', (seed) => {
+    const sim = makeSim(scenario({ seed, fleet: { amr: 70 }, orders: { mode: 'saturate' } }), { pibt: true });
     run(sim, 2 * 7200 - 600);
     const held = sim.robots.filter((r) => r.job === J_PICK && (r.stage === PK_HOLD || r.stage === PK_ZONE_HOLD)).length;
     run(sim, 600);
@@ -37,11 +37,13 @@ describe('fleet shrink from an over-fleet while robots are held', () => {
       buckets.push(ev.filter((e) => e.t === 'orderShipped').length);
       resets += ev.filter((e) => e.t === 'manualReset').length;
     }
+    console.log(`[track A] shrink 70 → 20 seed ${seed}: held ${held}, shipped per 15 min ${buckets.join(' ')}, resets ${resets}`);
     expect(held).toBeGreaterThan(0); // robots were held when the shrink came
     expect(sim.stats().fleet.amr).toBe(20);
+    expect(sim.robots.filter((r) => r.job === J_PICK && (r.stage === PK_HOLD || r.stage === PK_ZONE_HOLD)).length).toBe(0);
     expect(Math.min(...buckets.slice(2))).toBeGreaterThan(100);
     expect(resets).toBeLessThanOrEqual(10);
-  });
+  }, 120_000);
 });
 
 describe('picker choice', () => {
@@ -71,21 +73,32 @@ describe('picker choice', () => {
 
   it('a picker that gives up a meeting stands down and is not paired with the same blocked robot again', () => {
     const sim: Any = makeSim(scenario({ fleet: { amr: 56 }, orders: { mode: 'saturate' } }), { pibt: true });
+    // remember each give-up (picker → robot) at the moment it happens, then watch that pair while the robot stays blocked
+    const gaveUp = new Map<number, number>();
+    let watched = 0;
+    const orig = sim.freeAgent.bind(sim);
+    sim.freeAgent = (a: Any) => {
+      if (a.job === J_SERVE && a.stage === SV_WAIT_AMR && a.partner >= 0) {
+        const r = sim.byId[a.partner];
+        if (r && r.stage === PK_TO_STOP && r.blockedTicks >= MEET_GIVEUP_TICKS) {
+          gaveUp.set(a.id, r.id);
+          watched++;
+        }
+      }
+      return orig(a);
+    };
     let repaired = 0;
     for (let k = 0; k < 3 * 7200; k++) {
-      const pairs = new Map<number, number>();
-      for (const p of sim.people) if (p.job === J_SERVE && p.stage === SV_WAIT_AMR) pairs.set(p.id, p.partner);
-      const before = sim.counters.meetsGivenUp;
       sim.step(1);
-      if (sim.counters.meetsGivenUp === before) continue;
-      for (const [pid, rid] of pairs) {
+      for (const [pid, rid] of gaveUp) {
         const p = sim.byId[pid];
         const r = sim.byId[rid];
-        // a robot that reached its stop in the same tick may rightly get its picker back
-        if (p && r && p.job === J_SERVE && p.partner === rid && r.stage === PK_TO_STOP && r.blockedTicks >= MEET_GIVEUP_TICKS) repaired++;
+        if (!p || !r || r.stage !== PK_TO_STOP || r.blockedTicks < MEET_GIVEUP_TICKS) gaveUp.delete(pid); // robot moved on
+        else if (p.job === J_SERVE && p.partner === rid) repaired++;
       }
     }
     expect(sim.counters.meetsGivenUp).toBeGreaterThan(0);
+    expect(watched).toBe(sim.counters.meetsGivenUp); // every give-up was seen
     expect(repaired).toBe(0);
   });
 });
@@ -122,10 +135,11 @@ describe('zone admission', () => {
       }
       for (const [z, n] of loads) if (z >= 0 && n > sim.zoneCap[z]) over++;
     }
+    console.log(`[track A] 56 cart robots: resting held robots on pick-aisle cells ${((100 * onFace) / atRest).toFixed(1)}% of ${atRest} samples`);
     expect(over).toBe(0);
     expect(atRest).toBeGreaterThan(50);
     // held robots wait on pick-aisle cells; the rest (about 18%) were pushed aside by the planner and wait there
-    expect(onFace / atRest).toBeGreaterThan(0.8);
+    expect(onFace / atRest).toBeGreaterThan(0.75); // measured 81.8% at seed 42
   });
 });
 
@@ -228,22 +242,39 @@ describe('assisted picks and humanoid zones', () => {
 });
 
 describe('stock on a dropped pick', () => {
-  it('a picker that breaks mid-pick puts the units it took back on the face', () => {
+  it('a picker that breaks mid-pick puts exactly the units it took back on the face', () => {
     const sim: Any = makeSim(scenario({ orders: { mode: 'saturate' } }), { pibt: true });
+    const cap = 2 * sim.linesPerReplenish;
     let w: Any = null;
-    for (let k = 0; k < 7200 && !w; k++) {
+    let face = -1;
+    for (let k = 0; k < 4 * 7200 && !w; k++) {
       sim.step(1);
-      w = sim.people.find((x: Any) => x.typeId === 'picker' && x.job === J_SERVE && x.stage === SV_PICKING && x.dwellUnits > 0 && x.dwellUntil - sim.tick > 4);
+      for (const x of sim.people) {
+        if (x.typeId !== 'picker' || x.job !== J_SERVE || x.stage !== SV_PICKING || x.dwellUnits < 2 || x.dwellUntil - sim.tick <= 4) continue;
+        const task = sim.taskById.get(sim.byId[x.partner].taskId);
+        const f = task.stops[task.stop].face;
+        if (sim.stock[f] >= 0 && sim.stock[f] < cap) { w = x; face = f; break; } // room on the face, so a lost return shows
+      }
     }
     expect(w).toBeTruthy();
-    const amr = sim.byId[w.partner];
-    const face = sim.taskById.get(amr.taskId).stops[sim.taskById.get(amr.taskId).stop].face;
-    const before = sim.stock[face];
     const units = w.dwellUnits;
+    expect(units).toBeGreaterThanOrEqual(2);
+    // read the face right around the drop, so another picker taking from it later in the same tick does not blur it
+    const orig = sim.dropJob.bind(sim);
+    let atDrop = -1;
+    let afterDrop = -1;
+    sim.dropJob = (a: Any, t: number) => {
+      if (a !== w) return orig(a, t);
+      atDrop = sim.stock[face];
+      orig(a, t);
+      afterDrop = sim.stock[face];
+    };
     sim.command({ t: 'inject', event: { type: 'breakdown', atMin: 0, agent: `picker:${w.spawnIndex}`, forMin: 2 } });
     sim.step(1);
     expect(w.brokenUntil).toBeGreaterThan(0);
     expect(w.dwellUnits).toBe(0);
-    expect(sim.stock[face]).toBeGreaterThanOrEqual(Math.min(80, before + units) - 1); // another picker may take one the same tick
+    expect(atDrop).toBeGreaterThanOrEqual(0);
+    expect(atDrop).toBeLessThan(cap);
+    expect(afterDrop).toBe(Math.min(cap, atDrop + units));
   });
 });

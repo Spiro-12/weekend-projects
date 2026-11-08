@@ -972,9 +972,9 @@ export class CoreSim implements Sim {
    *  nothing to do resting on open floor (not in a pocket). */
   private pushable(r: CoreAgent): boolean {
     if (r.to >= 0 || r.brokenUntil > 0 || r.dwellUntil > 0 || this.world.isPocket[r.cell]) return false;
-    // a held robot is pushable even when it is being removed: it still has its batch to finish
+    // a robot being removed is still pushable: it finishes its batch first, and a removed robot waiting at a stop or in
+    // a hold must not become a wall in a pick aisle (free robots being removed leave at once anyway)
     if (r.job === J_PICK && (r.stage === PK_HOLD || r.stage === PK_ZONE_HOLD)) return r.goal < 0;
-    if (r.removing) return false;
     if (r.job === J_REST) return r.stage === RS_AT;
     if (r.job === J_NONE) return true;
     if (r.job !== J_PICK || r.stage !== PK_AT_STOP || r.waiting !== 1 || !this.isAmrTask(r)) return false;
@@ -986,7 +986,9 @@ export class CoreSim implements Sim {
    *  wherever it ends up. */
   private pushedOff(r: CoreAgent, t: number): void {
     this.counters.pushedOff++;
-    if (r.job === J_PICK && (r.stage === PK_HOLD || r.stage === PK_ZONE_HOLD)) return; // still held, wherever it was pushed
+    // still held, wherever it was pushed. Sending it back to a pick-aisle hold cell was tried (review 3): it keeps every
+    // held robot off the main aisles, but costs up to 10% shipping at 70 robots and adds resets on a fleet shrink
+    if (r.job === J_PICK && (r.stage === PK_HOLD || r.stage === PK_ZONE_HOLD)) return;
     if (r.job === J_PICK) {
       const task = this.taskById.get(r.taskId) as PickTask;
       r.stage = PK_TO_STOP;
@@ -1059,6 +1061,7 @@ export class CoreSim implements Sim {
     const r = this.byId[id];
     if (!r || !r.robot || r.brokenUntil > 0) return;
     const before = r.goal;
+    const stageBefore = r.stage;
     if (r.job === J_PICK && r.stage === PK_TO_PACK) {
       const task = this.taskById.get(r.taskId) as PickTask;
       const s = this.pack.leastLoaded((st) => this.dist.to(r.distCls, st.service)[r.cell], task.station, (st) => this.packQueue(st.id) < PACK_QUEUE_SLOTS);
@@ -1109,7 +1112,7 @@ export class CoreSim implements Sim {
       this.counters.retasks++;
       this.events.push({ t: 'retask', tick: t, agent: id, goal: r.goal });
       this.refreshView(r, t);
-    }
+    } else if (r.stage !== stageBefore) this.refreshView(r, t); // e.g. rotated into a zone hold with no hold cell
   }
 
   /** After a reset or a re-task, the planner's view of the robot is rebuilt exactly as phase 5 builds it: new cell and
