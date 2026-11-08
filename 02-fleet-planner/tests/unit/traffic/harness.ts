@@ -114,9 +114,11 @@ export interface HarnessOptions {
   /** Dwell ticks at a goal: [min, max]. */
   dwell?: [number, number];
   /**
-   * Where goals are drawn. 'work' (default): like the work loop, pick faces of the agent's class, `stationPct` percent
-   * a pack station (AMRs, humanoids) or dock staging cell (forklifts, drivers), and `pocketGoalPct` percent a free
-   * pocket (robots). 'any': any cell of the class (a harsher stress: robots dwell in cross aisles and the pack lane).
+   * Where goals are drawn. 'work' (default), like the Phase 1 work model (PROTOCOL §5): robots go to pick faces of
+   * their class, `stationPct` percent to the least-loaded pack station (AMRs, humanoids) or dock staging cell
+   * (forklifts), `pocketGoalPct` percent to a free pocket; pickers stay in their pick zone (contiguous aisles, split
+   * evenly) and walk face to face; drivers go to docks and forklift faces. 'any': any cell of the class for everyone
+   * (a harsher stress: robots dwell in cross aisles and the pack lane, people walk everywhere).
    */
   goals?: 'work' | 'any';
   stationPct?: number;
@@ -124,7 +126,9 @@ export interface HarnessOptions {
   pocketGoalPct?: number;
   /** Fold every plan output into `digest` (determinism). */
   digest?: boolean;
-  /** Called with each tick's input and output (after plan). */
+  /** Called with each tick's input just before recover() (the input object is reused: copy what you keep). */
+  onRecover?: (input: TrafficInput) => void;
+  /** Called with each tick's input (after resets were applied) and output, after plan(). */
   onPlan?: (input: TrafficInput, out: TrafficPlan, resets: { agent: number; cell: number }[]) => void;
 }
 
@@ -157,6 +161,10 @@ export class Harness {
   private readonly faceCells: number[][];
   private readonly stationCells: number[][];
   private readonly pockets: number[][];
+  /** Pick-zone faces per picker id. */
+  private readonly zones = new Map<number, number[]>();
+  private readonly aisles: number;
+  private pickersSpawned = 0;
   private readonly rng: Rng;
   private readonly rngPeople: Rng;
   private readonly rngTie: Rng;
@@ -190,6 +198,7 @@ export class Harness {
     this.stationCells = PASS_CLASSES.map((cls) => (cls === 'forklift' ? docks : pack).filter((c) => w.passable[classIndex(cls)][c]));
     this.pockets = w.passable.map(() => []);
     for (const p of [...w.chargers, ...w.parking].sort((a, b) => a.cell - b.cell)) this.pockets[classIndex(p.forClass)].push(p.cell);
+    this.aisles = w.faces.reduce((m, f) => Math.max(m, f.aisle + 1), 0);
 
     const r = opts.robots ?? {};
     const spawn = (type: AgentTypeId, k: number) => {
@@ -203,6 +212,14 @@ export class Harness {
         if (c < 0) throw new Error('no free spawn cell');
         const a = this.add(type, c);
         a.heading = this.rng.int(4);
+        if (type === 'picker') {
+          // picker k of K: aisles [floor(k A / K), floor((k + 1) A / K)), at least one
+          const K = opts.pickers ?? 1;
+          const k = this.pickersSpawned++;
+          const lo = Math.floor((k * this.aisles) / K);
+          const hi = Math.max(lo + 1, Math.floor(((k + 1) * this.aisles) / K));
+          this.zones.set(a.id, w.faces.filter((f) => f.aisle >= lo && f.aisle < hi).map((f) => f.cell).sort((x, y) => x - y));
+        }
         this.newGoal(a);
       }
     };
@@ -273,11 +290,32 @@ export class Harness {
       let cells = this.goalCells[ci];
       if ((this.opts.goals ?? 'work') === 'work') {
         const st = this.stationCells[ci];
-        cells = st.length > 0 && this.rng.int(100) < (this.opts.stationPct ?? 20) ? st : this.faceCells[ci];
+        const zone = this.zones.get(a.id);
+        if (zone && zone.length > 0) cells = zone;
+        else if (st.length > 0 && this.rng.int(100) < (this.opts.stationPct ?? 20)) g = this.leastLoaded(st);
+        else cells = this.faceCells[ci];
       }
-      g = cells[this.rng.int(cells.length)];
+      if (g < 0) g = cells[this.rng.int(cells.length)];
     }
     this.setGoal(a, g);
+  }
+
+  /** PROTOCOL §5 rule 8: the WMS sends each trip to the least-loaded station (fewest agents heading there or in it),
+   *  ties from a random start. */
+  private leastLoaded(cells: number[]): number {
+    const start = this.rng.int(cells.length);
+    let best = -1;
+    let bestLoad = 0x7fffffff;
+    for (let k = 0; k < cells.length; k++) {
+      const c = cells[(start + k) % cells.length];
+      let load = 0;
+      for (const b of this.agents) if (b.goal === c || (b.cell === c && b.dwell > 0)) load++;
+      if (load < bestLoad) {
+        best = c;
+        bestLoad = load;
+      }
+    }
+    return best;
   }
 
   private reach(a: HAgent): void {
@@ -480,6 +518,7 @@ export class Harness {
     const input: TrafficInput = { tick: t, world: this.world, dist: this.dist, agents: this.views, order, ready, occ, yields };
     const t0 = this.opts.time ? performance.now() : 0;
     // 5. recover: resets applied before planning
+    this.opts.onRecover?.(input);
     const rec = this.controller.recover(input);
     for (const r of rec.resets) {
       const a = agents[r.agent];

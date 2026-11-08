@@ -1,8 +1,12 @@
 // Track B bench (not a test): planner time and liveness at 30 / 60 / 100 / 150 robots on the default layout.
 //   npx tsx tests/unit/traffic/bench.ts [runs=3] [hours=8] [sizes=30,60,100,150] [people=16]
+//   env: GOALS=work|any (harness goal model, default work), STATION=20 (percent of robot goals at stations),
+//        ALL_AMR=1 (every robot an AMR)
 // Prints per fleet size: planner ms/tick mean and p95 (averaged over runs, min-max in brackets), max tick, deadlocks
-// (detect.ts), resets, detours, yields, and the worst robot-hour (fewest goals reached by any robot in any hour).
+// (detect.ts), resets, detours, yields, the worst robot-hour (fewest goals reached by any robot in any hour) with the
+// number of robot-hours at 0, and goals per hour. Seeds 42, 43, ...
 import { Harness, meanP95, mix, TICKS_PER_HOUR } from './harness.ts';
+
 const GOALS = (process.env.GOALS ?? 'work') as 'work' | 'any';
 const STATION = Number(process.env.STATION ?? 20);
 const ALL_AMR = process.env.ALL_AMR === '1';
@@ -26,6 +30,7 @@ for (const robots of sizes) {
   let detours = 0;
   let yields = 0;
   let worst = Infinity;
+  let zeroHours = 0;
   let goals = 0;
   for (let r = 0; r < runs; r++) {
     const drivers = Math.round(people / 8);
@@ -43,13 +48,18 @@ for (const robots of sizes) {
     detours += h.events.detour;
     yields += h.events.yield;
     for (const a of h.robots()) goals += a.goals;
-    for (const a of h.robots()) for (let k = 0; k < hours; k++) worst = Math.min(worst, a.goalsByHour[k] ?? 0);
+    for (const a of h.robots())
+      for (let k = 0; k < hours; k++) {
+        const g = a.goalsByHour[k] ?? 0;
+        worst = Math.min(worst, g);
+        if (g === 0) zeroHours++;
+      }
     const v = Object.entries(h.violations).filter(([, n]) => n > 0);
     if (v.length) console.log(`  !! violations seed ${42 + r}: ${JSON.stringify(Object.fromEntries(v))}`);
   }
   const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
   const range = (xs: number[]) => `${fmt(Math.min(...xs))}-${fmt(Math.max(...xs))}`;
   console.log(
-    `${String(robots).padStart(6)} | ${fmt(avg(means))} (${range(means)}) | ${fmt(avg(p95s))} (${range(p95s)}) | ${max.toFixed(2)} | ${dl} (${over}, ${(maxDl / 2).toFixed(0)}) | ${resets} | ${detours} | ${yields} | ${worst} | goals/h ${(goals / runs / hours).toFixed(0)}`,
+    `${String(robots).padStart(6)} | ${fmt(avg(means))} (${range(means)}) | ${fmt(avg(p95s))} (${range(p95s)}) | ${max.toFixed(2)} | ${dl} (${over}, ${(maxDl / 2).toFixed(0)}) | ${resets} | ${detours} | ${yields} | ${worst} (${zeroHours} of ${robots * hours * runs} robot-hours at 0) | goals/h ${(goals / runs / hours).toFixed(0)}`,
   );
 }

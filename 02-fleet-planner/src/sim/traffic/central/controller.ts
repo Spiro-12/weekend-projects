@@ -33,6 +33,9 @@ export interface CentralOptions {
 /** Spike b defaults (the same numbers as the many-brains "typical vendor" knobs, so neither mode gets a perk). */
 export const CENTRAL_DEFAULTS: CentralOptions = { waitTicks: 5, detourRadius: 6, sensorCells: 3, resetTicks: 5 * TICKS_PER_MIN };
 
+/** A manual reset moves the robot at most this many steps to open floor (else to the nearest free cell). */
+export const RESET_REACH = 10;
+
 /** Longest stored detour, in cells. */
 export const DETOUR_MAX = 24;
 
@@ -57,8 +60,11 @@ const P_MOVE = 1;
 const P_WAIT = 2;
 
 // Candidate sort key, lowest first: cost (distance to goal, +1 against a one-way hint), then against-the-hint, then
-// "stays out of the people's lane" ('.' cells that are not the goal), then fewer turns, then E, S, W, N.
+// "leave forklift aisles to forklifts" (a robot that may use '.' cells prefers them), then fewer turns, then E, S, W, N.
 // Staying ranks after every candidate of the same cost; the next cell of an active detour ranks first (-1).
+// Spike b's rule was the opposite ("stay out of the 1-wide pack lane"). With the 2-wide pack lane and pickers kept in
+// their zones, keeping small robots off the forklift-rated cross aisle on ties gave about 10% more goals per hour at
+// 100 and 150 robots in the Track B harness, and dropping the rule altogether was worse than either.
 const K_COST = 128;
 const K_AGAINST = 64;
 const K_LANE = 16;
@@ -355,7 +361,7 @@ export class CentralController implements TrafficController {
     const against = this.oneWay[j] === back || this.oneWay[a.cell] === back ? 1 : 0;
     const diff = (d - a.heading + 4) & 3;
     const turn = diff === 0 ? 0 : diff === 2 ? 2 : 1;
-    const lane = this.world!.code[j] === Cell.Narrow && j !== a.goal ? 1 : 0;
+    const lane = this.world!.code[j] === Cell.Narrow ? 0 : 1;
     return (dj + against) * K_COST + against * K_AGAINST + lane * K_LANE + turn * K_TURN + d;
   }
 
@@ -446,8 +452,9 @@ export class CentralController implements TrafficController {
 
     const canStay = parentCell < 0;
     const stayKey = D[v] * K_COST + K_STAY;
-    // A forklift whose wanted cell is free but whose safety cell is busy keeps both claimed while it waits, so robots
-    // it outranks can't take them first (without this, a crowd starved forklifts for tens of minutes).
+    // A forklift waiting to start its preferred move keeps the free cells of that move (the cell, and the safety cell
+    // beyond it) claimed, so robots it outranks can't take them first (without this, a crowd starved forklifts for
+    // tens of minutes).
     let hold = -1;
     let holdS = -1;
     for (let k = 0; k < n; k++) {
@@ -458,7 +465,13 @@ export class CentralController implements TrafficController {
       const h = occ[c];
       if (h >= 0) {
         // Held: a person, a moving robot, or a robot that already decided can't be pushed. Never enter a held cell.
-        if (h === id || !this.pushable(h)) continue;
+        if (h === id || !this.pushable(h)) {
+          if (k === 0 && canStay && a.safetyCells > 0) {
+            const sc = nbr[c * 4 + dir];
+            if (sc >= 0 && this.open[sc] && occ[sc] < 0 && resv[sc] !== pass) holdS = sc;
+          }
+          continue;
+        }
         if (this.decide(this.agents[h]!, v, depth + 1) === P_MOVE) {
           this.counters.pushes++;
           resv[v] = pass;
@@ -493,10 +506,8 @@ export class CentralController implements TrafficController {
       return P_MOVE;
     }
     resv[v] = pass;
-    if (hold >= 0) {
-      resv[hold] = pass;
-      if (holdS >= 0) resv[holdS] = pass;
-    }
+    if (hold >= 0) resv[hold] = pass;
+    if (holdS >= 0) resv[holdS] = pass;
     return P_STAY;
   }
 
@@ -601,8 +612,13 @@ export class CentralController implements TrafficController {
     this.out!.events.push({ t: 'detour', agent: a.id, cell: best });
   }
 
-  /** Manual reset target: the nearest free cell at least 2 steps away (a person pushes the robot clear of the knot)
-   *  from which the goal is reachable, never a pocket, never one already chosen this pass. -1 if none. */
+  /**
+   * Manual reset target (a person walks over and wheels the robot clear of the knot): the nearest cell at least 2 steps
+   * away that is free with all its neighbours free (open floor), within RESET_REACH steps; failing that, the nearest
+   * free cell at least 2 steps away. Never a pocket, never a cell the goal can't be reached from, never one already
+   * chosen this pass. -1 if none. (Spike b used the nearest free cell; inside a jam that is a hole the jam needs, so the
+   * robot was put straight back into it.)
+   */
   private resetTarget(a: TrafficAgent): number {
     const w = this.world!;
     const nbr = w.nbr;
@@ -617,20 +633,34 @@ export class CentralController implements TrafficController {
     const q = this.q;
     let head = 0;
     let tail = 0;
+    let fallback = -1;
     q[tail++] = a.cell;
     bs[a.cell] = stamp;
     gd[a.cell] = 0;
     while (head < tail) {
       const u = q[head++];
+      if (gd[u] >= RESET_REACH && fallback >= 0) break;
       for (let d = 0; d < 4; d++) {
         const j = nbr[u * 4 + d];
         if (j < 0 || !passable[j] || w.isPocket[j] || bs[j] === stamp) continue;
         bs[j] = stamp;
         gd[j] = gd[u] + 1;
-        if (gd[j] >= 2 && occ[j] < 0 && D[j] !== UNREACHABLE && claimed[j] !== pass) return j;
         q[tail++] = j;
+        if (gd[j] < 2 || occ[j] >= 0 || D[j] === UNREACHABLE || claimed[j] === pass) continue;
+        if (fallback < 0) fallback = j;
+        if (gd[j] <= RESET_REACH && this.openFloor(j)) return j;
       }
     }
-    return -1;
+    return fallback;
+  }
+
+  /** Every standable neighbour of c is free and unclaimed. */
+  private openFloor(c: number): boolean {
+    const nbr = this.world!.nbr;
+    for (let d = 0; d < 4; d++) {
+      const j = nbr[c * 4 + d];
+      if (j >= 0 && this.open[j] && (this.occ[j] >= 0 || this.claimed[j] === this.pass)) return false;
+    }
+    return true;
   }
 }
