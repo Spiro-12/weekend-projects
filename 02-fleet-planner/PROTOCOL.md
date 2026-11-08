@@ -172,12 +172,14 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
   | `robotUtilizationPct` | Σ robot `travel` + `work` ticks ÷ Σ robot ticks not `broken` |
   | `byType[type]` | `utilizationPct, idlePct, blockedPct, waitPct, chargingPct, brokenPct` from `ticksByState` |
   | `jamsPerHour` | jam starts ÷ window hours |
-  | `deadlocksPerShift` | deadlock starts ÷ window hours × hoursPerShift |
+  | `deadlocksPerShift` | deadlock starts inside the window ÷ window hours × hoursPerShift |
+  | `deadlocksOver2MinPerShift` | deadlocks that last ≥ 240 ticks (2 min), per shift: ended in the window after ≥ 240 ticks, or still open at the end and already ≥ 240 ticks old. The runner passes deadlocks still open from warm-up (their `deadlockStart`, tick < warm-up end) right after `start()`; they count here, not in `deadlocksPerShift`. |
   | `avgOrderSec`, `p90OrderSec` | (ship tick − arrive tick) × 0.5 s for orders shipped in the window |
   | `backlogEnd` | open orders at the end of the window |
   | `backlogTrendPerHour` | least-squares slope of open orders over the window. **`keepsUp`** = trend ≤ +2% of demand per hour. |
   | `pickerUplift` | units per picker-hour with this fleet ÷ units per picker-hour without picking robots (`withoutPickingRobots`: cart robots and humanoids set to 0, forklifts unchanged), both at capacity. **An output, not an input**: it comes from walk speed, `pickSecPerLine` and zones, calibrated so the default lands near 75 → 135 units/h. |
-  | `unitsPerPickerHour`, `resetsPerHour`, `retasksPerHour`, `deadlocksOver2MinPerShift` | |
+  | `unitsPerPickerHour`, `resetsPerHour`, `retasksPerHour` | |
+  | `keepsUp` on saturate runs | not meaningful (the queue is always full); only read it on demand runs |
 
 - **`fp-sweep v1`** = `{ axes, base, results: RunResult[] }`.
 - **The fake runner** (`createFakeRunner`) returns toy numbers for UI work; the UI shows **"demo data"** whenever `host.demoData` is true. Like the real runner, it fills `capacityOph` only on saturate runs and never `pickerUplift` (computed from two capacity runs).
@@ -188,7 +190,7 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
 - `H` = hoursPerShift × shiftsPerDay × daysPerYear.
 - **Labor per year** = Σ people count × H × wage × (1 + laborLoad), plus resets (resetsPerHour × H × minPerReset ÷ 60 × supervisor wage). Packers are listed but identical in every option.
 - **Buy:**
-  - capex = Σ robots × (buyUsd + integrationUsd), plus drivers' equipment
+  - capex = Σ robots × (buyUsd + integrationUsd), plus a truck (`equipmentUsd`) for each driver beyond the people-only crew (the people-only crew already owns its trucks; no credit for trucks freed up, no residual value). Same truck rule under rent.
   - robot opex/yr = Σ robots × (buyUsd × maintPct + softwareUsdPerYear)
 - **Rent (RaaS):**
   - capex = Σ robots × (`raasSetupUsd` if the spec has one, else `integrationUsd`)
@@ -198,7 +200,9 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
   - `flag: 'never'` when S ≤ 0.
   - `flag: 'doesntKeepUp'` (no number) when the candidate doesn't keep up.
   - The baseline is auto-sized so it always keeps up; if a user-set baseline doesn't, it is flagged too.
-- **3-year net savings** = 3 × S − capex.
+- **3-year net savings** = 3 × S − capex. Flagged `doesntKeepUp` (value null) like payback when the candidate or a user-set baseline doesn't keep up: otherwise an option that ships fewer orders would show a fake saving. Savings/yr stays a number with a "not like for like" note.
+- **`MoneyReport.lines`** has all 5 agent types: robot lines carry price/setup (`capex`) and upkeep or rent (`opexYear`); people lines carry trucks (`capex`) and pay (`opexYear`). Σ lines.capex = capex; Σ robot lines.opexYear = robotOpexYear.
+- **Every money `Explained` cites at least one `source:` input** (prices, wages, benefits load), so every hover has something to click.
 - **Cost per order** = annual cost ÷ (OPH × H).
 - **Best mix** = highest 3-year net savings among fleets that keep up. Never ranked by payback: renting "pays back" instantly.
 - **Not modeled** (listed in every money hover): taxes, depreciation, discounting, interest, residual value, building changes.
