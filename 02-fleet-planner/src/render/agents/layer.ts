@@ -12,7 +12,7 @@ import { CELL_M, headingYaw } from '../core/geom.ts';
 import type { AgentLayer, AgentLayerOptions } from '../core/layers.ts';
 import type { RendererCore } from '../core/renderer.ts';
 import { tierSettings } from '../core/tiers.ts';
-import { FollowFraming } from '../camera/follow.ts';
+import { FollowFraming, type Framing } from '../camera/follow.ts';
 import { Decals } from '../fx/decals.ts';
 import { Ribbons } from '../fx/ribbons.ts';
 import type { Bloom } from '../fx/bloom.ts';
@@ -24,7 +24,7 @@ import { buildPicker } from '../models/people.ts';
 import type { HeroWorker } from './hero.ts';
 import { clock, Labels } from './labels.ts';
 import { DEFAULT_LIGHT, FX, TYPE_LABEL, typeShade, VENDOR_LIGHT } from './palette.ts';
-import { rayAgentBox, toScreen } from './pick.ts';
+import { rayAgentBox, toScreen, type ScreenPoint } from './pick.ts';
 import { RigMesh } from './rig.ts';
 
 const TYPES: AgentTypeId[] = ['amr', 'forklift', 'driver', 'humanoid', 'picker'];
@@ -62,6 +62,7 @@ interface Motion {
   lift: number;
   state: AgentState;
   stateSince: number;
+  /** Real seconds (layer clock) since it last moved, for the dwell pull-out. */
   stillSince: number;
   scale: number;
   seen: number;
@@ -95,7 +96,8 @@ export class AgentLayerImpl implements AgentLayer {
   private hero: HeroWorker | null = null;
   private heroLoading = false;
   private framing = new FollowFraming();
-  private follow: { id: number; distance: number; height: number; pulled: boolean } | null = null;
+  private follow: Framing | null = null;
+  private followOut: Framing = { id: -1, distance: 0, height: 0, pulled: false };
   private motions = new Map<number, Motion>();
   private snap: Snapshot | null = null;
   private injected: Snapshot | null = null;
@@ -110,7 +112,28 @@ export class AgentLayerImpl implements AgentLayer {
   /** GLB forklifts load only after the first useful view (they belong to the full look, not the 0.4 MB first view). */
   private glbAllowed = false;
   private dbg = { ribbons: 0, deadlockRings: 0, deadlockArrows: 0, blockedRings: 0, selectionRings: 0, waitArrows: 0, safetySpots: 0 };
-  private labelAnchors: { text: string; x: number; y: number; z: number }[] = [];
+  /** Deadlock label anchors (pooled; the first `anchorCount` are live) and their screen positions. */
+  private labelAnchors: { text: string; sec: number; x: number; y: number; z: number }[] = [];
+  private anchorCount = 0;
+  private labelItems: { text: string; x: number; y: number }[] = [];
+  private labelsQueued = false;
+  private placeLabelsFn = () => {
+    this.labelsQueued = false;
+    this.placeLabels();
+  };
+  private hoverText = { id: -1, state: '', text: '' };
+  // Per-frame scratch, reused so update() allocates nothing in steady state.
+  private byId = new Map<number, AgentView>();
+  private inDeadlock = new Set<number>();
+  private members: number[] = [];
+  private pts: number[] = [];
+  private typeCount = { amr: 0, forklift: 0, driver: 0, humanoid: 0, picker: 0 } as Record<AgentTypeId, number>;
+  private sp: ScreenPoint = { x: 0, y: 0 };
+  private posOut = new Vector3();
+  private followPos = new Vector3();
+  private followOutT: { pos: Vector3; yaw: number; distance?: number; height?: number } = { pos: this.followPos, yaw: 0 };
+  /** Deadlock arrows drawn this frame (x0, z0, x1, z1 per arrow), for tests. */
+  private arrowSegs: number[] = [];
   private hover: { x: number; y: number; dirty: boolean; id: number | null; at: number } = { x: 0, y: 0, dirty: false, id: null, at: 0 };
   private canHover: boolean;
   private m4 = new Matrix4();
@@ -312,6 +335,8 @@ export class AgentLayerImpl implements AgentLayer {
     // High renders through the bloom composer in linear HDR: additive effects need more energy to look the same and
     // to cross the bloom threshold (only emissive things should).
     const fxk = high ? 1.2 : 1;
+    // Rings and arrows are emissive lines: on high their cores must clear the bloom threshold (BLOOM.threshold).
+    const ringk = high ? 1.6 : 1;
 
     // 1. Kinematics.
     for (const a of snap.agents) this.advance(a, renderTick, snap.tick, dTick, realSec, eff);
@@ -328,21 +353,26 @@ export class AgentLayerImpl implements AgentLayer {
 
     // Follow framing (pull out on a long dwell).
     if (sel && selM) {
-      const f = this.framing.framing(sel.id, sel.type, (renderTick - selM.stillSince), dtMs);
-      this.follow = { id: sel.id, ...f };
+      this.follow = this.framing.framing(sel.id, sel.type, this.time - selM.stillSince, dtMs, this.followOut);
     } else this.follow = null;
 
     // 2. Instances, glow discs, rings.
+    const tc = this.typeCount;
+    for (const t of TYPES) tc[t] = 0;
+    for (const a of snap.agents) tc[a.type] = (tc[a.type] ?? 0) + 1;
     for (const t of TYPES) {
-      const n = snap.agents.reduce((k, a) => k + (a.type === t ? 1 : 0), 0);
-      this.rigs[t].reserve(n);
+      this.rigs[t].reserve(tc[t]);
       this.rigs[t].begin();
     }
     this.decals.begin();
     const d = this.dbg;
     d.blockedRings = d.deadlockRings = d.deadlockArrows = d.selectionRings = d.waitArrows = d.safetySpots = 0;
-    const inDeadlock = new Set<number>();
+    const inDeadlock = this.inDeadlock;
+    inDeadlock.clear();
     for (const dl of snap.deadlocks) for (const id of dl.ids) inDeadlock.add(id);
+    const byId = this.byId;
+    byId.clear();
+    for (const a of snap.agents) byId.set(a.id, a);
 
     for (const a of snap.agents) {
       const m = this.motions.get(a.id)!;
@@ -400,52 +430,69 @@ export class AgentLayerImpl implements AgentLayer {
       // Blocked: amber ring.
       if (a.blockedTicks > 4 && !inDeadlock.has(a.id)) {
         const b = FX.blocked;
-        this.decals.ring(m.x, m.z, this.ringRadius(a, m) + 0.08, 0.07, b.r, b.g, b.b, 2.2 * fxk, false);
+        this.decals.ring(m.x, m.z, this.ringRadius(a, m) + 0.08, 0.07, b.r, b.g, b.b, 2.2 * ringk, false);
         d.blockedRings++;
       }
     }
 
     // Deadlocks: pulsing red rings, red arrows along the wait-for cycle, a label per deadlock.
-    const byId = new Map(snap.agents.map((a) => [a.id, a]));
-    this.labelAnchors.length = 0;
+    this.anchorCount = 0;
+    this.arrowSegs.length = 0;
     const red = FX.deadlock;
+    const members = this.members;
     for (const dl of snap.deadlocks) {
-      const members = dl.ids.filter((id) => byId.has(id) && this.motions.has(id));
+      members.length = 0;
+      for (const id of dl.ids) if (byId.has(id) && this.motions.has(id)) members.push(id);
       if (!members.length) continue;
       let cx = 0;
       let cz = 0;
       let top = 0;
-      members.forEach((id, i) => {
+      const pair = members.length === 2;
+      for (let i = 0; i < members.length; i++) {
+        const id = members[i];
         const a = byId.get(id)!;
         const m = this.motions.get(id)!;
         const r = this.ringRadius(a, m) + 0.12;
-        this.decals.ring(m.x, m.z, r, 0.1, red.r, red.g, red.b, 3 * fxk, true);
+        this.decals.ring(m.x, m.z, r, 0.1, red.r, red.g, red.b, 3 * ringk, true);
         d.deadlockRings++;
         cx += m.x;
         cz += m.z;
         top = Math.max(top, this.model(a.type).size.height * m.scale);
         const nextId = members.includes(a.waitOn) ? a.waitOn : members[(i + 1) % members.length];
         if (nextId !== id) {
+          const nb = byId.get(nextId)!;
           const n = this.motions.get(nextId)!;
-          const rn = this.ringRadius(byId.get(nextId)!, n) + 0.12;
-          if (this.arrowBetween(m.x, m.z, r, n.x, n.z, rn, 0.42, red.r, red.g, red.b, 2.6 * fxk, true)) d.deadlockArrows++;
+          const rn = this.ringRadius(nb, n) + 0.12;
+          // Two robots waiting on each other share one centre line: put each arrow in its own "lane" beside the
+          // bodies (like traffic), so both are visible instead of hidden under the robots.
+          const lane = pair ? Math.max(this.model(a.type).size.width * m.scale, this.model(nb.type).size.width * n.scale) / 2 + 0.3 : 0;
+          if (this.arrowBetween(m.x, m.z, r, n.x, n.z, rn, lane, 0.42, red.r, red.g, red.b, 2.6 * ringk, true, this.arrowSegs)) d.deadlockArrows++;
         }
-      });
-      const sec = Math.max(0, (snap.tick - dl.sinceTick) * 0.5);
-      this.labelAnchors.push({ text: `DEADLOCK ${clock(sec)}`, x: cx / members.length, y: top + 0.6, z: cz / members.length });
+      }
+      const sec = Math.floor(Math.max(0, (snap.tick - dl.sinceTick) * 0.5));
+      let an = this.labelAnchors[this.anchorCount];
+      if (!an) this.labelAnchors.push((an = { text: '', sec: -1, x: 0, y: 0, z: 0 }));
+      if (an.sec !== sec) {
+        an.sec = sec;
+        an.text = `DEADLOCK ${clock(sec)}`;
+      }
+      an.x = cx / members.length;
+      an.y = top + 0.6;
+      an.z = cz / members.length;
+      this.anchorCount++;
     }
 
     // Selection: a thin glowing cyan ring, and a "waiting for" arrow to the agent it waits on.
     if (sel && selM) {
       const sc = FX.select;
       const r = this.ringRadius(sel, selM) + 0.15;
-      this.decals.ring(selM.x, selM.z, r, 0.06, sc.r, sc.g, sc.b, 3.2 * fxk, false);
+      this.decals.ring(selM.x, selM.z, r, 0.06, sc.r, sc.g, sc.b, 3.2 * ringk, false);
       d.selectionRings++;
       const w = sel.waitOn >= 0 ? byId.get(sel.waitOn) : undefined;
       const wm = w ? this.motions.get(w.id) : undefined;
       if (w && wm) {
         const y = FX.waitFor;
-        if (this.arrowBetween(selM.x, selM.z, r, wm.x, wm.z, this.ringRadius(w, wm) + 0.15, 0.36, y.r, y.g, y.b, 2.4 * fxk, false)) d.waitArrows++;
+        if (this.arrowBetween(selM.x, selM.z, r, wm.x, wm.z, this.ringRadius(w, wm) + 0.15, 0, 0.36, y.r, y.g, y.b, 2.4 * ringk, false, null)) d.waitArrows++;
       }
     }
     for (const t of TYPES) this.rigs[t].end(this.time);
@@ -461,22 +508,38 @@ export class AgentLayerImpl implements AgentLayer {
       this.hover.at = this.time;
       this.hover.id = cam ? this.pickScreen(this.hover.x, this.hover.y, cam) : null;
     }
-    queueMicrotask(() => this.placeLabels());
+    if (!this.labelsQueued) {
+      this.labelsQueued = true;
+      queueMicrotask(this.placeLabelsFn);
+    }
   }
 
-  private arrowBetween(x0: number, z0: number, r0: number, x1: number, z1: number, r1: number, w: number, r: number, g: number, b: number, k: number, pulse: boolean): boolean {
+  /**
+   * Arrow from ring edge to ring edge, shifted `lane` metres to its right. When the rings overlap (nose to nose) it
+   * runs beside the bodies from centre to centre. `segs` (optional) collects x0, z0, x1, z1 for tests.
+   */
+  private arrowBetween(x0: number, z0: number, r0: number, x1: number, z1: number, r1: number, lane: number, w: number, r: number, g: number, b: number, k: number, pulse: boolean, segs: number[] | null): boolean {
     const dx = x1 - x0;
     const dz = z1 - z0;
     const len = Math.hypot(dx, dz);
-    if (len < r0 + r1 + 0.1) {
-      // Rings overlap (agents nose to nose): a short arrow straight between the centres.
-      if (len < 0.05) return false;
-      this.decals.arrow(x0 + (dx / len) * len * 0.15, z0 + (dz / len) * len * 0.15, x1 - (dx / len) * len * 0.15, z1 - (dz / len) * len * 0.15, w, r, g, b, k, pulse);
-      return true;
-    }
+    if (len < 0.05) return false;
     const ux = dx / len;
     const uz = dz / len;
-    this.decals.arrow(x0 + ux * r0, z0 + uz * r0, x1 - ux * r1, z1 - uz * r1, w, r, g, b, k, pulse);
+    // (-uz, ux) is the right-hand side of the direction (ux, uz) on the floor (+X forward has +Z on its right).
+    const px = -uz * lane;
+    const pz = ux * lane;
+    let a0 = r0;
+    let a1 = r1;
+    if (len < r0 + r1 + 0.1) {
+      a0 = len * 0.1;
+      a1 = len * 0.1;
+    }
+    const sx = x0 + ux * a0 + px;
+    const sz = z0 + uz * a0 + pz;
+    const ex = x1 - ux * a1 + px;
+    const ez = z1 - uz * a1 + pz;
+    this.decals.arrow(sx, sz, ex, ez, w, r, g, b, k, pulse);
+    segs?.push(sx, sz, ex, ez);
     return true;
   }
 
@@ -486,7 +549,7 @@ export class AgentLayerImpl implements AgentLayer {
     if (!m || m.type !== a.type) {
       m = {
         id: a.id, type: a.type, x: this.cx(a.cell), z: this.cz(a.cell), yaw: headingYaw(a.heading), camYaw: headingYaw(a.heading), cur: null, prev: null,
-        phase: (a.id * 0.37) % 1, amount: 0, speed: 0, lift: 0, state: a.state, stateSince: tick, stillSince: rt, scale: 1, seen: 0, fresh: true,
+        phase: (a.id * 0.37) % 1, amount: 0, speed: 0, lift: 0, state: a.state, stateSince: tick, stillSince: this.time, scale: 1, seen: 0, fresh: true,
       };
       this.motions.set(a.id, m);
     }
@@ -504,8 +567,16 @@ export class AgentLayerImpl implements AgentLayer {
         const refYaw = m.cur ? m.cur.yaw : m.yaw;
         const quarter = Math.round(Math.abs(wrap(yaw - refYaw)) / (Math.PI / 2));
         const turn = Math.min(turnTicks * quarter, (a.moveEnd - a.moveStart) * 0.6);
+        // Recycle the older record instead of allocating one per move.
+        const rec: Move = m.prev && m.prev !== m.cur ? m.prev : { from: 0, to: 0, ms: 0, me: 0, turn: 0, yaw: 0 };
+        rec.from = a.cell;
+        rec.to = a.to;
+        rec.ms = a.moveStart;
+        rec.me = a.moveEnd;
+        rec.turn = turn;
+        rec.yaw = yaw;
         m.prev = m.cur;
-        m.cur = { from: a.cell, to: a.to, ms: a.moveStart, me: a.moveEnd, turn, yaw };
+        m.cur = rec;
       }
     } else if (m.cur) {
       m.prev = m.cur;
@@ -552,8 +623,7 @@ export class AgentLayerImpl implements AgentLayer {
     m.x = x;
     m.z = z;
     m.amount += ((moving ? 1 : 0) - m.amount) * (1 - Math.exp(-eff * 6));
-    if (moving) m.stillSince = rt;
-    else if (m.stillSince > rt) m.stillSince = rt;
+    if (moving) m.stillSince = this.time;
 
     // Forks: rise at a rack face during `work` (up, hold, down over the pallet move time), low with a pallet.
     if (a.type === 'forklift' || a.type === 'driver') {
@@ -591,9 +661,12 @@ export class AgentLayerImpl implements AgentLayer {
       if (!m) continue;
       const maxLen = selected ? Infinity : 10;
       const c = typeShade(a.type, a.vendor);
-      const k = (selected ? 1.05 : 0.7) * (high ? 5 : 1);
+      // On high the ribbon core must clear the bloom threshold (about 3.3 for others, 5 for the selected agent).
+      const k = (selected ? 1.05 : 0.7) * (high ? 9 : 1);
       // Points: the agent, its move target, then the route (skipping the cell it stands on).
-      const pts: number[] = [m.x, m.z];
+      const pts = this.pts;
+      pts.length = 0;
+      pts.push(m.x, m.z);
       if (a.to >= 0 && a.route[0] !== a.to) pts.push(this.cx(a.to), this.cz(a.to));
       for (const cell of a.route) if (cell !== a.cell) pts.push(this.cx(cell), this.cz(cell));
       if (pts.length < 4) continue;
@@ -643,36 +716,56 @@ export class AgentLayerImpl implements AgentLayer {
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
     if (!cam) return;
-    const items: { text: string; x: number; y: number }[] = [];
-    for (const l of this.labelAnchors) {
-      const p = toScreen(cam, l.x, l.y, l.z, w, h);
-      if (p && p.x > -50 && p.x < w + 50 && p.y > -20 && p.y < h + 60) items.push({ text: l.text, ...p });
+    const items = this.labelItems;
+    let n = 0;
+    for (let i = 0; i < this.anchorCount; i++) {
+      const l = this.labelAnchors[i];
+      const p = toScreen(cam, l.x, l.y, l.z, w, h, this.sp);
+      if (!p || p.x < -50 || p.x > w + 50 || p.y < -20 || p.y > h + 60) continue;
+      let it = items[n];
+      if (!it) items.push((it = { text: '', x: 0, y: 0 }));
+      it.text = l.text;
+      it.x = p.x;
+      it.y = p.y;
+      n++;
     }
-    this.labels.setDeadlocks(items);
+    this.labels.setDeadlocks(items, n);
     const id = this.hover.id;
-    const a = id !== null ? this.snap?.agents.find((x) => x.id === id) : undefined;
+    const a = id !== null ? this.byId.get(id) : undefined;
     const m = id !== null ? this.motions.get(id) : undefined;
     if (a && m) {
-      const p = toScreen(cam, m.x, this.model(a.type).size.height * m.scale + 0.15, m.z, w, h);
-      if (p) this.labels.setHover(`${a.name} · ${TYPE_LABEL[a.type] ?? a.type} · ${a.state}`, p.x, p.y);
+      const p = toScreen(cam, m.x, this.model(a.type).size.height * m.scale + 0.15, m.z, w, h, this.sp);
+      const ht = this.hoverText;
+      if (ht.id !== a.id || ht.state !== a.state) {
+        ht.id = a.id;
+        ht.state = a.state;
+        ht.text = `${a.name} · ${TYPE_LABEL[a.type] ?? a.type} · ${a.state}`;
+      }
+      if (p) this.labels.setHover(ht.text, p.x, p.y);
       else this.labels.setHover(null);
     } else this.labels.setHover(null);
   }
 
   // ───────── queries ─────────
 
+  /** Displayed position (a shared vector, valid until the next call), or null when the agent isn't in the snapshot. */
   positionOf(id: number): Vector3 | null {
     const m = this.motions.get(id);
-    if (!m || !this.snap?.agents.some((a) => a.id === id)) return null;
-    return new Vector3(m.x, 0, m.z);
+    if (!m || !this.byId.has(id)) return null;
+    return this.posOut.set(m.x, 0, m.z);
   }
 
+  /** Chase target for the rig (a shared object, refreshed on every call; the rig reads it immediately). */
   followTarget(id: number): { pos: Vector3; yaw: number; distance?: number; height?: number } | null {
-    const pos = this.positionOf(id);
-    if (!pos) return null;
-    const m = this.motions.get(id)!;
+    const m = this.motions.get(id);
+    if (!m || !this.byId.has(id)) return null;
+    const t = this.followOutT;
+    t.pos.set(m.x, 0, m.z);
+    t.yaw = m.camYaw;
     const f = this.follow?.id === id ? this.follow : null;
-    return { pos, yaw: m.camYaw, distance: f?.distance, height: f?.height };
+    t.distance = f?.distance;
+    t.height = f?.height;
+    return t;
   }
 
   /** Nearest agent whose posed box the ray hits; else the nearest agent within a generous screen radius. */
@@ -701,7 +794,7 @@ export class AgentLayerImpl implements AgentLayer {
     return click ? this.pickScreen(click.x, click.y, cam) : null;
   }
 
-  /** Agent nearest a screen point (CSS px), within 26 px (mouse) or 36 px (touch), by box test first. */
+  /** Agent whose projected centre is nearest a screen point (CSS px), within 26 px (mouse) or 36 px (touch). */
   private pickScreen(x: number, y: number, cam: Camera): number | null {
     if (!this.snap) return null;
     const canvas = this.core.renderer.domElement;
@@ -713,7 +806,7 @@ export class AgentLayerImpl implements AgentLayer {
     for (const a of this.snap.agents) {
       const m = this.motions.get(a.id);
       if (!m) continue;
-      const p = toScreen(cam, m.x, this.model(a.type).size.height * 0.45 * m.scale, m.z, w, h);
+      const p = toScreen(cam, m.x, this.model(a.type).size.height * 0.45 * m.scale, m.z, w, h, this.sp);
       if (!p) continue;
       const d = Math.hypot(p.x - x, p.y - y);
       if (d < bd) {
@@ -779,11 +872,13 @@ export class AgentLayerImpl implements AgentLayer {
       deadlockRings: this.dbg.deadlockRings,
       deadlockArrows: this.dbg.deadlockArrows,
       deadlockLabels: this.labels.deadlockLabels,
-      deadlockLabelAnchors: this.labelAnchors.length,
+      deadlockLabelAnchors: this.anchorCount,
+      deadlockArrowSegs: this.arrowSegs.slice(),
+      heroYaw: this.heroId !== null ? (this.hero?.facingYaw() ?? null) : null,
       drawCalls,
       bloom: this.bloom !== null,
       injected: this.injected !== null,
-      followFraming: this.follow,
+      followFraming: this.follow ? { ...this.follow } : null,
       tier: this.tier,
     };
   }

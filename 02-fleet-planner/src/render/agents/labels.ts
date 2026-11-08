@@ -32,9 +32,9 @@ export class Labels {
     this.hover.style.transform = `translate(${Math.round(x)}px,${Math.round(y - 12)}px) translate(-50%,-100%)`;
   }
 
-  /** Deadlock labels at screen positions (CSS px). At most 20 are shown. */
-  setDeadlocks(items: { text: string; x: number; y: number }[]) {
-    const n = Math.min(MAX_LABELS, items.length);
+  /** Deadlock labels at screen positions (CSS px): the first `count` items (default all). At most 20 are shown. */
+  setDeadlocks(items: { text: string; x: number; y: number }[], count = items.length) {
+    const n = Math.min(MAX_LABELS, count);
     while (this.pool.length < n) {
       const el = document.createElement('div');
       el.setAttribute('data-testid', 'deadlock-label');

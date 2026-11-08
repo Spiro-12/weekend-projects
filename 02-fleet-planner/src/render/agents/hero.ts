@@ -35,8 +35,11 @@ export class HeroWorker {
         m.traverse((o) => {
           o.frustumCulled = false;
         });
-        // The worker faces -Z; agents face +X at yaw 0. Scale its superhero build to a 1.78 m person.
-        m.rotation.y = -Math.PI / 2;
+        // Agents face +X at yaw 0. Measure which way the worker faces from its feet (heel → ball) instead of trusting
+        // the export axis, and turn it to face +X. Scale its superhero build to a 1.78 m person.
+        m.updateMatrixWorld(true);
+        const fwd = this.feetForward(m);
+        m.rotation.y = fwd ? -Math.atan2(-fwd.z, fwd.x) : Math.PI / 2;
         const h = new Box3().setFromObject(m).getSize(new Vector3()).y;
         if (h > 0.5) m.scale.setScalar(1.78 / h);
         this.group.add(m);
@@ -56,6 +59,26 @@ export class HeroWorker {
         console.warn('hero worker failed to load', e);
       });
     return this.loading;
+  }
+
+  /** Horizontal heel → ball direction of both feet in world space (the way the worker faces), or null. */
+  private feetForward(root: Object3D): Vector3 | null {
+    const p = (n: string) => root.getObjectByName(n)?.getWorldPosition(new Vector3());
+    const fl = p('foot_l');
+    const fr = p('foot_r');
+    const bl = p('ball_l');
+    const br = p('ball_r');
+    if (!fl || !fr || !bl || !br) return null;
+    const d = bl.add(br).sub(fl).sub(fr).setY(0);
+    return d.lengthSq() > 1e-8 ? d.normalize() : null;
+  }
+
+  /** Yaw the hero's feet point at in the world (tests: must match the followed agent's heading), or null. */
+  facingYaw(): number | null {
+    if (!this.model || !this.group.visible) return null;
+    this.group.updateMatrixWorld(true);
+    const f = this.feetForward(this.model);
+    return f ? Math.atan2(-f.z, f.x) : null;
   }
 
   /**
@@ -91,6 +114,7 @@ export class HeroWorker {
 
   dispose() {
     this.mixer?.stopAllAction();
+    if (this.model) this.mixer?.uncacheRoot(this.model);
     this.group.removeFromParent();
   }
 }

@@ -34,9 +34,17 @@ export function rayAgentBox(ray: Ray, cx: number, cz: number, yaw: number, hl: n
 }
 
 const v = new Vector3();
-/** Screen position (CSS px within a w × h view) of a world point, or null when behind the camera. */
-export function toScreen(camera: Camera, x: number, y: number, z: number, w: number, h: number): { x: number; y: number } | null {
+export interface ScreenPoint {
+  x: number;
+  y: number;
+}
+/** Screen position (CSS px within a w × h view) of a world point, or null when behind the camera. Writes into `out`
+ *  when given (no allocation per call), else returns a new object. */
+export function toScreen(camera: Camera, x: number, y: number, z: number, w: number, h: number, out?: ScreenPoint): ScreenPoint | null {
   v.set(x, y, z).project(camera);
   if (v.z > 1 || v.z < -1) return null;
-  return { x: ((v.x + 1) / 2) * w, y: ((1 - v.y) / 2) * h };
+  const o = out ?? { x: 0, y: 0 };
+  o.x = ((v.x + 1) / 2) * w;
+  o.y = ((1 - v.y) / 2) * h;
+  return o;
 }

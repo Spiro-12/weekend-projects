@@ -1,6 +1,7 @@
 // Track E: the agent layer (models, ribbons, markers, picking, follow camera, budgets). Uses __fp.render.layers.agents
 // debug() / inject() (PROTOCOL §10).
 import { expect, test, type Page } from '@playwright/test';
+import sharp from 'sharp';
 import { expectNoErrors, openApp } from './helpers.ts';
 
 type Dbg = {
@@ -12,6 +13,8 @@ type Dbg = {
   deadlockArrows: number;
   deadlockLabels: number;
   deadlockLabelAnchors: number;
+  deadlockArrowSegs: number[];
+  heroYaw: number | null;
   selectionRings: number;
   drawCalls: number;
   bloom: boolean;
@@ -89,7 +92,7 @@ test('lite drops ribbons; low keeps every other robot', async ({ page }) => {
 test('deadlock markers: pulsing rings, arrows along the wait-for cycle and a label', async ({ page }) => {
   const errors = await openApp(page, '?tier=medium');
   await page.evaluate(() => window.__fp!.freeze(true));
-  await page.evaluate(() => {
+  const centres = await page.evaluate(() => {
     const fp = window.__fp!;
     const s = structuredClone(fp.host.live.snapshot);
     const at = (x: number, y: number) => y * s.width + x;
@@ -105,9 +108,31 @@ test('deadlock markers: pulsing rings, arrows along the wait-for cycle and a lab
     b.waitOn = a.id;
     s.deadlocks = [{ ids: [a.id, b.id], sinceTick: s.tick - 84 }];
     fp.render.layers.agents.inject!(s);
+    return [a.id, b.id];
   });
   await frames(page);
   const d = await dbg(page);
+  // Visible arrows: nose to nose, each arrow runs in its own lane beside the bodies (not under them), on opposite
+  // sides of the centre line, pointing opposite ways, and at least a metre long.
+  const pos = await page.evaluate((ids) => ids.map((i) => {
+    const p = window.__fp!.render.layers.agents.positionOf(i)!;
+    return [p.x, p.z];
+  }), centres);
+  const [ax, az] = pos[0];
+  const [bx, bz] = pos[1];
+  const len = Math.hypot(bx - ax, bz - az);
+  const side = (x: number, z: number) => ((bx - ax) * (z - az) - (bz - az) * (x - ax)) / len; // signed distance off the line
+  expect(d.deadlockArrowSegs.length).toBe(8);
+  const offs: number[] = [];
+  for (let i = 0; i < 8; i += 4) {
+    const [x0, z0, x1, z1] = d.deadlockArrowSegs.slice(i, i + 4);
+    expect(Math.hypot(x1 - x0, z1 - z0)).toBeGreaterThan(1);
+    const off = side((x0 + x1) / 2, (z0 + z1) / 2);
+    expect(Math.abs(off), 'arrow clear of the 0.56 m wide robot bodies').toBeGreaterThan(0.35);
+    expect(Math.abs(side(x0, z0) - side(x1, z1))).toBeLessThan(0.01);
+    offs.push(off);
+  }
+  expect(Math.sign(offs[0])).toBe(-Math.sign(offs[1]));
   expect(d.injected).toBe(true);
   expect(d.deadlockRings).toBe(2);
   expect(d.deadlockArrows).toBe(2);
@@ -141,12 +166,12 @@ test('click an agent (via render.project) to follow it, Escape returns to the ov
   });
   expect(await page.evaluate(([x, y]) => window.__fp!.render.pick(x, y), [target.x, target.y])).toBe(target.id);
   await page.mouse.click(target.x, target.y);
-  await page.waitForTimeout(1300);
+  await page.waitForFunction(() => window.__fp!.render.following());
   expect((await page.evaluate(() => window.__fp!.host.selected.value))?.agentId).toBe(target.id);
   expect(await page.evaluate(() => window.__fp!.render.following())).toBe(true);
   expect((await dbg(page)).selectionRings).toBe(1);
   await page.keyboard.press('Escape');
-  await page.waitForTimeout(1500);
+  await page.waitForFunction(() => !window.__fp!.render.following());
   expect(await page.evaluate(() => window.__fp!.host.selected.value)).toBeNull();
   expect(await page.evaluate(() => window.__fp!.render.following())).toBe(false);
   await expectNoErrors(errors);
@@ -173,11 +198,39 @@ test('picking: most agents at the overview pick back to themselves', async ({ pa
   await expectNoErrors(errors);
 });
 
-test('following a picker swaps in the skinned hero worker', async ({ page }) => {
+test('following a picker swaps in the skinned hero worker, facing where the picker walks', async ({ page }) => {
   const errors = await openApp(page, '?tier=medium');
-  const id = await page.evaluate(() => window.__fp!.host.live.snapshot.agents.find((a) => a.type === 'picker')!.id);
+  // A picker that is walking (so its heading is its travel direction).
+  const id = await page.evaluate(() => {
+    const live = window.__fp!.host.live;
+    for (let t = 0; t < 2000; t++) {
+      const p = live.snapshot.agents.find((a) => a.type === 'picker' && a.to >= 0 && a.route.length > 3);
+      if (p) return p.id;
+      live.stepTicks(1);
+    }
+    return live.snapshot.agents.find((a) => a.type === 'picker')!.id;
+  });
   await page.evaluate((i) => window.__fp!.host.select(0, i), id);
   await page.waitForFunction(() => (window.__fp!.render.layers.agents.debug!() as { hero: boolean }).hero, null, { timeout: 20_000 });
+  // The hero's feet must point the way the followed picker faces (the chase camera sits behind that).
+  const diffs: number[] = [];
+  for (let k = 0; k < 6; k++) {
+    await frames(page, 6);
+    const r = await page.evaluate((i) => {
+      const layer = window.__fp!.render.layers.agents;
+      const d = layer.debug!() as { heroYaw: number | null };
+      const t = layer.followTarget(i);
+      return { hero: d.heroYaw, yaw: t?.yaw ?? null };
+    }, id);
+    if (r.hero === null || r.yaw === null) continue;
+    let dy = r.hero - r.yaw;
+    while (dy > Math.PI) dy -= 2 * Math.PI;
+    while (dy < -Math.PI) dy += 2 * Math.PI;
+    diffs.push(Math.abs(dy));
+  }
+  expect(diffs.length).toBeGreaterThan(3);
+  diffs.sort((a, b) => a - b);
+  expect(diffs[Math.floor(diffs.length / 2)], 'median |hero yaw − followed yaw| (rad)').toBeLessThan(0.5);
   await page.evaluate(() => window.__fp!.host.select(0, null));
   await frames(page);
   expect((await dbg(page)).hero).toBe(false);
@@ -202,12 +255,26 @@ test('agents + effects stay within 20 draw calls at the overview with 150 robots
   await expectNoErrors(errors);
 });
 
-test('high tier turns bloom on without errors', async ({ page }) => {
-  const errors = await openApp(page, '?tier=high');
-  await page.waitForFunction(() => (window.__fp!.render.layers.agents.debug!() as { bloom: boolean }).bloom, null, { timeout: 20_000 });
-  await frames(page, 5);
-  const info = await page.evaluate(() => window.__fp!.render.info());
-  expect(info.calls).toBeGreaterThan(0);
+/** Mean brightness (0..255) of the 3D view below the KPI tiles, at the frozen first frame and the overview. */
+async function viewMean(page: Page): Promise<number> {
+  const buf = await page.screenshot({ clip: { x: 0, y: 160, width: 1440, height: 700 } });
+  const st = await sharp(buf).removeAlpha().stats();
+  return (st.channels[0].mean + st.channels[1].mean + st.channels[2].mean) / 3;
+}
+
+test('high tier turns bloom on, and only emissive things glow (the floor and racks stay as dark as medium)', async ({ page }) => {
+  const errors = await openApp(page, '?tier=medium&freeze=1');
+  await waitModels(page);
+  await frames(page, 10);
+  const medium = await viewMean(page);
+  await page.goto('./?tier=high&freeze=1');
+  await page.waitForFunction(() => (window.__fp?.render.layers.agents.debug?.() as { bloom?: boolean } | undefined)?.bloom === true, null, { timeout: 20_000 });
+  await waitModels(page);
+  await frames(page, 10);
+  const high = await viewMean(page);
+  console.log(`view mean brightness: medium ${medium.toFixed(1)}, high (bloom) ${high.toFixed(1)}`);
+  // A bloom veil over lit surfaces lifts the whole frame (it did by ~20% with the threshold at 1.25).
+  expect(high).toBeLessThanOrEqual(medium * 1.06 + 2);
   await expectNoErrors(errors);
 });
 
@@ -240,8 +307,19 @@ test('hover shows name · type · state over an agent (desktop)', async ({ page 
 
 test('switching to another layout rebuilds the agent layer cleanly', async ({ page }) => {
   const errors = await openApp(page, '?tier=medium');
-  await page.evaluate(() => window.__fp!.host.setScenario('small'));
-  await page.waitForTimeout(1500);
+  await page.evaluate(() => {
+    (window as unknown as { __oldLayer: unknown }).__oldLayer = window.__fp!.render.layers.agents;
+    window.__fp!.host.setScenario('small');
+  });
+  // Wait for the new layer to draw every agent of the new scenario.
+  await page.waitForFunction(() => {
+    const fp = window.__fp!;
+    const layer = fp.render.layers.agents;
+    if (layer === (window as unknown as { __oldLayer: unknown }).__oldLayer) return false;
+    const d = layer.debug!() as { instances: Record<string, number> };
+    const total = Object.values(d.instances).reduce((a, b) => a + b, 0);
+    return total > 0 && total === fp.host.live.snapshot.agents.length;
+  }, null, { timeout: 20_000 });
   const r = await page.evaluate(() => {
     const fp = window.__fp!;
     const d = fp.render.layers.agents.debug!() as { instances: Record<string, number> };

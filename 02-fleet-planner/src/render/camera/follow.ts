@@ -18,31 +18,39 @@ export const CHASE: Record<AgentTypeId, { distance: number; height: number }> = 
 
 /** The wider shot during a long dwell. */
 const PULLED = { distance: 7.5, height: 5.2 };
-/** A stop longer than this (sim ticks, 0.5 s each) counts as a dwell. */
-export const DWELL_TICKS = 10;
+/** A stop longer than this many real seconds counts as a dwell (real time, so 60x speed doesn't pull out at every
+ *  short stop). */
+export const DWELL_SEC = 5;
+
+export interface Framing {
+  id: number;
+  distance: number;
+  height: number;
+  pulled: boolean;
+}
 
 export class FollowFraming {
   private id: number | null = null;
   private k = 0;
 
   /**
-   * Framing for the followed agent. `stillTicks` = sim ticks it has been standing; `dtMs` real time since the last
-   * call. Eases in about 1.5 s, out about 0.8 s.
+   * Framing for the followed agent, written into `out`. `stillSec` = real seconds it has been standing; `dtMs` real
+   * time since the last call. Eases out over about 1.5 s, back in over about 0.8 s.
    */
-  framing(id: number, type: AgentTypeId, stillTicks: number, dtMs: number): { distance: number; height: number; pulled: boolean } {
+  framing(id: number, type: AgentTypeId, stillSec: number, dtMs: number, out: Framing): Framing {
     if (id !== this.id) {
       this.id = id;
       this.k = 0;
     }
-    const want = stillTicks >= DWELL_TICKS ? 1 : 0;
+    const want = stillSec >= DWELL_SEC ? 1 : 0;
     const rate = want > this.k ? dtMs / 1500 : dtMs / 800;
     this.k = want > this.k ? Math.min(want, this.k + rate) : Math.max(want, this.k - rate);
     const e = this.k * this.k * (3 - 2 * this.k);
     const base = CHASE[type] ?? CHASE.amr;
-    return {
-      distance: base.distance + (Math.max(PULLED.distance, base.distance * 1.4) - base.distance) * e,
-      height: base.height + (Math.max(PULLED.height, base.height * 1.5) - base.height) * e,
-      pulled: this.k > 0.5,
-    };
+    out.id = id;
+    out.distance = base.distance + (Math.max(PULLED.distance, base.distance * 1.4) - base.distance) * e;
+    out.height = base.height + (Math.max(PULLED.height, base.height * 1.5) - base.height) * e;
+    out.pulled = this.k > 0.5;
+    return out;
   }
 }
