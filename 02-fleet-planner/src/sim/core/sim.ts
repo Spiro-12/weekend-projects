@@ -50,6 +50,7 @@ import {
   G_EXACT,
   G_MEET,
   G_NEAR,
+  G_REACH,
   G_STATION,
   J_CHARGE,
   J_NONE,
@@ -209,7 +210,7 @@ export class CoreSim implements Sim {
   agents: CoreAgent[] = [];
   people: CoreAgent[] = [];
   robots: CoreAgent[] = [];
-  readonly counters = { stepAsides: 0, stepOffs: 0, swaps: 0, detours: 0, trafficStepAsides: 0, resets: 0, retasks: 0, chargeWaits: 0, pushedOff: 0 };
+  readonly counters = { stepAsides: 0, stepOffs: 0, swaps: 0, detours: 0, trafficStepAsides: 0, resets: 0, retasks: 0, pushedOff: 0 };
   readonly violations: Violations = {
     overlap: 0, occMismatch: 0, moveIntoHeld: 0, robotIntoPerson: 0, forkOnNarrow: 0, pocketNotGoal: 0, badMove: 0, negativeBattery: 0,
   };
@@ -305,7 +306,7 @@ export class CoreSim implements Sim {
   private readonly bfsQueue: Int32Array;
   private stamp = 0;
   private readonly cand: CoreAgent[] = [];
-  private readonly waitList: CoreAgent[] = [];
+  private readonly zoneCands: CoreAgent[][] = [];
   private readonly peekList: number[] = [];
   private readonly shipList: number[] = [];
   private readonly holdStamp: Int32Array;
@@ -332,7 +333,7 @@ export class CoreSim implements Sim {
 
     this.arrivals = stream(this.seed, 'arrivals');
     this.rngHumans = stream(this.seed, 'humans');
-    this.rngFaults = stream(this.seed, 'faults');
+    this.rngFaults = stream(this.seed, 'faults'); // reserved for Phase 2 random faults (hashed, not drawn yet)
     this.rngBattery = stream(this.seed, 'battery');
     this.rngSpawn = stream(this.seed, 'spawn');
 
@@ -525,6 +526,23 @@ export class CoreSim implements Sim {
     a.moveStart = t;
     a.moveEnd = t + mt.ticks;
     a.carry = mt.carryMm;
+  }
+
+  /** A person waiting at a face (or beside a cart robot) stepped off for a vehicle or a passing picker. */
+  steppedOff(p: CoreAgent, t: number): void {
+    const at = p.to >= 0 ? p.to : p.cell;
+    if (p.job === J_PICK && p.stage === PK_AT_STOP) {
+      // within 2 cells it keeps waiting where it is (it can reach the face from there); further, it walks back
+      const task = this.taskById.get(p.taskId) as PickTask;
+      const face = this.world.faces[task.stops[task.stop].face].cell;
+      if (this.dist.to(p.distCls, face)[at] <= 2) return;
+      p.stage = PK_TO_STOP;
+      p.waiting = 0;
+      this.setGoal(p, face, G_NEAR, t);
+    } else if (p.job === J_SERVE && p.stage === SV_WAIT_STOCK) {
+      const amr = this.byId[p.partner];
+      if (amr && this.dist.to(p.distCls, amr.cell)[at] > 2) this.sendToMeet(p, amr, t);
+    }
   }
 
   /** Two people head-on squeeze past each other (people mover, PROTOCOL §5 rule 4). */
@@ -846,6 +864,11 @@ export class CoreSim implements Sim {
     for (let i = 0; i < this.robots.length; i++) {
       const r = this.robots[i];
       const v = this.tviews[r.id]!;
+      // below 10%: drop the task at this cell boundary (not while being picked into) and go to charge
+      if (r.needCharge === 2 && r.to < 0 && r.brokenUntil === 0 && r.dwellUntil === 0 && (r.job === J_PICK || r.job === J_PALLET || r.job === J_SERVE)) {
+        const served = r.job === J_PICK && r.partner >= 0 && this.byId[r.partner]?.stage === SV_PICKING;
+        if (!served) this.dropJob(r, t);
+      }
       const travel = r.goal >= 0 && r.brokenUntil === 0 && r.dwellUntil === 0 && !this.atGoal(r);
       v.cell = r.cell;
       v.heading = r.heading;
@@ -853,6 +876,8 @@ export class CoreSim implements Sim {
       v.goal = travel ? r.goal : -1;
       v.sinceProgress = r.sinceProgress;
       v.blockedSinceProgress = r.blockedSinceProgress;
+      // A forklift needs no safety cell for the move that ends at its stop (it is braking to a halt there).
+      v.safetyCells = r.safetyCells > 0 && travel && this.nearStop(r) ? 0 : r.safetyCells;
       ready[r.id] = travel && r.to < 0 ? t : -1;
       if (!travel && this.pushable(r)) {
         // A robot waiting at its stop or resting on open floor stands at its own goal: the planner may push it out of
@@ -1078,14 +1103,35 @@ export class CoreSim implements Sim {
     a.goalHold = 0;
   }
 
+  /** Would the agent stop on cell j (an arrival cell for its goal)? Used to drop the safety cell on the final move. */
+  stopsAt(a: CoreAgent, j: number): boolean {
+    if (a.goal < 0) return false;
+    if (j === a.goal) return true;
+    if (a.goalMode === G_EXACT) return false;
+    if (a.goalMode === G_STATION) return this.pack.stationAt[j] === a.goalStation + 1;
+    const reach = a.goalMode === G_REACH ? 2 : 1;
+    return this.dist.to(a.distCls, a.goal)[j] <= reach && (a.goalMode === G_MEET || (this.occ[a.goal] >= 0 && this.occ[a.goal] !== a.id));
+  }
+
+  /** Is some neighbour of the agent's cell a stop for it (so its next move may be the last)? */
+  private nearStop(a: CoreAgent): boolean {
+    for (let d = 0; d < 4; d++) {
+      const j = this.world.nbr[a.cell * 4 + d];
+      if (j >= 0 && a.pass[j] && this.stopsAt(a, j)) return true;
+    }
+    return false;
+  }
+
   /** Has the agent reached its travel goal (for its goal mode)? Only meaningful at a cell boundary. */
   atGoal(a: CoreAgent): boolean {
     if (a.goal < 0) return false;
     switch (a.goalMode) {
-      case G_NEAR: {
+      case G_NEAR:
+      case G_REACH: {
         if (a.cell === a.goal) return true;
         const h = this.occ[a.goal];
-        return h >= 0 && h !== a.id && this.dist.to(a.distCls, a.goal)[a.cell] === 1;
+        const d = this.dist.to(a.distCls, a.goal)[a.cell];
+        return h >= 0 && h !== a.id && (d === 1 || (a.goalMode === G_REACH && d === 2));
       }
       case G_MEET:
         return this.dist.to(a.distCls, a.goal)[a.cell] <= 1;
@@ -1157,6 +1203,9 @@ export class CoreSim implements Sim {
           if (this.isAmrTask(a)) {
             a.waiting = 1; // for the zone's picker (matchZones; it may already be on its way), or for stock
             a.waitSince = t;
+            // a picker already walking to the face re-aims at where the robot actually stopped
+            const wk = a.partner >= 0 ? this.byId[a.partner] : null;
+            if (wk && wk.partner === a.id && wk.stage === SV_TO_AMR && wk.goal !== a.cell) this.sendToMeet(wk, a, t);
           } else this.tryCartPick(a, t);
         } else if (a.stage === PK_TO_PACK) {
           a.stage = PK_HANDOFF;
@@ -1220,7 +1269,7 @@ export class CoreSim implements Sim {
         if (a.stage === PL_LOAD) {
           a.cargo = C_PALLET;
           a.stage = PL_TO_FACE;
-          this.setGoal(a, this.world.faces[task.face].cell, G_NEAR, t);
+          this.setGoal(a, this.world.faces[task.face].cell, G_REACH, t);
         } else if (a.stage === PL_UNLOAD) {
           a.cargo = C_NONE;
           this.events.push({ t: 'palletMoved', tick: t, agent: a.id, kind: task.kind });
@@ -1429,31 +1478,36 @@ export class CoreSim implements Sim {
    */
   private matchZones(t: number): void {
     if (!this.zones || !this.zoneMode()) return;
-    const cands = this.waitList;
-    cands.length = 0;
+    const fz = this.zones.faceZone;
+    const buckets = this.zoneCands;
+    while (buckets.length < this.zones.members.length) buckets.push([]);
+    for (const b of buckets) b.length = 0;
+    let any = false;
     for (const r of this.robots) {
       if (r.type !== T_AMR || r.job !== J_PICK || r.partner >= 0 || r.brokenUntil > 0) continue;
       if (r.stage !== PK_AT_STOP && r.stage !== PK_TO_STOP) continue;
+      // a robot on its way counts once it is within PRESEND_CELLS of the face (bestDist = cells to go, at a boundary)
+      if (r.stage === PK_TO_STOP && r.bestDist > PRESEND_CELLS) continue;
       const task = this.taskById.get(r.taskId) as PickTask;
       if (!task.amr) continue;
       const face = task.stops[task.stop].face;
       if (this.stock[face] === 0) continue; // waits for the replenishment first
-      if (r.stage === PK_TO_STOP && this.dist.to(r.distCls, this.world.faces[face].cell)[r.to >= 0 ? r.to : r.cell] > PRESEND_CELLS) continue;
-      cands.push(r);
+      const z = fz[face];
+      if (z < 0) continue;
+      buckets[z].push(r);
+      any = true;
     }
-    if (cands.length === 0) return;
-    const fz = this.zones.faceZone;
+    if (!any) return;
     for (const id of this.zones.workers) {
       const w = this.byId[id]!;
-      const myZone = this.zones.workerZone[w.zone];
+      const cands = buckets[this.zones.workerZone[w.zone]];
+      if (cands.length === 0) continue;
       const walking = w.job === J_SERVE && (w.stage === SV_TO_AMR || w.stage === SV_WAIT_AMR) && w.to < 0;
       if (!walking && (!this.isFree(w) || w.removing || w.needCharge > 0)) continue;
       let best: CoreAgent | null = null;
       let bestKey = 0;
       for (const r of cands) {
         if (r.partner >= 0) continue;
-        const task = this.taskById.get(r.taskId) as PickTask;
-        if (fz[task.stops[task.stop].face] !== myZone) continue;
         const key = this.meetKey(w, r);
         if (key < 0) continue;
         if (!best || key < bestKey || (key === bestKey && (r.waitSince < best.waitSince || (r.waitSince === best.waitSince && r.id < best.id)))) {
@@ -2054,12 +2108,22 @@ export class CoreSim implements Sim {
       if (st === ST_BLOCKED) {
         a.blockedTicks++;
         this.heat[a.cell]++;
-        // rule 3: robots (and drivers, people on vehicles) waiting 3+ ticks claim the cell they want
-        if ((a.robot || a.type === T_DRIVER) && a.want >= 0 && a.blockedTicks >= CLAIM_AFTER_TICKS) this.claim[a.want] = t + 1;
+        // rule 3: robots (and drivers, people on vehicles) waiting 3+ ticks claim the cell they want, and a vehicle
+        // also the cell beyond it (its safety field) when a person stands there
+        if ((a.robot || a.type === T_DRIVER) && a.want >= 0 && a.blockedTicks >= CLAIM_AFTER_TICKS) {
+          this.claim[a.want] = t + 1;
+          if (a.safetyCells > 0) {
+            const d = headingOf(a.cell, a.want, this.world.width);
+            const beyond = this.world.nbr[a.want * 4 + d];
+            const h = beyond >= 0 ? this.occ[beyond] : -1;
+            if (h >= 0 && this.byId[h] && !this.byId[h]!.robot) this.claim[beyond] = t + 1;
+          }
+        }
       } else a.blockedTicks = 0;
       if (st !== ST_BLOCKED && st !== ST_WAIT) a.waitOn = -1;
       else if (st === ST_WAIT) a.waitOn = this.waitTarget(a);
-      if (a.robot && a.goal >= 0 && a.to < 0 && a.dwellUntil === 0) {
+      // ticks since the robot last got closer to its goal, moving or not (a robot shuffled around never progresses)
+      if (a.robot && a.goal >= 0 && a.dwellUntil === 0) {
         a.sinceProgress++;
         if (st === ST_BLOCKED) a.blockedSinceProgress++;
       }

@@ -68,6 +68,7 @@ export const G_EXACT = 0; // on the goal cell
 export const G_NEAR = 1; // on the goal cell, or next to it when someone else holds it (pick faces)
 export const G_MEET = 2; // next to the goal cell (a zone worker meeting a waiting cart robot)
 export const G_STATION = 3; // on any free-standing cell next to the goal's pack station
+export const G_REACH = 4; // a pallet drop at a face: on it, or up to 2 cells off when someone stands there (fork reach)
 
 export class CoreAgent {
   // ── identity (fixed at spawn) ──

@@ -9,7 +9,7 @@
 // Drivers (people on manual forklifts) move the same way on forklift cells, keep a safety cell ahead while moving, and
 // never swap. Deterministic: id order, fixed E, S, W, N tie-break, side-step ties drawn from the `humans` stream.
 import { Cell, UNREACHABLE } from '../world.ts';
-import { J_NONE, J_REST, J_SERVE, SV_WAIT_AMR, T_PICKER, type CoreAgent } from './agent.ts';
+import { J_NONE, J_PICK, J_REST, J_SERVE, PK_AT_STOP, SV_WAIT_AMR, SV_WAIT_STOCK, T_PICKER, type CoreAgent } from './agent.ts';
 import { STEP_ASIDE_AFTER } from './constants.ts';
 import type { CoreSim } from './sim.ts';
 
@@ -24,9 +24,9 @@ export function movePeople(s: CoreSim, t: number): void {
     p.waitOn = -1;
     if (p.to >= 0 || p.brokenUntil > 0 || p.dwellUntil > 0 || p.swappedAt === t) continue;
     if (p.goal < 0) {
-      // Rule 3: an idle person (or a picker waiting at a face for a robot) standing where a waiting robot wants to
-      // go steps off.
-      if (claim[p.cell] === t && (p.job === J_NONE || p.job === J_REST || (p.job === J_SERVE && p.stage === SV_WAIT_AMR))) stepOff(s, p, t);
+      // Rule 3: a person standing still (idle, or waiting at a face for a robot or for stock) where a waiting robot
+      // or vehicle wants to go steps off.
+      if (claim[p.cell] === t && standingStill(p) && stepOff(s, p, t)) s.steppedOff(p, t);
       continue;
     }
     if (s.atGoal(p)) continue;
@@ -78,11 +78,10 @@ export function movePeople(s: CoreSim, t: number): void {
     // Rule 4: two people head-on squeeze past each other (people can share a 1.5 m cell for a moment; robots can't).
     if (h >= 0 && trySwap(s, p, s.byId[h]!, v, first, t)) continue;
     p.blockedAt = t;
-    // Rule 4: the agent in the way is already moving out of that cell: wait for it, don't dodge.
-    if (h >= 0) {
-      const q = s.byId[h]!;
-      if (q.to >= 0 && q.cell === first) continue;
-    }
+    // Rule 4: the agent in the way (in the cell, or in a driver's safety cell) is already moving out: wait for it,
+    // don't dodge.
+    const blocker = p.waitOn >= 0 ? s.byId[p.waitOn] : null;
+    if (blocker && blocker.to >= 0 && (blocker.cell === first || (h < 0 && blocker.to !== first))) continue;
     if (++p.pBlocked < STEP_ASIDE_AFTER) continue;
     stepAside(s, p, D, t);
   }
@@ -90,7 +89,7 @@ export function movePeople(s: CoreSim, t: number): void {
 
 /** Safety cell a driver needs when entering j in direction d: -1 none needed, -2 not clear, else the cell. */
 function safetyCell(s: CoreSim, p: CoreAgent, j: number, d: number, t: number): number {
-  if (p.safetyCells === 0) return -1;
+  if (p.safetyCells === 0 || s.stopsAt(p, j)) return -1; // no safety field needed for the final stop
   const c = s.world.nbr[j * 4 + d];
   if (c < 0 || !s.open[c]) return -1;
   return s.occ[c] < 0 && s.claim[c] !== t ? c : -2;
@@ -109,19 +108,20 @@ function blockerOfSafety(s: CoreSim, p: CoreAgent, first: number): number {
 }
 
 /** Two pickers squeeze past each other: q walks toward p's cell (head-on), or q is just standing there (idle, or
- *  waiting at a face for its robot), in which case it shuffles one cell. Drivers (on forklifts) never swap. */
+ *  waiting for a robot or stock), in which case it shuffles one cell. Drivers (on forklifts) never swap. */
 function trySwap(s: CoreSim, p: CoreAgent, q: CoreAgent, v: number, first: number, t: number): boolean {
   if (p.type !== T_PICKER || q.type !== T_PICKER) return false;
   if (q.to >= 0 || q.dwellUntil > 0 || q.brokenUntil > 0 || q.swappedAt === t) return false;
-  if (q.goal < 0) {
-    const standing = q.job === J_NONE || q.job === J_REST || (q.job === J_SERVE && q.stage === SV_WAIT_AMR);
-    if (!standing) return false;
+  const still = q.goal < 0;
+  if (still) {
+    if (!standingStill(q)) return false;
   } else {
     if (s.atGoal(q)) return false;
     const Dq = s.dist.to(q.distCls, q.goal);
     if (!(Dq[v] < Dq[first])) return false;
   }
   s.swap(p, q, t);
+  if (still) s.steppedOff(q, t);
   return true;
 }
 
@@ -163,8 +163,15 @@ function stepAside(s: CoreSim, p: CoreAgent, D: Uint16Array, t: number): void {
   s.counters.stepAsides++;
 }
 
-/** Rule 3 for an idle person: step off a cell a robot has claimed (any free, unclaimed neighbour, E, S, W, N). */
-function stepOff(s: CoreSim, p: CoreAgent, t: number): void {
+function standingStill(p: CoreAgent): boolean {
+  if (p.job === J_NONE || p.job === J_REST) return true;
+  if (p.job === J_SERVE) return p.stage === SV_WAIT_AMR || p.stage === SV_WAIT_STOCK;
+  return p.job === J_PICK && p.stage === PK_AT_STOP && p.waiting === 1;
+}
+
+/** Rule 3 for a person standing still: step off a cell a robot has claimed (any free, unclaimed neighbour, E, S, W, N).
+ *  Returns true if it moved. */
+function stepOff(s: CoreSim, p: CoreAgent, t: number): boolean {
   const w = s.world;
   for (let d = 0; d < 4; d++) {
     const j = w.nbr[p.cell * 4 + d];
@@ -173,6 +180,7 @@ function stepOff(s: CoreSim, p: CoreAgent, t: number): void {
     if (sc === -2) continue;
     s.doMove(p, j, sc, d, t);
     s.counters.stepOffs++;
-    return;
+    return true;
   }
+  return false;
 }
