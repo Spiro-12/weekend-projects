@@ -47,7 +47,7 @@ const ASSUMED_PICKER_BUSY_PCT = 90;
 const PICKERS_SHORT_SHARE = 0.9;
 /** Growth margin on top of the measured shortfall when a crew didn't keep up. */
 const GROW_MARGIN = 1.02;
-/** Share of the measured work a crew must cover to keep up: backlog growth up to 2% of demand still counts. */
+/** Share of the measured work a crew must cover to keep up: backlog growth up to KEEPS_UP_PCT of demand still counts. */
 const KEEPS_UP_SHARE = 1 - KEEPS_UP_PCT / 100;
 /** Drivers are sized to 1 ÷ 0.95 of their measured pallet work (a little slack so faces don't run dry). */
 const DRIVER_HEADROOM = 1.05;
@@ -146,7 +146,7 @@ export async function findBaseline(s: Scenario, runner: Runner): Promise<{ crew:
   });
   const fewerDrivers = (c: Crew): Crew | null => (c.driver > minDrivers ? { picker: c.picker, driver: c.driver - 1 } : null);
   /** Pickers for the workload a demand run measured: its pickers × their busy share ÷ the busy share at saturation,
-   *  less the 2% backlog growth that still counts as keeping up (a crew at 98% of the work is exactly on the line). */
+   *  less the backlog growth that still counts as keeping up (KEEPS_UP_PCT: a crew at 95% of the work is exactly on the line). */
   const pickersForWorkload = (c: Crew, r: RunResult): number | null => {
     const busy = r.kpis.byType.picker?.utilizationPct ?? 0;
     return busy > 0 && pickerBusyAtCap > 0 ? Math.max(1, Math.ceil(((c.picker * busy) / pickerBusyAtCap) * KEEPS_UP_SHARE)) : null;

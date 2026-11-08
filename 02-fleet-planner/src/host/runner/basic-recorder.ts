@@ -1,5 +1,6 @@
 // Minimal KPI recorder (lead, Phase 0) so the runner works end to end before Track C's recorder lands.
 // Only orders/hour, backlog trend and keeps-up are real here; the rest are zeros. Replaced at Phase 1 integration.
+import { keepsUpAt } from '../../kpi/index.ts';
 import type { KpiRecorderFactory, Kpis, SimStats } from '../../contracts/types.ts';
 import { TICKS_PER_HOUR } from '../../contracts/types.ts';
 
@@ -38,7 +39,7 @@ export const basicRecorder: KpiRecorderFactory = (s, w) => {
         p90OrderSec: sorted.length ? sorted[Math.floor(sorted.length * 0.9)] / 2 : 0,
         backlogEnd: stats.openOrders,
         backlogTrendPerHour: trend,
-        keepsUp: trend <= 0.02 * s.orders.perHour,
+        keepsUp: keepsUpAt(trend, s.orders.perHour),
         resetsPerHour: 0,
         retasksPerHour: 0,
         deadlocksOver2MinPerShift: 0,

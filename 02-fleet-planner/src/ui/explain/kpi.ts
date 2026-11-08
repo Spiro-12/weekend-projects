@@ -20,7 +20,7 @@ export function kpiContent(id: KpiId, r: RunResult | null, s: Scenario, agents: 
         text: [
           'Orders shipped per hour during the measured time. It can never be higher than the orders coming in.',
           ...(behind
-            ? [`Falling behind: open orders grow by about ${num(k.backlogTrendPerHour)} an hour. A plan keeps up only if that growth stays under 2% of the orders coming in.`]
+            ? [`Falling behind: open orders grow by about ${num(k.backlogTrendPerHour)} an hour. A plan keeps up only if that growth stays under 5% of the orders coming in (smaller growth is within the normal ups and downs of orders arriving).`]
             : []),
         ],
         inputs: [

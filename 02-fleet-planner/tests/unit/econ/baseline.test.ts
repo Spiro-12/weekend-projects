@@ -101,7 +101,8 @@ describe('findBaseline (auto)', () => {
       }
     }
     expect(total).toBeGreaterThan(20);
-    expect(exact / total).toBeGreaterThan(0.75);
+    // 75% under the old 2% keeps-up line; 71% under 5% (RESULTS.md: "Baseline crew search").
+    expect(exact / total).toBeGreaterThan(0.7);
   });
 
   it('is deterministic: the same settings give the same crew', async () => {
@@ -186,7 +187,7 @@ function stubRunner(m: StubModel): Runner {
     const cap = Math.min(pickCap, driverCap);
     const demand = sat ? cap : s.orders.perHour;
     const oph = Math.min(demand, cap);
-    const keepsUp = keepsUpAt(demand - oph, demand); // the real KPI rule: backlog growth ≤ 2% of demand
+    const keepsUp = keepsUpAt(demand - oph, demand); // the real KPI rule: backlog growth ≤ KEEPS_UP_PCT of demand
     const pickerBusy = p > 0 ? ((oph * lines) / (p * r)) * 100 : 0;
     const driverBusy = d > 0 ? Math.min(100, ((oph * palletsPerOrder + s.pallets.inboundPerHour) / (d * m.driverRate)) * 100) * (sat ? (m.satDriverBusyScale ?? 1) : 1) : 0;
     const share = (u: number) => ({ utilizationPct: u, idlePct: 100 - u, blockedPct: 0, waitPct: 0, chargingPct: 0, brokenPct: 0 });
@@ -215,9 +216,9 @@ describe('findBaseline on a stub runner (step 1 is wrong on purpose)', () => {
     return { b, min, calls, demandRuns: calls.filter((c) => !c.opts?.saturate).map((c) => ({ ...c.s.fleet })) };
   };
   it('capacity runs 20% slower per picker than demand runs: the workload cut lands on the minimum', async () => {
-    // Step 1 overestimates pickers by 25%; cutting by a fixed 5% would leave 18 pickers, the workload gives 15.
+    // Step 1 overestimates pickers by 25%; cutting by a fixed 5% would leave 18 pickers, the workload gives 14.
     const { b, min, calls } = await check({ rDemand: 100, rSat: 80, uMax: 0.9, driverRate: 25 });
-    expect(min).toEqual({ picker: 15, driver: 2 });
+    expect(min).toEqual({ picker: 14, driver: 2 });
     expect(b.crew).toEqual(min);
     expect(b.result.kpis.keepsUp).toBe(true);
     expect(calls.length).toBeLessThanOrEqual(MAX_BASELINE_EVALS);
@@ -261,7 +262,9 @@ describe('findBaseline on a stub runner (step 1 is wrong on purpose)', () => {
       for (const perHour of [150, 600, 1200]) {
         const { gap, what } = await gapFor(m, perHour);
         expect(gap, what).toBeGreaterThanOrEqual(0);
-        expect(gap, what).toBeLessThanOrEqual(1);
+        // ≤ 1 under the old 2% keeps-up line; the 5% line (KEEPS_UP_PCT) trims harder per step, so a wrong driver
+        // reading at 1,200/h can end 2 over (RESULTS.md: "Baseline crew search").
+        expect(gap, what).toBeLessThanOrEqual(2);
       }
     }
   });

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import agents from '../../data/agents.json';
 import sources from '../../data/sources.json';
 import defaultLayout from '../../data/layouts/default.json';
-import scenarioJson from '../../data/scenarios/default.json';
+import scenarioJson from '../../fixtures/scenario-mixed.json';
 import type { AgentsFile, LayoutFile, Scenario, SourcesFile } from '../../src/contracts/types.ts';
 import { createHost } from '../../src/host/index.ts';
 import { createFakeRunner } from '../../src/host/runner/fake.ts';

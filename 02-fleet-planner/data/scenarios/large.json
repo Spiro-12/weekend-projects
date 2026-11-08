@@ -17,7 +17,7 @@
  },
  "orders": {
   "mode": "demand",
-  "perHour": 1200,
+  "perHour": 900,
   "linesWeights": [
    45,
    25,
@@ -42,11 +42,11 @@
   "secPerOrder": 30
  },
  "fleet": {
-  "amr": 48,
-  "forklift": 8,
-  "humanoid": 4,
-  "picker": 26,
-  "driver": 3
+  "amr": 60,
+  "forklift": 0,
+  "humanoid": 0,
+  "picker": 22,
+  "driver": 2
  },
  "vendors": {
   "amr": [

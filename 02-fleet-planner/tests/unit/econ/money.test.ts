@@ -219,7 +219,7 @@ describe('flags', () => {
     expect(m.threeYearNet).toMatchObject({ value: null, flag: 'doesntKeepUp' });
     expect(m.paybackMonths.formula).not.toMatch(/months/);
     expect(m.paybackMonths.formula).toBe(
-      "no payback: this option can't keep up with the orders: it ships 540 orders/h of the 600 ordered and its backlog grows by 61 orders an hour (keeping up allows at most 12, 2% of demand)",
+      "no payback: this option can't keep up with the orders: it ships 540 orders/h of the 600 ordered and its backlog grows by 61 orders an hour (keeping up allows at most 30, 5% of demand, since arrivals alone vary that much over a 2-hour window)",
     );
     expect(m.savingsYear.note).toContain('not a like-for-like saving');
   });

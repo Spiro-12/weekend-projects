@@ -36,7 +36,7 @@ test('selecting an agent shows its card; the close button clears the selection',
 test('the follow card updates from the live view at most 4 times a second', async ({ page }) => {
   const errors = await openApp(page);
   await settled(page);
-  const id = await page.evaluate(() => window.__fp!.host.live.snapshot.agents.find((x) => x.type === 'forklift')!.id);
+  const id = await page.evaluate(() => window.__fp!.host.live.snapshot.agents.find((x) => x.type === 'driver')!.id); // a driven forklift: in every default fleet
   await page.getByTestId('speed-60').click();
   await page.evaluate((i) => window.__fp!.host.select(0, i), id);
   await expect(page.getByTestId('follow-card')).toBeVisible();

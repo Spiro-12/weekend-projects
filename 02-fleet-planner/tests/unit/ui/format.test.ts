@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import agentsJson from '../../../data/agents.json';
 import sourcesJson from '../../../data/sources.json';
-import scenarioJson from '../../../data/scenarios/default.json';
+import scenarioJson from '../../../fixtures/scenario-mixed.json';
 import econFixture from '../../../fixtures/econ.json';
 import type { AgentsFile, Explained, MoneyReport, Scenario, SourcesFile } from '../../../src/contracts/types.ts';
 import { fakeEcon } from '../../../src/host/econ-port.ts';

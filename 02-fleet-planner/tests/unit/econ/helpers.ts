@@ -1,7 +1,7 @@
 // Shared test helpers for the economics tests (not a test file itself).
 import agentsJson from '../../../data/agents.json';
 import sourcesJson from '../../../data/sources.json';
-import scenarioJson from '../../../data/scenarios/default.json';
+import scenarioJson from '../../../fixtures/scenario-mixed.json';
 import type { AgentTypeId, AgentsFile, Explained, Kpis, MoneyReport, RunResult, Scenario, SourcesFile } from '../../../src/contracts/types.ts';
 
 export const agents = agentsJson as AgentsFile;

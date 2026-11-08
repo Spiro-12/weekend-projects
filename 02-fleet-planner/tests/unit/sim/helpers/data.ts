@@ -3,7 +3,7 @@ import agents from '../../../../data/agents.json';
 import defaultLayout from '../../../../data/layouts/default.json';
 import largeLayout from '../../../../data/layouts/large.json';
 import smallLayout from '../../../../data/layouts/small.json';
-import defaultScenario from '../../../../data/scenarios/default.json';
+import defaultScenario from '../../../../fixtures/scenario-mixed.json';
 import type { AgentsFile, LayoutFile, Scenario, SimEvent } from '../../../../src/contracts/types.ts';
 import { createCoreSim, type CoreSim, type CoreSimOptions } from '../../../../src/sim/core/index.ts';
 import { CentralController } from '../../../../src/sim/traffic/central/index.ts';

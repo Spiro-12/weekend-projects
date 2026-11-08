@@ -60,7 +60,7 @@ test('phone: tabs open each panel, a tap on a money number explains it', async (
   await tabs.filter({ hasText: 'Setup' }).tap();
 
   // Follow card: a compact card above the tabs, never covering them.
-  const id = await page.evaluate(() => window.__fp!.host.live.snapshot.agents.find((a) => a.type === 'forklift')!.id);
+  const id = await page.evaluate(() => window.__fp!.host.live.snapshot.agents.find((a) => a.type === 'driver')!.id); // a driven forklift: in every default fleet
   await page.evaluate((i) => window.__fp!.host.select(0, i), id);
   const card = page.getByTestId('follow-card');
   await expect(card).toBeVisible();

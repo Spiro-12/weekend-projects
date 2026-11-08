@@ -42,11 +42,11 @@
   "secPerOrder": 30
  },
  "fleet": {
-  "amr": 24,
-  "forklift": 4,
-  "humanoid": 2,
-  "picker": 14,
-  "driver": 2
+  "amr": 32,
+  "forklift": 0,
+  "humanoid": 0,
+  "picker": 12,
+  "driver": 1
  },
  "vendors": {
   "amr": [

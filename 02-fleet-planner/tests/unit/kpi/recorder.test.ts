@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import agentsJson from '../../../data/agents.json';
 import layoutJson from '../../../data/layouts/default.json';
-import scenarioJson from '../../../data/scenarios/default.json';
+import scenarioJson from '../../../fixtures/scenario-mixed.json';
 import {
   AGENT_STATES,
   AGENT_TYPES,
@@ -77,7 +77,7 @@ describe('KPI recorder: a hand-built 2 h window', () => {
     expect(k.oph).toBe(600); // 1,200 shipped ÷ 2 h
     expect(k.backlogEnd).toBe(70);
     expect(k.backlogTrendPerHour).toBe(10); // 50 → 60 → 70 over 2 h; the repeated last tick is not a 4th point
-    expect(k.keepsUp).toBe(true); // 10 ≤ 2% of 600
+    expect(k.keepsUp).toBe(true); // 10 ≤ 5% of 600
   });
   it('order times: mean and nearest-rank p90, in seconds', () => {
     expect(k.avgOrderSec).toBe(275); // mean 550 ticks × 0.5 s
@@ -128,17 +128,17 @@ describe('KPI recorder: boundaries', () => {
     expect(trendRun([40, 40, 40]).backlogTrendPerHour).toBe(0);
     expect(trendRun([90, 40, 10]).backlogTrendPerHour).toBeLessThan(0);
   });
-  it('keepsUp flips at +2% of demand per hour', () => {
+  it('keepsUp flips at +5% of demand per hour', () => {
     expect(trendRun([0, 12, 24]).backlogTrendPerHour).toBe(12);
-    expect(trendRun([0, 12, 24]).keepsUp).toBe(true); // exactly 2% of 600
-    expect(trendRun([0, 12, 25]).keepsUp).toBe(false); // 12.5
-    expect(trendRun([0, 13, 26]).keepsUp).toBe(false);
+    expect(trendRun([0, 30, 60]).keepsUp).toBe(true); // exactly 5% of 600
+    expect(trendRun([0, 30, 61]).keepsUp).toBe(false); // 30.5
+    expect(trendRun([0, 31, 62]).keepsUp).toBe(false);
     expect(trendRun([30, 20, 10]).keepsUp).toBe(true); // shrinking backlog
     const busy = { ...scenario, orders: { ...scenario.orders, perHour: 1000 } };
-    expect(trendRun([0, 20, 40], busy).keepsUp).toBe(true);
-    expect(trendRun([0, 20, 41], busy).keepsUp).toBe(false);
-    expect(keepsUpAt(12, 600)).toBe(true);
-    expect(keepsUpAt(12.000001, 600)).toBe(false);
+    expect(trendRun([0, 50, 100], busy).keepsUp).toBe(true);
+    expect(trendRun([0, 50, 101], busy).keepsUp).toBe(false);
+    expect(keepsUpAt(30, 600)).toBe(true);
+    expect(keepsUpAt(30.000001, 600)).toBe(false);
     expect(keepsUpAt(0, 0)).toBe(true);
   });
   it('the least-squares slope is exact on integer samples', () => {

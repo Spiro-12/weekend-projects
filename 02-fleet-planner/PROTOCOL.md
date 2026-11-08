@@ -134,7 +134,7 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
   5. **Local detours for every robot** blocked `waitTicks` by something it can't negotiate with (a person, a parked robot; in many brains also foreign robots).
   6. PIBT pushes a robot out of a forklift's needed safety cell.
   7. Tie-break toward fewer turns.
-  8. **The WMS sends each tote to the least-loaded pack station** (always on, both modes).
+  8. **The WMS sends each tote to the least-loaded pack station that has a free queue slot** (at most 3 carriers heading to or handing off at a station; always on, both modes). With no free slot the carrier holds in a pick aisle (state `wait`) and is released first-in, first-out. Likewise a cart robot whose remaining pick zones are all full holds until one has room (zone cap: min(3 per zone worker, faces ÷ 5), at least 2). Phase 1 integration: without this release control the floor jammed past about 50 robots.
 - **Work model (Phase 1):** with cart robots, **pickers stay in their pick zones** and meet AMRs at faces (the Locus model). **Zone bleed:** a free picker also serves a cart robot that has waited ≥ 10 ticks in an adjacent zone (ranked behind its own zone), as cart-robot sites' "dynamic zones" do. Zones are rebuilt only when the fleet changes, not on breakdowns or charging. Units count as picked when their tote reaches packing. Only AMRs and humanoids visit pack stations. Without cart robots (people only), pickers push carts and walk to pack stations themselves.
 - **Shared, lead-owned modules:**
   - `world.ts` (graph, distances)
@@ -186,7 +186,7 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
   | `deadlocksOver2MinPerShift` | deadlocks that last ≥ 240 ticks (2 min), per shift: ended in the window after ≥ 240 ticks, or still open at the end and already ≥ 240 ticks old. The runner passes deadlocks still open from warm-up (their `deadlockStart`, tick < warm-up end) right after `start()`; they count here, not in `deadlocksPerShift`. |
   | `avgOrderSec`, `p90OrderSec` | (ship tick − arrive tick) × 0.5 s for orders shipped in the window |
   | `backlogEnd` | open orders at the end of the window |
-  | `backlogTrendPerHour` | least-squares slope of open orders over the window. **`keepsUp`** = trend ≤ +2% of demand per hour. |
+  | `backlogTrendPerHour` | least-squares slope of open orders over the window. **`keepsUp`** = trend ≤ +5% of demand per hour (a 2 h window can't resolve less: arrival noise alone moves the slope about ±3%; Phase 1 integration). |
   | `pickerUplift` | units per picker-hour with this fleet ÷ units per picker-hour without picking robots (`withoutPickingRobots`: cart robots and humanoids set to 0, forklifts unchanged), both at capacity. **An output, not an input**: it comes from walk speed, `pickSecPerLine` and zones, calibrated so the default lands near 75 → 135 units/h. |
   | `unitsPerPickerHour`, `resetsPerHour`, `retasksPerHour` | |
   | `keepsUp` on saturate runs | not meaningful (the queue is always full); only read it on demand runs |

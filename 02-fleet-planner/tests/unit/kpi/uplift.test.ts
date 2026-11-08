@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import scenarioJson from '../../../data/scenarios/default.json';
+import scenarioJson from '../../../fixtures/scenario-mixed.json';
 import sourcesJson from '../../../data/sources.json';
 import type { Kpis, RunResult, Scenario, SourcesFile } from '../../../src/contracts/types.ts';
 import { createFakeRunner } from '../../../src/host/runner/fake.ts';

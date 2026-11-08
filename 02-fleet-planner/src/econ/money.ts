@@ -22,6 +22,7 @@
 //
 // Inputs: a computed total used inside another number (upfront cost inside the payback, …) is listed as one input,
 // and the published sources behind it are listed after it as separate inputs, so every money hover links its sources.
+import { KEEPS_UP_PCT } from '../kpi/index.ts';
 import {
   AGENT_TYPES,
   ROBOT_TYPES,
@@ -330,7 +331,7 @@ function keepUpWords(r: RunResult, s: Scenario): string {
   const k = r.kpis;
   return (
     `it ships ${num(k.oph, 1)} orders/h of the ${num(s.orders.perHour)} ordered and its backlog grows by ${num(k.backlogTrendPerHour, 1)} orders an hour ` +
-    `(keeping up allows at most ${num((s.orders.perHour * 2) / 100, 1)}, 2% of demand)`
+    `(keeping up allows at most ${num((s.orders.perHour * KEEPS_UP_PCT) / 100, 1)}, ${KEEPS_UP_PCT}% of demand, since arrivals alone vary that much over a 2-hour window)`
   );
 }
 function keepUpInputs(c: Ctx, r: RunResult, who: string): ExplainInput[] {

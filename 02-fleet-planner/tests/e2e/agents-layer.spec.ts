@@ -40,6 +40,12 @@ async function waitModels(page: Page) {
 test('every agent type renders as instances, with the GLB forklifts', async ({ page }) => {
   const errors = await openApp(page, '?tier=medium');
   await waitModels(page);
+  // The default fleet is cart robots, pickers and a driver; add the other robot types so every model renders.
+  await page.evaluate(() => {
+    window.__fp!.host.setFleet('forklift', 2);
+    window.__fp!.host.setFleet('humanoid', 2);
+  });
+  await page.waitForFunction(() => ['forklift', 'humanoid'].every((t) => window.__fp!.host.live.snapshot.agents.some((a) => a.type === t)), null, { timeout: 20_000 });
   await page.evaluate(() => window.__fp!.freeze(true));
   await frames(page);
   const counts = await page.evaluate(() => {
@@ -49,7 +55,7 @@ test('every agent type renders as instances, with the GLB forklifts', async ({ p
   });
   const d = await dbg(page);
   for (const t of ['amr', 'forklift', 'driver', 'humanoid', 'picker']) {
-    expect(counts[t] ?? 0, `${t} in the default scenario`).toBeGreaterThan(0);
+    expect(counts[t] ?? 0, `${t} on the floor`).toBeGreaterThan(0);
     expect(d.instances[t], `${t} instances`).toBe(counts[t]);
   }
   await expectNoErrors(errors);
