@@ -7,6 +7,7 @@ import largeJson from '../../../data/scenarios/large.json';
 import type { RunResult, Scenario } from '../../../src/contracts/types.ts';
 import { createFakeRunner } from '../../../src/host/runner/fake.ts';
 import type { EvaluateOptions, Runner } from '../../../src/host/runner/types.ts';
+import { runKey } from '../../../src/host/settings.ts';
 import { baselineScenario, findBaseline, MAX_BASELINE_EVALS, type Crew } from '../../../src/econ/baseline.ts';
 import { computeMoney } from '../../../src/econ/money.ts';
 import { agents, defaultScenario } from './helpers.ts';
@@ -106,14 +107,21 @@ describe('findBaseline (auto)', () => {
   });
 
   it('does not depend on the candidate’s fleet, traffic mode or financing (the host’s baseline cache key)', async () => {
-    const ref = await findBaseline(scenarios.default, createFakeRunner());
+    // Not just the same answer: the very same sequence of runs, so the host's cached baseline is right for every
+    // candidate that shares its key.
+    const runsFor = async (s: Scenario) => {
+      const { runner, calls } = counted();
+      const b = await findBaseline(s, runner);
+      return { crew: b.crew, runs: calls.map((c) => `${runKey(c.s)}${c.opts?.saturate ? '-sat' : ''}`) };
+    };
+    const ref = await runsFor(scenarios.default);
     const variants: Scenario[] = [
       { ...defaultScenario, fleet: { amr: 0, forklift: 0, humanoid: 0, picker: 40, driver: 9 } },
       { ...defaultScenario, fleet: { amr: 80, forklift: 10, humanoid: 6, picker: 2, driver: 0 } },
       { ...defaultScenario, traffic: { ...defaultScenario.traffic, mode: 'siloed' } },
       { ...defaultScenario, economics: { ...defaultScenario.economics, financing: 'raas' } },
     ];
-    for (const v of variants) expect((await findBaseline(v, createFakeRunner())).crew).toEqual(ref.crew);
+    for (const v of variants) expect(await runsFor(v)).toEqual(ref);
   });
 
   it('too many orders for any crew (pack stations full): ≤ 4 calls, the biggest crew tried, keepsUp false, and the money says so', async () => {

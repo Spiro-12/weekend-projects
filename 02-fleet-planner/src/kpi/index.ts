@@ -136,7 +136,8 @@ export const createKpiRecorder: KpiRecorderFactory = (s: Scenario): KpiRecorder 
   return {
     start(stats) {
       if (first) throw new Error('KPI recorder: start() called twice');
-      first = stats;
+      // A copy: the window is measured as finish − start, so a sim that reuses one stats object must not move start.
+      first = JSON.parse(JSON.stringify(stats)) as SimStats;
       lastTick = stats.tick;
       lastPickers = stats.fleet?.picker ?? 0;
       sampleX.push(0);

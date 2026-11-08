@@ -195,6 +195,19 @@ describe('KPI recorder: boundaries', () => {
     expect(k.robotUtilizationPct).toBe(100); // 50 travel ÷ (100 − 50 broken)
     expect(k.byType.amr).toMatchObject({ utilizationPct: 50, brokenPct: 50 });
   });
+  it('a sim that reuses one mutable stats object still gives the window deltas', () => {
+    const live = stats(WARMUP, { shippedOrders: 100, ticksByState: zeroTicks(), unitsPicked: { picker: 0 } });
+    const rec = createKpiRecorder(scenario, win);
+    rec.start(live);
+    live.tick = END;
+    live.shippedOrders = 1300;
+    live.ticksByState.amr.travel = 144;
+    live.unitsPicked.picker = 2800;
+    const k = rec.finish(live);
+    expect(k.oph).toBe(600);
+    expect(k.byType.amr?.utilizationPct).toBe(100);
+    expect(k.unitsPerPickerHour).toBe(100); // 2,800 ÷ (14 × 2 h)
+  });
   it('misuse fails loudly', () => {
     const rec = createKpiRecorder(scenario, win);
     expect(() => rec.finish(stats(END))).toThrow(/before start/);
