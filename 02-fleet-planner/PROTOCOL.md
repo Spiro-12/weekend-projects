@@ -129,13 +129,13 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
 - **People are cell agents, not in the robot planner.** The sim core moves them first each tick along the `human` distance gradient, then hands the planner `occ` and `yields`. **Drivers** (people on manual forklifts) are moved the same way but use the `forklift` pass class and keep a safety cell; robots treat them like people. Shared rules for **both** traffic modes (spike b found each one necessary; none favours one brain):
   1. Robots treat people's cells (and their move targets) as fixed obstacles.
   2. **Robots yield to people:** a person blocked by a robot asks it to make way (`yields`); the planner pushes it.
-  3. **Robot cell claim:** a robot that has waited 3+ ticks claims the cell it wants and people let it go first.
+  3. **Robot cell claim:** a robot that has waited 3+ ticks claims the cell it wants and people let it go first, **for up to 60 blocked ticks (30 s)**. A person blocked longer ignores claims (still never entering a held cell), so no claim can hold a person forever (Phase 1 integration: fixed a driver held for an hour by a gridlocked robot).
   4. **People's manners:** step to the side (not back) after 4 blocked ticks; two people head-on swap; wait for an agent that is already leaving; don't crowd a busy goal (wait 2 cells back).
   5. **Local detours for every robot** blocked `waitTicks` by something it can't negotiate with (a person, a parked robot; in many brains also foreign robots).
   6. PIBT pushes a robot out of a forklift's needed safety cell.
   7. Tie-break toward fewer turns.
   8. **The WMS sends each tote to the least-loaded pack station** (always on, both modes).
-- **Work model (Phase 1):** with cart robots, **pickers stay in their pick zones** and meet AMRs at faces (the Locus model); only AMRs and humanoids visit pack stations. Without cart robots (people only), pickers push carts and walk to pack stations themselves.
+- **Work model (Phase 1):** with cart robots, **pickers stay in their pick zones** and meet AMRs at faces (the Locus model). **Zone bleed:** a free picker also serves a cart robot that has waited ≥ 10 ticks in an adjacent zone (ranked behind its own zone), as cart-robot sites' "dynamic zones" do. Zones are rebuilt only when the fleet changes, not on breakdowns or charging. Units count as picked when their tote reaches packing. Only AMRs and humanoids visit pack stations. Without cart robots (people only), pickers push carts and walk to pack stations themselves.
 - **Shared, lead-owned modules:**
   - `world.ts` (graph, distances)
   - `motion.ts` (speed, turns)
