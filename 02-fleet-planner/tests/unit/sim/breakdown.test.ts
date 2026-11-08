@@ -55,22 +55,34 @@ describe('breakdown from a scenario event', () => {
 });
 
 describe('breakdown by inject', () => {
-  it('a zone picker breaks: its zone stays put and its robots are served by the other pickers (zone bleed)', () => {
+  it('both pickers of one zone break: no rezone, and pickers from the neighbouring zones serve its robots (zone bleed)', () => {
     const sim = makeSim(scenario({ orders: { mode: 'saturate' } }), { pibt: true });
     run(sim, 1200);
-    const id = sim.agentRef('picker', 1);
-    const zonesBefore = JSON.stringify(sim.debug().zones);
-    sim.command({ t: 'inject', event: { type: 'breakdown', atMin: 0, agent: 'picker:1', forMin: 4 } });
-    const ev = run(sim, 4 * 120 + 20, [], 60);
-    expect(ev.some((e) => e.t === 'breakdown' && e.agent === id)).toBe(true);
-    expect(ev.some((e) => e.t === 'repair' && e.agent === id)).toBe(true);
-    expect(JSON.stringify(sim.debug().zones)).toBe(zonesBefore); // no rezone for a breakdown
-    // its zone's faces kept being picked while it was broken
-    const zones = sim.debug().zones!;
-    const myZone = zones.members.findIndex((m) => m.includes(id));
-    const brokenFrom = ev.find((e) => e.t === 'breakdown' && e.agent === id)!.tick;
-    const pickedInZone = ev.filter((e) => e.t === 'pickDone' && e.tick > brokenFrom && e.tick < brokenFrom + 480 && e.agent !== id && zones.members[myZone].length >= 1);
-    expect(pickedInZone.length).toBeGreaterThan(0);
+    const zonesBefore = sim.debug().zones!;
+    // a middle zone staffed by two people (two neighbours to bleed from)
+    const z = zonesBefore.members.findIndex((m, k) => k > 0 && k < zonesBefore.members.length - 1 && m.length === 2 && m.every((id) => sim.byId[id]!.typeId === 'picker'));
+    expect(z).toBeGreaterThan(0);
+    const team = zonesBefore.members[z];
+    for (const id of team) sim.command({ t: 'inject', event: { type: 'breakdown', atMin: 0, agent: `picker:${sim.byId[id]!.spawnIndex}`, forMin: 6 } });
+    let bleedPicks = 0;
+    const ev = [];
+    for (let k = 0; k < 6 * 120 + 20; k++) {
+      sim.step(1);
+      ev.push(...sim.drainEvents());
+      const zs = sim.debug().zones!;
+      for (const w of sim.people) {
+        if (w.job !== 2 || w.stage !== 2 || w.zone < 0 || team.includes(w.id)) continue; // J_SERVE, SV_PICKING
+        const amr = sim.byId[w.partner]!;
+        const face = (sim as unknown as { taskById: Map<number, { stops: { face: number }[]; stop: number }> }).taskById.get(amr.taskId)!;
+        if (zs.faceZone[face.stops[face.stop].face] === z && zs.members.findIndex((m) => m.includes(w.id)) !== z) bleedPicks++;
+      }
+    }
+    for (const id of team) {
+      expect(ev.some((e) => e.t === 'breakdown' && e.agent === id)).toBe(true);
+      expect(ev.some((e) => e.t === 'repair' && e.agent === id)).toBe(true);
+    }
+    expect(JSON.stringify(sim.debug().zones)).toBe(JSON.stringify(zonesBefore)); // breakdowns never rezone
+    expect(bleedPicks).toBeGreaterThan(0); // ticks a neighbour spent picking into a robot at a face of the broken zone
   });
 
   it('bad references and Phase 2 events are ignored', () => {

@@ -77,17 +77,18 @@ export const PRESEND_CELLS = 12;
 export const BATCH_WINDOW = 20;
 
 /**
- * Zone workers per pick zone. One: zones are then small runs of an aisle (a few rows of both lanes near packing),
- * so a picker walks a few metres between robots, as in cart-robot sites. Robots never wait for a busy picker while a
- * neighbour stands idle: that is zone bleed (below).
+ * Zone workers per pick zone: two. Two people sharing a zone pool its robots (a robot gets the sooner of the two),
+ * which beat one picker per smaller zone in calibration with the one-brain planner (1.68x vs 1.62x uplift at 42 cart
+ * robots, 14 pickers). Zones are cut within aisles by expected work, so the zones near packing are a few rows of one
+ * aisle. Estimate.
  */
 export const ZONE_PICKERS = 2;
 
 /**
  * Zone bleed: a free picker also serves a cart robot that has waited BLEED_WAIT_TICKS (5 s) at a face in a neighbouring
  * zone, counted BLEED_PENALTY_CELLS further away than it is, so its own zone comes first. It also covers a zone whose
- * picker is on a break, charging (humanoids) or broken. Estimate: cart-robot sites let associates help the next zone
- * ("dynamic zones") rather than leave robots waiting.
+ * pickers are both on a break, charging (humanoids) or broken. Estimate: cart-robot sites let associates help the next
+ * zone ("dynamic zones") rather than leave robots waiting.
  */
 export const BLEED_WAIT_TICKS = 10;
 export const BLEED_PENALTY_CELLS = 4;
@@ -116,3 +117,21 @@ export const PUT_TO_CART_SEC = 3;
  * does from the robot.
  */
 export const TOTE_HANDOFF_SEC = 10;
+
+/**
+ * A person picking into a cart robot's tote takes this percentage of pickSecPerLine. The robot parks at the location and
+ * its screen shows the item and the tote, so the "search" part of a pick goes away; the reach and extract stay.
+ * Source: Tompkins' split of manual picker time (travel 50%, search 20%, extract 15%, setup 10%, other 5%; RESEARCH.md
+ * Part A [78]): of the 40 non-travel, non-setup points, search is 20, so a screen-guided pick is about half to two
+ * thirds of a manual one. Range 50 to 70%; we use 60%. Humanoids keep their own spec rate.
+ */
+export const ASSISTED_PICK_PCT = 60;
+
+/**
+ * Wait-age credit when a picker chooses its next cart robot: a robot already waiting at its stop counts one cell nearer
+ * for every WAIT_CREDIT_TICKS (10 s) it has waited, up to WAIT_CREDIT_MAX_CELLS. Nearest-first alone left a far robot
+ * in an edge zone (one neighbour to bleed from) waiting about 15 minutes. Estimate: cart-robot screens show the oldest
+ * waiting robot first once it has waited a while.
+ */
+export const WAIT_CREDIT_TICKS = 20;
+export const WAIT_CREDIT_MAX_CELLS = 10;

@@ -93,6 +93,7 @@ import {
   T_PICKER,
 } from './agent.ts';
 import {
+  ASSISTED_PICK_PCT,
   BATCH_WINDOW,
   BLEED_PENALTY_CELLS,
   BLEED_WAIT_TICKS,
@@ -109,6 +110,8 @@ import {
   PUT_TO_CART_SEC,
   TOTE_HANDOFF_SEC,
   TOTES_PER_AMR,
+  WAIT_CREDIT_MAX_CELLS,
+  WAIT_CREDIT_TICKS,
   ZONE_MAX_AMRS,
   ZONE_PICKERS,
 } from './constants.ts';
@@ -717,6 +720,8 @@ export class CoreSim implements Sim {
       pass: this.world.passable[classIndex(spec.passClass)],
       speed: mmPerTick(spec),
       pickTicks: spec.pickSecPerLine ? secToTicks(spec.pickSecPerLine.value) : 0,
+      // people picking into a cart robot's tote skip the search (the robot parks at the location and shows the item)
+      assistTicks: spec.pickSecPerLine ? secToTicks((spec.pickSecPerLine.value * (spec.kind === 'human' ? ASSISTED_PICK_PCT : 100)) / 100) : 0,
       palletTicks: spec.palletSecPerMove ? secToTicks(spec.palletSecPerMove.value) : 0,
       handoffTicks: secToTicks(spec.handoffSec?.value ?? DEFAULT_HANDOFF_SEC),
       batteryMax: runtime,
@@ -1181,6 +1186,11 @@ export class CoreSim implements Sim {
         if (a.dwellStart < t && t + 1 >= a.dwellUntil) this.endDwell(a, t);
         if (a.dwellUntil > 0) continue;
       }
+      // a cart assigned mid-step starts its setup now that it stands still
+      if (a.job === J_PICK && a.stage === PK_SETUP) {
+        this.startDwell(a, this.setupTicks, t);
+        continue;
+      }
       // Critical battery: drop the task at this safe point (not moving, not dwelling, not being picked into).
       if (a.needCharge === 2 && (a.job === J_PICK || a.job === J_PALLET || a.job === J_SERVE)) {
         const served = a.job === J_PICK && a.partner >= 0 && this.byId[a.partner]?.stage === SV_PICKING;
@@ -1275,7 +1285,10 @@ export class CoreSim implements Sim {
           if (this.stopLeft(task) > 0) this.tryCartPick(a, t);
           else this.nextStop(a, task, t);
         } else if (a.stage === PK_HANDOFF) this.deliver(a, task, t);
-        else if (a.stage === PK_SETUP) a.stage = PK_TO_STOP;
+        else if (a.stage === PK_SETUP) {
+          a.stage = PK_TO_STOP;
+          this.setGoal(a, this.world.faces[task.stops[task.stop].face].cell, G_NEAR, t);
+        }
         break;
       }
       case J_SERVE: {
@@ -1375,7 +1388,7 @@ export class CoreSim implements Sim {
       w.stage = SV_PICKING;
       w.waiting = 0;
       w.dwellUnits = units;
-      this.startDwell(w, units * w.pickTicks, t);
+      this.startDwell(w, units * w.assistTicks, t);
       amr.waiting = 0;
       amr.lastWork = t;
     } else {
@@ -1429,7 +1442,16 @@ export class CoreSim implements Sim {
     a.partner = -1;
     a.waiting = 0;
     a.dwellUntil = 0;
+    a.dwellUnits = 0;
     this.clearGoal(a);
+  }
+
+  /** Units taken from a face for a pick dwell that is cut short go back on the face (capped at its capacity). */
+  private returnDwellUnits(a: CoreAgent, task: PickTask): void {
+    if (a.dwellUntil <= 0 || a.dwellUnits <= 0 || task.stop >= task.stops.length) return;
+    const face = task.stops[task.stop].face;
+    if (this.stock[face] >= 0) this.stock[face] = Math.min(2 * this.linesPerReplenish, this.stock[face] + a.dwellUnits);
+    a.dwellUnits = 0;
   }
 
   /** Cancel whatever the agent is doing (breakdown, critical battery, leaving). Orders go back to the queue, pallet
@@ -1443,10 +1465,15 @@ export class CoreSim implements Sim {
           // the totes are emptied back onto their faces, and the orders are released again
           const L2 = 2 * this.linesPerReplenish;
           for (const st of task.stops) if (st.picked > 0 && this.stock[st.face] >= 0) this.stock[st.face] = Math.min(L2, this.stock[st.face] + st.picked);
+          // ... and so do the units of a pick cut short (taken at the start of the dwell, counted only at its end)
+          this.returnDwellUnits(a, task);
           this.orders.requeue(task.orders);
           if (a.partner >= 0) {
             const wk = this.byId[a.partner];
-            if (wk && wk.partner === a.id) this.freeAgent(wk);
+            if (wk && wk.partner === a.id) {
+              this.returnDwellUnits(wk, task);
+              this.freeAgent(wk);
+            }
           }
           this.removeTask(task.id);
         }
@@ -1456,6 +1483,8 @@ export class CoreSim implements Sim {
       case J_SERVE: {
         const amr = this.byId[a.partner];
         if (amr && amr.partner === a.id) {
+          const task = this.taskById.get(amr.taskId) as PickTask | undefined;
+          if (task) this.returnDwellUnits(a, task);
           amr.partner = -1;
           amr.waiting = 1;
         }
@@ -1487,12 +1516,14 @@ export class CoreSim implements Sim {
 
   private rebuildZones(): void {
     this.zonesDirty = false;
+    // Zone membership changes only with the fleet; a broken or charging worker's zone is covered by its team mate and
+    // its neighbours (zone bleed in matchZones), so one humanoid going to charge never rezones the floor.
+    // A worker's share of the work is its pick rate times the share of the time it is not charging (a humanoid with
+    // 2 h of runtime and 1 h of charging picks two thirds of the time), so a zone of humanoids is sized for what
+    // they actually deliver.
     const workers = this.agents
-      // available workers only: a humanoid that needs (or is getting) a charge hands its faces to the others
-      // zone membership changes only with the fleet; a broken or charging worker's zone is covered by its neighbours
-      // (zone bleed in matchZones), so one humanoid going to charge never rezones the floor
       .filter((a) => (a.type === T_PICKER || a.type === T_HUMANOID) && !a.removing && a.pickTicks > 0)
-      .map((a) => ({ id: a.id, weight: Math.floor(1_000_000 / a.pickTicks) }));
+      .map((a) => ({ id: a.id, weight: Math.floor((1_000_000 / a.assistTicks) * (a.batteryMax > 0 ? a.batteryMax / (a.batteryMax + a.chargeC) : 1)) }));
     this.zones = computeZones(this.world, this.zoneOrder, this.zoneWeights, workers, ZONE_PICKERS);
     for (const a of this.agents) a.zone = -1;
     this.zones.workers.forEach((id, k) => (this.byId[id]!.zone = k));
@@ -1551,6 +1582,7 @@ export class CoreSim implements Sim {
           if (dz !== 0 && (r.stage !== PK_AT_STOP || t - r.waitSince < BLEED_WAIT_TICKS)) continue;
           let key = this.meetKey(w, r);
           if (key < 0) continue;
+          key -= this.waitCredit(r, t);
           if (dz !== 0) key += 2 * BLEED_PENALTY_CELLS;
           if (!best || key < bestKey || (key === bestKey && (r.waitSince < best.waitSince || (r.waitSince === best.waitSince && r.id < best.id)))) {
             best = r;
@@ -1562,7 +1594,8 @@ export class CoreSim implements Sim {
       if (walking) {
         const cur = this.byId[w.partner];
         if (cur && cur.partner === w.id) {
-          const k = this.meetKey(w, cur);
+          const k0 = this.meetKey(w, cur);
+          const k = k0 < 0 ? k0 : k0 - this.waitCredit(cur, t);
           if (k >= 0 && k <= bestKey) continue;
           cur.partner = -1;
         }
@@ -1577,6 +1610,15 @@ export class CoreSim implements Sim {
 
   /** How soon worker w can meet cart robot r (twice the cells, +1 for a robot still on its way, more while it is
    *  blocked), or -1 if it can't. */
+  /** A robot waiting at its stop moves up the queue the longer it waits: one cell per WAIT_CREDIT_TICKS waited,
+   *  at most WAIT_CREDIT_MAX_CELLS (in meet-key units, twice the cells). Without it a far robot in an edge zone could
+   *  wait a quarter of an hour behind nearer ones. */
+  private waitCredit(r: CoreAgent, t: number): number {
+    if (r.stage !== PK_AT_STOP) return 0;
+    const cells = Math.floor((t - r.waitSince) / WAIT_CREDIT_TICKS);
+    return 2 * (cells < WAIT_CREDIT_MAX_CELLS ? cells : WAIT_CREDIT_MAX_CELLS);
+  }
+
   private meetKey(w: CoreAgent, r: CoreAgent): number {
     const from = w.to >= 0 ? w.to : w.cell;
     if (r.stage === PK_AT_STOP) {
@@ -1880,12 +1922,13 @@ export class CoreSim implements Sim {
     c.waiting = 0;
     c.cargo = amr ? C_TOTE : C_CART;
     this.admitStop(c, task);
-    this.setGoal(c, this.world.faces[stops[0].face].cell, G_NEAR, t);
-    if (!amr) {
-      // a manual cart starts with its induct: the picker sets up and labels the totes (a cart robot is inducted by
-      // the system, its totes ride on it)
+    if (amr) this.setGoal(c, this.world.faces[stops[0].face].cell, G_NEAR, t);
+    else {
+      // a manual cart starts with its induct: the picker sets up and labels the totes where it stands (once a step in
+      // progress ends), then walks to the first face (a cart robot is inducted by the system, its totes ride on it)
       c.stage = PK_SETUP;
-      this.startDwell(c, this.setupTicks, t);
+      this.clearGoal(c);
+      if (c.to < 0) this.startDwell(c, this.setupTicks, t);
     }
     this.events.push({ t: 'taskAssigned', tick: t, task: task.id, kind: 'pick', agents: [c.id] });
   }
@@ -2199,6 +2242,8 @@ export class CoreSim implements Sim {
    *  with a task, or task work); a trip to park or rest is 'idle' and a trip to a charger is 'charge'. */
   private stateOf(a: CoreAgent, t: number): number {
     if (a.brokenUntil > 0) return ST_BROKEN;
+    // queued for a charger (resting or on its way to rest meanwhile): waiting
+    if (a.chargeQueuedAt >= 0 && a.job !== J_CHARGE && (a.to >= 0 || a.blockedAt !== t)) return ST_WAIT;
     const moving = a.to >= 0;
     if (moving || a.goal >= 0) {
       if (a.job === J_REST || a.job === J_NONE) return moving || a.blockedAt !== t ? (a.waiting === 1 ? ST_WAIT : ST_IDLE) : ST_BLOCKED;
