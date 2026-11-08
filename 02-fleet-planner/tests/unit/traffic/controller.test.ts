@@ -179,25 +179,40 @@ describe('CentralController: one tick at a time', () => {
     expect(c.stateWords().length).toBeGreaterThan(7 + 8); // the detour path is part of the state
   });
 
-  it('a robot parked at its goal (ready, goal = cell) decides last, so robots behind it can push it aside', () => {
-    // Track A marks parked robots ready with goal = their cell. Whatever the order, the mover pushes it.
-    const robots: R[] = [
-      { cell: P(21, 4), goal: P(21, 4) },
-      { cell: P(20, 4), goal: P(25, 4) },
-    ];
+  it('a robot parked at its goal (ready, goal = cell) decides last and is pushed aside once the robot behind has waited', () => {
+    // Track A marks parked robots ready with goal = their cell. Whatever the priority order: a robot that has just
+    // been blocked waits (or goes round); one blocked 2 x waitTicks pushes the parked robot aside.
     for (const order of [[0, 1], [1, 0]]) {
-      const { input } = scene(robots, [P(20, 3), P(20, 5), P(19, 4)], { order });
-      input.ready[0] = input.tick; // parked but pushable
-      const c = new CentralController();
-      const out = plan(c, input);
-      expect(out.moveTo[0], `order ${order}`).toBeGreaterThanOrEqual(0); // the parked robot steps aside...
-      expect(out.moveTo[1], `order ${order}`).toBe(-1); // ...and the mover waits for the cell to clear
-      expect(c.counters.pushes).toBe(1);
+      for (const [blocked, pushed] of [[0, false], [9, false], [10, true]] as const) {
+        const robots: R[] = [
+          { cell: P(21, 4), goal: P(21, 4) },
+          { cell: P(20, 4), goal: P(25, 4), blocked },
+        ];
+        const { input } = scene(robots, [P(20, 3), P(20, 5), P(19, 4)], { order });
+        input.ready[0] = input.tick; // parked but pushable
+        const c = new CentralController();
+        const out = plan(c, input);
+        const tag = `order ${order} blocked ${blocked}`;
+        expect(out.moveTo[0] >= 0, tag).toBe(pushed); // the parked robot steps aside...
+        expect(out.moveTo[1], tag).toBe(-1); // ...and the mover waits for the cell to clear
+        expect(out.want[1], tag).toBe(P(21, 4));
+        expect(c.counters.pushes, tag).toBe(pushed ? 1 : 0);
+      }
     }
     // unpushed, a parked robot stays put
     const alone = scene([{ cell: P(21, 4), goal: P(21, 4) }]);
     alone.input.ready[0] = alone.input.tick;
     expect(plan(new CentralController(), alone.input).moveTo[0]).toBe(-1);
+  });
+
+  it('a robot never pushes a parked robot off the cell that is its own goal (it waits its turn)', () => {
+    const { input } = scene([
+      { cell: P(21, 4), goal: P(21, 4) },
+      { cell: P(20, 4), goal: P(21, 4), blocked: 50 },
+    ]);
+    input.ready[0] = input.tick;
+    const out = plan(new CentralController(), input);
+    expect([out.moveTo[0], out.moveTo[1], out.want[1]]).toEqual([-1, -1, P(21, 4)]);
   });
 
   it('a moving robot reports the cell it moves into as want (also when it can’t take its first choice)', () => {

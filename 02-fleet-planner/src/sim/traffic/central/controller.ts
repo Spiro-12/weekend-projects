@@ -436,16 +436,24 @@ export class CentralController implements TrafficController {
     return nbr[v] === j || nbr[v + 1] === j || nbr[v + 2] === j || nbr[v + 3] === j;
   }
 
-  /** Robot h can be pushed this pass: a ready robot of this planner that has not decided yet. */
-  private pushable(h: number): boolean {
-    return !!this.agents[h] && this.prepared[h] === this.pass && this.decided[h] !== this.pass;
+  /**
+   * Robot h can be pushed by robot `by` this pass: a ready robot that has not decided yet. A robot parked at its goal
+   * (working there, ready only so it can be moved) is pushed only by a robot that has been blocked 2 x waitTicks, after
+   * its detour had the chance to take it round, and never by a robot whose own goal is that cell (a station both want:
+   * it waits its turn, else the two push each other off in turn and neither finishes). People's yields always push.
+   */
+  private pushable(h: number, by: TrafficAgent): boolean {
+    const b = this.agents[h];
+    if (!b || this.prepared[h] !== this.pass || this.decided[h] === this.pass) return false;
+    if (b.cell !== b.goal) return true;
+    return by.goal !== b.cell && by.blockedSinceProgress >= 2 * this.opts.waitTicks;
   }
 
   /** For the detour search: something a robot must go around (a person, or a robot that is parked or broken). */
   private isWall(h: number, cell: number): boolean {
     const b = this.agents[h];
     if (!b) return true; // a person (people are never planned; their views are null)
-    if (this.ready[h] === this.tick) return false; // ready: the planner can push it
+    if (this.ready[h] === this.tick) return b.cell === b.goal; // ready: the planner can push it, unless it is parked
     if (b.cell !== cell) return false; // cell is its move target or safety cell: it is moving
     const nbr = this.world!.nbr;
     const occ = this.occ;
@@ -528,7 +536,7 @@ export class CentralController implements TrafficController {
       const h = occ[c];
       if (h >= 0 && h !== id) {
         // Held: a person, a moving robot, or a robot that already decided can't be pushed. Never enter a held cell.
-        if (!this.pushable(h)) {
+        if (!this.pushable(h, a)) {
           if (k === 0 && canStay && a.safetyCells > 0) {
             const sc = nbr[c * 4 + dir];
             if (sc >= 0 && this.open[sc] && occ[sc] < 0 && resv[sc] !== pass) holdS = sc;
@@ -551,7 +559,7 @@ export class CentralController implements TrafficController {
           hold = c;
           holdS = hs < 0 ? sc : -1;
         }
-        if (hs < 0 || hs === id || !this.pushable(hs)) continue;
+        if (hs < 0 || hs === id || !this.pushable(hs, a)) continue;
         resv[c] = pass;
         if (this.decide(this.agents[hs]!, v, depth + 1) === P_MOVE) {
           this.counters.safetyPushes++;
