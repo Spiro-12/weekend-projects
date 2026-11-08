@@ -41,7 +41,7 @@ describe.skipIf(files.length === 0)('golden scenarios', () => {
       if (e.backlogGrows !== undefined) expect(r.kpis.backlogTrendPerHour > 0.02 * s.orders.perHour, 'backlog grows').toBe(e.backlogGrows);
       if (e.capacityOph) inRange((await runner.evaluate(s, { saturate: true })).kpis.capacityOph, e.capacityOph, 'capacity');
       if (e.pickerUplift) {
-        // Units per picker-hour with this fleet vs people only, both at capacity (PROTOCOL §6).
+        // Units per picker-hour with this fleet vs without picking robots, both at capacity (PROTOCOL §6).
         const withRobots = await runner.evaluate(s, { saturate: true });
         const peopleOnly = await runner.evaluate(withoutPickingRobots(s), { saturate: true });
         inRange(withRobots.kpis.unitsPerPickerHour / Math.max(1e-9, peopleOnly.kpis.unitsPerPickerHour), e.pickerUplift, 'picker uplift');

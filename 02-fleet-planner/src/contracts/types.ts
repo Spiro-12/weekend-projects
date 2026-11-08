@@ -329,7 +329,7 @@ export interface Kpis {
   /** Change in open orders per hour over the window. */
   backlogTrendPerHour: number;
   keepsUp: boolean;
-  /** Units per picker-hour divided by the people-only rate, both at capacity (when measured). */
+  /** Units per picker-hour divided by the without-picking-robots rate, both at capacity (when measured). */
   pickerUplift?: number;
   resetsPerHour: number;
   /** Many-brains fleet-manager job timeouts per hour (one brain: 0). */

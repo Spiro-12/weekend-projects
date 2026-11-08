@@ -93,8 +93,9 @@ export function createHost(data: AppData, runner: Runner, opts: { scenario?: str
       baseline.value = b;
       money.value = econ.computeMoney({ scenario: s, agents: data.agents, candidate: r, baseline: b.result, baselineCrew: b.crew });
     } catch (e) {
-      // A failed baseline search is not cached: the next change retries it.
+      // A failed baseline search is not cached: the next change retries it. Never show the old settings' money.
       baselineCache.delete(key);
+      if (token === runToken) money.value = null;
       console.error('[money] baseline or money failed', e);
     } finally {
       if (token === runToken) moneyPending.value = false;
@@ -127,6 +128,7 @@ export function createHost(data: AppData, runner: Runner, opts: { scenario?: str
           if (token === runToken) {
             pending.value = false;
             moneyPending.value = false;
+            money.value = null;
           }
         });
     }, 250);

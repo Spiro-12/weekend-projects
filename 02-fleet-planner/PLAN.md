@@ -284,7 +284,7 @@ Types live in `src/contracts/types.ts`, validators in `validate.ts`, examples in
 | Average order time | mean(ship tick − arrive tick) × 0.5 s; p90 in the tooltip |
 | Backlog trend | slope of open orders. **Keeps up** = trend ≤ +2% of demand per hour. |
 | Cost per order | annual cost ÷ (OPH × hours per year) |
-| Picker uplift | (units/h per picker with AMRs) ÷ (units/h per picker, people only), both at capacity |
+| Picker uplift | (units/h per picker with this fleet) ÷ (units/h per picker without picking robots: cart robots and humanoids 0, forklifts unchanged), both at capacity |
 
 **§7 Cost model** (pure functions in `src/econ`, each returning `Explained = {value, unit, formula, inputs:[{label, value, unit, from:'source:<id>'|'estimate'|'sim'|'user'}]}`):
 - `H` = hoursPerShift × shiftsPerDay × daysPerYear.

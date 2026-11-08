@@ -24,7 +24,7 @@ Read PLAN.md §4, §6 and §9; PROTOCOL.md §2, §6 and §7; `src/contracts/type
      - `deadlocksOver2MinPerShift` (deadlocks whose `deadlockEnd` comes ≥ 240 ticks after their `deadlockStart`, or still open at the end)
    - `capacityOph` is just `oph` of a saturate run; the runner sets it.
    - Integer-safe: do the arithmetic in plain numbers; no transcendental functions.
-2. **`src/kpi/uplift.ts`: `pickerUplift(withRobots: RunResult, peopleOnly: RunResult)`** = units per picker-hour ratio (both are capacity runs).
+2. **`src/kpi/uplift.ts`: `pickerUplift(withRobots: RunResult, withoutPickingRobots: RunResult)` (the second run = `withoutPickingRobots(scenario)` from `src/host/settings.ts`: cart robots and humanoids 0, forklifts unchanged)** = units per picker-hour ratio (both are capacity runs).
 3. **`src/econ/money.ts`: `computeMoney(input: MoneyInput): MoneyReport`.** The formulas are exactly PROTOCOL §7:
    - `H`, labor (+ supervisor time for manual resets)
    - buy vs rent capex and opex, per-type `lines`

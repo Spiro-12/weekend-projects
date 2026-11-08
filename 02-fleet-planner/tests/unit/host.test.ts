@@ -76,3 +76,41 @@ describe('host money', () => {
     expect(host.money.value!.laborYear.inputs.some((i) => i.from === 'source:bls-hand-laborers')).toBe(true);
   });
 });
+
+describe('host money pending and failures', () => {
+  it('moneyPending turns true right after a fleet change and false when money is ready', async () => {
+    const host = createHost(data, createFakeRunner());
+    await settle();
+    expect(host.moneyPending.value).toBe(false);
+    host.setFleet('amr', 31);
+    expect(host.moneyPending.value).toBe(true);
+    await settle();
+    expect(host.moneyPending.value).toBe(false);
+    expect(host.money.value?.lines.find((l) => l.type === 'amr')?.count).toBe(31);
+  });
+  it('a baseline search that fails once is retried, and old money is never shown as current', async () => {
+    const { fakeEcon } = await import('../../src/host/econ-port.ts');
+    let fails = 1;
+    let calls = 0;
+    const econ = {
+      ...fakeEcon,
+      findBaseline: (s: Scenario, r: Parameters<typeof fakeEcon.findBaseline>[1]) => {
+        calls++;
+        if (fails-- > 0) return Promise.reject(new Error('boom'));
+        return fakeEcon.findBaseline(s, r);
+      },
+    };
+    const err = console.error;
+    console.error = () => {};
+    const host = createHost(data, createFakeRunner(), { econ });
+    await settle();
+    expect(host.money.value).toBeNull();
+    expect(host.moneyPending.value).toBe(false);
+    host.setOrderRate(650);
+    await settle();
+    console.error = err;
+    expect(calls).toBe(2);
+    expect(host.money.value).not.toBeNull();
+    expect(host.moneyPending.value).toBe(false);
+  });
+});

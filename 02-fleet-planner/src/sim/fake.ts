@@ -317,7 +317,7 @@ export class FakeSim implements Sim {
       a.state = 'blocked';
       waitFor[a.id] = occupant;
       this.heat[a.cell]++;
-      // Most agents step aside after a few ticks; every fifth one is patient (so real jams can form, as on a floor).
+      // Most agents step aside after a few ticks; every tenth one is patient (so real jams can form, as on a floor).
       const patience = a.id % 10 === 0 ? 24 : 4 + (a.id % 4);
       if (a.blockedTicks > patience) {
         const pass = this.world.passable[a.cls === 'small' ? 0 : a.cls === 'forklift' ? 1 : 2];
@@ -340,7 +340,9 @@ export class FakeSim implements Sim {
   }
 
   private dropGoal(a: FAgent): void {
-    if (a.goalKind === 'charger' && a.charger >= 0) {
+    // A robot that needs charging keeps its charger reservation and heads back there on its next goal.
+    const low = !!a.spec.battery && a.battery * 100 < a.batteryMax * a.spec.battery.chargeAtPct;
+    if (a.goalKind === 'charger' && a.charger >= 0 && !low) {
       this.chargerUse[a.charger] = -1;
       a.charger = -1;
     }
@@ -423,6 +425,10 @@ export class FakeSim implements Sim {
   private chooseGoal(a: FAgent, tick: number): void {
     const w = this.world;
     const robot = a.spec.kind === 'robot';
+    if (robot && a.charger >= 0 && a.state !== 'charge') {
+      this.setGoal(a, w.chargers[a.charger].cell, 'charger', 'charge', tick);
+      return;
+    }
     if (robot && a.spec.battery && a.battery * 100 < a.batteryMax * a.spec.battery.chargeAtPct) {
       const free = w.chargers.findIndex((c, i) => c.forClass === a.cls && this.chargerUse[i] < 0);
       if (free >= 0) {
