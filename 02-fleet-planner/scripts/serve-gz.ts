@@ -36,8 +36,11 @@ createServer((req, res) => {
     res.writeHead(403);
     return res.end();
   }
+  let stamp = '';
   try {
-    if (!statSync(file).isFile()) throw new Error('not a file');
+    const st = statSync(file);
+    if (!st.isFile()) throw new Error('not a file');
+    stamp = `${st.mtimeMs}:${st.size}`;
   } catch {
     res.writeHead(404);
     return res.end('not found');
@@ -46,10 +49,11 @@ createServer((req, res) => {
   const headers: Record<string, string> = { 'content-type': TYPES[ext] ?? 'application/octet-stream', 'cache-control': 'no-cache' };
   let body: Buffer = readFileSync(file);
   if (GZIP.has(ext) && /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
-    let gz = cache.get(file);
+    const key = `${file}@${stamp}`;
+    let gz = cache.get(key);
     if (!gz) {
       gz = gzipSync(body, { level: 6 });
-      cache.set(file, gz);
+      cache.set(key, gz);
     }
     body = gz;
     headers['content-encoding'] = 'gzip';

@@ -5,23 +5,84 @@
  "name": "Mid-size e-commerce DC",
  "layout": "default",
  "seed": 42,
- "run": { "warmupMin": 30, "measureMin": 120, "batterySpread": true },
- "shift": { "hoursPerShift": 8, "shiftsPerDay": 2, "daysPerYear": 300 },
+ "run": {
+  "warmupMin": 30,
+  "measureMin": 120,
+  "batterySpread": true
+ },
+ "shift": {
+  "hoursPerShift": 8,
+  "shiftsPerDay": 2,
+  "daysPerYear": 260
+ },
  "orders": {
   "mode": "demand",
   "perHour": 600,
-  "linesWeights": [45, 25, 12, 8, 5, 3, 1, 1],
-  "sku": { "aPct": 20, "aPicksPct": 80 }
+  "linesWeights": [
+   45,
+   25,
+   12,
+   8,
+   5,
+   3,
+   1,
+   1
+  ],
+  "sku": {
+   "aPct": 20,
+   "aPicksPct": 80
+  }
  },
- "pallets": { "linesPerReplenish": 40, "inboundPerHour": 12 },
- "pack": { "stations": 6, "secPerOrder": 45 },
- "fleet": { "amr": 24, "forklift": 4, "humanoid": 2, "picker": 14, "driver": 2 },
+ "pallets": {
+  "linesPerReplenish": 40,
+  "inboundPerHour": 12
+ },
+ "pack": {
+  "stations": 6,
+  "secPerOrder": 30
+ },
+ "fleet": {
+  "amr": 24,
+  "forklift": 4,
+  "humanoid": 2,
+  "picker": 14,
+  "driver": 2
+ },
  "vendors": {
-  "amr": [{ "id": "A", "pct": 60 }, { "id": "D", "pct": 40 }],
-  "forklift": [{ "id": "B", "pct": 100 }],
-  "humanoid": [{ "id": "C", "pct": 100 }]
+  "amr": [
+   {
+    "id": "A",
+    "pct": 60
+   },
+   {
+    "id": "D",
+    "pct": 40
+   }
+  ],
+  "forklift": [
+   {
+    "id": "B",
+    "pct": 100
+   }
+  ],
+  "humanoid": [
+   {
+    "id": "C",
+    "pct": 100
+   }
+  ]
  },
- "traffic": { "mode": "central", "silo": { "sensorCells": 3, "waitTicks": 5, "resetMin": 5 } },
- "economics": { "financing": "buy", "baseline": "auto" },
+ "traffic": {
+  "mode": "central",
+  "silo": {
+   "sensorCells": 3,
+   "waitTicks": 5,
+   "resetMin": 5
+  }
+ },
+ "economics": {
+  "financing": "buy",
+  "baseline": "auto"
+ },
  "events": []
 }

@@ -1,0 +1,497 @@
+{
+ "format": "fp-agents",
+ "v": 1,
+ "agents": [
+  {
+   "id": "amr",
+   "label": "Cart robot (AMR)",
+   "kind": "robot",
+   "model": "code:amr",
+   "basedOn": [
+    "Locus Origin",
+    "OTTO 100",
+    "MiR250",
+    "Brightpick Autopicker"
+   ],
+   "passClass": "small",
+   "speedMps": {
+    "value": 1.0,
+    "unit": "m/s",
+    "src": "estimate",
+    "note": "Robots slow down near people under ISO 3691-4 zoning; about walking speed in shared aisles.",
+    "range": [
+     0.8,
+     1.5
+    ]
+   },
+   "topSpeedMps": {
+    "value": 1.8,
+    "unit": "m/s",
+    "src": "robotomated-origin",
+    "note": "Listed products run 1.75 to 2.0 m/s."
+   },
+   "payloadKg": {
+    "value": 36,
+    "unit": "kg",
+    "src": "locus-origin-sheet"
+   },
+   "safetyCells": 0,
+   "can": [
+    "carry_tote"
+   ],
+   "handoffSec": {
+    "value": 10,
+    "unit": "s",
+    "src": "estimate",
+    "note": "Time to roll up to a pack station and have totes taken off.",
+    "range": [
+     5,
+     20
+    ]
+   },
+   "battery": {
+    "runtimeH": {
+     "value": 10,
+     "unit": "h",
+     "src": "estimate",
+     "note": "Median of 6 to 14 h vendor claims (Locus, Zebra, OTTO, Brightpick).",
+     "range": [
+      6,
+      14
+     ]
+    },
+    "chargeH": {
+     "value": 1,
+     "unit": "h",
+     "src": "locus-origin-sheet",
+     "note": "Full charge about 1 h; opportunity charging."
+    },
+    "chargeAtPct": 20
+   },
+   "cost": {
+    "buyUsd": {
+     "value": 35000,
+     "unit": "USD",
+     "src": "estimate",
+     "note": "About 2 years of rent, the ratio Agility uses; inside the $15k to $50k range in cost guides.",
+     "range": [
+      15000,
+      50000
+     ]
+    },
+    "raasUsdPerMonth": {
+     "value": 1500,
+     "unit": "USD/month",
+     "src": "estimate",
+     "note": "Locus was $1,000/month in 2017 (about $1,330 today); an analyst estimates about $2,000; Brightpick lists $2,190 for a picking robot.",
+     "range": [
+      1000,
+      2190
+     ]
+    },
+    "maintPctPerYear": {
+     "value": 12,
+     "unit": "%/yr",
+     "src": "estimate",
+     "note": "Middle of the 10 to 15% range in cost guides.",
+     "range": [
+      10,
+      15
+     ]
+    },
+    "softwareUsdPerYear": {
+     "value": 4800,
+     "unit": "USD/yr",
+     "src": "estimate",
+     "note": "Fleet software about $400 per robot per month when you buy (included when you rent); range $200 to $800.",
+     "range": [
+      2400,
+      9600
+     ]
+    },
+    "integrationUsd": {
+     "value": 10500,
+     "unit": "USD",
+     "src": "estimate",
+     "note": "About 30% of hardware: unit price is 40 to 70% of deployed cost.",
+     "range": [
+      5000,
+      20000
+     ]
+    }
+   }
+  },
+  {
+   "id": "forklift",
+   "label": "Autonomous forklift",
+   "kind": "robot",
+   "model": "forklift-auto",
+   "basedOn": [
+    "Vecna CPJ",
+    "OTTO Lifter",
+    "Seegrid Lift CR1",
+    "Jungheinrich EKS 215a"
+   ],
+   "passClass": "forklift",
+   "speedMps": {
+    "value": 1.0,
+    "unit": "m/s",
+    "src": "estimate",
+    "note": "Automated trucks slow near people; about 1.5 m/s is the load-direction limit on some models.",
+    "range": [
+     0.8,
+     1.5
+    ]
+   },
+   "topSpeedMps": {
+    "value": 1.5,
+    "unit": "m/s",
+    "src": "eks215a",
+    "note": "Range 1.25 to 2.2 m/s across products."
+   },
+   "payloadKg": {
+    "value": 1500,
+    "unit": "kg",
+    "src": "vecna-cpj-sheet"
+   },
+   "safetyCells": 1,
+   "can": [
+    "carry_pallet"
+   ],
+   "palletSecPerMove": {
+    "value": 30,
+    "unit": "s",
+    "src": "estimate",
+    "note": "Time to align, lift and place one pallet; travel time comes from the sim. Total lands near 12 moves/h, about half a person.",
+    "range": [
+     20,
+     60
+    ]
+   },
+   "battery": {
+    "runtimeH": {
+     "value": 6,
+     "unit": "h",
+     "src": "estimate",
+     "note": "Vecna lists about 4 h; lithium packs with opportunity charging run longer.",
+     "range": [
+      4,
+      10
+     ]
+    },
+    "chargeH": {
+     "value": 1,
+     "unit": "h",
+     "src": "otto-lifter",
+     "note": "10 to 90% in about 1 h."
+    },
+    "chargeAtPct": 20
+   },
+   "cost": {
+    "buyUsd": {
+     "value": 150000,
+     "unit": "USD",
+     "src": "estimate",
+     "note": "Middle of secondary price ranges; no vendor publishes a price.",
+     "range": [
+      80000,
+      250000
+     ]
+    },
+    "raasUsdPerMonth": {
+     "value": 5000,
+     "unit": "USD/month",
+     "src": "estimate",
+     "note": "Middle of the $3k to $8k/month range in buyer guides.",
+     "range": [
+      3000,
+      8000
+     ]
+    },
+    "maintPctPerYear": {
+     "value": 12,
+     "unit": "%/yr",
+     "src": "estimate",
+     "note": "Same as cart robots.",
+     "range": [
+      10,
+      15
+     ]
+    },
+    "softwareUsdPerYear": {
+     "value": 4800,
+     "unit": "USD/yr",
+     "src": "estimate",
+     "note": "Assumed the same as cart robot fleet software when bought.",
+     "range": [
+      2400,
+      9600
+     ]
+    },
+    "integrationUsd": {
+     "value": 45000,
+     "unit": "USD",
+     "src": "estimate",
+     "note": "About 30% of hardware.",
+     "range": [
+      20000,
+      80000
+     ]
+    }
+   }
+  },
+  {
+   "id": "humanoid",
+   "label": "Humanoid robot",
+   "kind": "robot",
+   "model": "code:humanoid",
+   "basedOn": [
+    "Agility Digit",
+    "Figure 03",
+    "Apptronik Apollo"
+   ],
+   "passClass": "small",
+   "speedMps": {
+    "value": 0.8,
+    "unit": "m/s",
+    "src": "estimate",
+    "note": "About two thirds of top speed in shared aisles.",
+    "range": [
+     0.6,
+     1.2
+    ]
+   },
+   "topSpeedMps": {
+    "value": 1.2,
+    "unit": "m/s",
+    "src": "figure-03"
+   },
+   "payloadKg": {
+    "value": 16,
+    "unit": "kg",
+    "src": "humanoid-guide-digit",
+    "note": "Digit 4; Digit 5 option lists 23 kg."
+   },
+   "safetyCells": 0,
+   "can": [
+    "pick",
+    "carry_tote"
+   ],
+   "pickSecPerLine": {
+    "value": 40,
+    "unit": "s",
+    "src": "estimate",
+    "note": "Half a person's rate (no public tote-handling rate exists; weakest number in the model).",
+    "range": [
+     24,
+     80
+    ]
+   },
+   "battery": {
+    "runtimeH": {
+     "value": 2,
+     "unit": "h",
+     "src": "robotreport-digit-cost",
+     "note": "2 h of work per 1 h of charge, so about 67% uptime."
+    },
+    "chargeH": {
+     "value": 1,
+     "unit": "h",
+     "src": "robotreport-digit-cost"
+    },
+    "chargeAtPct": 20
+   },
+   "cost": {
+    "buyUsd": {
+     "value": 200000,
+     "unit": "USD",
+     "src": "dynamo-agility"
+    },
+    "raasUsdPerMonth": {
+     "value": 8500,
+     "unit": "USD/month",
+     "src": "dynamo-agility",
+     "note": "Analysts reading Agility's filing; about $49/h on one shift."
+    },
+    "raasSetupUsd": {
+     "value": 25000,
+     "unit": "USD",
+     "src": "dynamo-agility"
+    },
+    "maintPctPerYear": {
+     "value": 18,
+     "unit": "%/yr",
+     "src": "dynamo-agility",
+     "note": "$36k a year on a $200k robot."
+    },
+    "softwareUsdPerYear": {
+     "value": 36000,
+     "unit": "USD/yr",
+     "src": "dynamo-agility",
+     "note": "Software and support when bought."
+    },
+    "integrationUsd": {
+     "value": 20000,
+     "unit": "USD",
+     "src": "dynamo-agility",
+     "note": "Deployment when bought."
+    }
+   }
+  },
+  {
+   "id": "picker",
+   "label": "Picker (person)",
+   "kind": "human",
+   "model": "worker",
+   "basedOn": [
+    "BLS hand laborers and material movers"
+   ],
+   "passClass": "human",
+   "speedMps": {
+    "value": 1.0,
+    "unit": "m/s",
+    "src": "wsc17-picking",
+    "note": "With a cart; studies measure 0.25 to 1.1 m/s."
+   },
+   "topSpeedMps": {
+    "value": 1.3,
+    "unit": "m/s",
+    "src": "sralab-gait",
+    "note": "Unloaded walking."
+   },
+   "payloadKg": {
+    "value": 23,
+    "unit": "kg",
+    "src": "niosh-lifting",
+    "note": "Per lift."
+   },
+   "safetyCells": 0,
+   "can": [
+    "pick",
+    "carry_tote"
+   ],
+   "pickSecPerLine": {
+    "value": 20,
+    "unit": "s",
+    "src": "estimate",
+    "note": "Set so manual cart picking lands near 75 units/h with about half the time spent walking.",
+    "range": [
+     12,
+     30
+    ]
+   },
+   "cost": {
+    "wageUsdPerHour": {
+     "value": 17.95,
+     "unit": "USD/h",
+     "src": "bls-hand-laborers",
+     "note": "Median wage, May 2025."
+    }
+   }
+  },
+  {
+   "id": "driver",
+   "label": "Forklift driver (person)",
+   "kind": "human",
+   "model": "forklift-manual",
+   "basedOn": [
+    "BLS material moving machine operators"
+   ],
+   "passClass": "forklift",
+   "speedMps": {
+    "value": 1.34,
+    "unit": "m/s",
+    "src": "cisco-eagle-forklift-safety",
+    "note": "3 mph in rack aisles."
+   },
+   "topSpeedMps": {
+    "value": 2.2,
+    "unit": "m/s",
+    "src": "cisco-eagle-forklift-safety",
+    "note": "5 mph indoors."
+   },
+   "payloadKg": {
+    "value": 2268,
+    "unit": "kg",
+    "src": "estimate",
+    "note": "Common 5,000 lb counterbalance rating."
+   },
+   "safetyCells": 1,
+   "can": [
+    "carry_pallet"
+   ],
+   "palletSecPerMove": {
+    "value": 25,
+    "unit": "s",
+    "src": "estimate",
+    "note": "Align, lift and place; total lands near 20 moves/h.",
+    "range": [
+     15,
+     45
+    ]
+   },
+   "cost": {
+    "wageUsdPerHour": {
+     "value": 22.32,
+     "unit": "USD/h",
+     "src": "bls-machine-operators",
+     "note": "Median wage, May 2025."
+    },
+    "equipmentUsd": {
+     "value": 35000,
+     "unit": "USD",
+     "src": "estimate",
+     "note": "A counterbalance truck; $25k to $60k range.",
+     "range": [
+      25000,
+      60000
+     ]
+    }
+   }
+  }
+ ],
+ "labor": {
+  "laborLoad": {
+   "value": 0.46,
+   "unit": "x",
+   "src": "bls-ecec",
+   "note": "Benefits are 31.4% of total pay in transportation and material moving, so pay x 1.46 is the full cost."
+  },
+  "supervisor": {
+   "wageUsdPerHour": {
+    "value": 30,
+    "unit": "USD/h",
+    "src": "estimate",
+    "note": "A shift lead; not sourced.",
+    "range": [
+     25,
+     40
+    ]
+   },
+   "minPerReset": {
+    "value": 10,
+    "unit": "min",
+    "src": "estimate",
+    "note": "Walk over, move the robot, restart it.",
+    "range": [
+     5,
+     20
+    ]
+   }
+  },
+  "packer": {
+   "wageUsdPerHour": {
+    "value": 17.95,
+    "unit": "USD/h",
+    "src": "bls-hand-laborers",
+    "note": "Same as pickers. Packers are the same in every option, so they never change the payback."
+   }
+  },
+  "turnoverPctPerYear": {
+   "value": 48,
+   "unit": "%/yr",
+   "src": "bls-jolts-separations",
+   "note": "All separations in transportation and warehousing; quits alone about 26%."
+  }
+ }
+}

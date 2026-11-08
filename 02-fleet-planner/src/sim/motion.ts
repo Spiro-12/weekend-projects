@@ -1,0 +1,40 @@
+// Integer motion helpers shared by the real sim and FakeSim (PROTOCOL §1).
+// Speed is millimetres per tick; each agent carries its leftover distance so average speed is exact
+// (no rounding to whole ticks per cell). A move between neighbouring cells needs CELL_MM.
+import { CELL_MM, TICK_MS, type AgentSpec, type Heading } from '../contracts/types.ts';
+
+/** mm per tick from a spec speed in m/s (rounded once, at load time). */
+export function mmPerTick(spec: Pick<AgentSpec, 'speedMps'>): number {
+  return Math.max(1, Math.round(spec.speedMps.value * TICK_MS));
+}
+
+/**
+ * Start a one-cell move with `carryMm` already banked. Returns how many ticks it takes and the carry left after
+ * arriving. Over many cells the average speed equals mmPerTick exactly.
+ */
+export function moveTicks(carryMm: number, speedMmPerTick: number, extraTicks = 0): { ticks: number; carryMm: number } {
+  const need = CELL_MM - carryMm;
+  const ticks = need <= 0 ? 1 : Math.ceil(need / speedMmPerTick);
+  const carry = carryMm + ticks * speedMmPerTick - CELL_MM;
+  // A turn or a stop resets momentum: extra ticks add time but no distance.
+  return { ticks: ticks + extraTicks, carryMm: Math.min(carry, CELL_MM - 1) };
+}
+
+/** Heading of a move from cell a to neighbour b on a grid of `width` cells. */
+export function headingOf(a: number, b: number, width: number): Heading {
+  if (b === a + 1) return 0;
+  if (b === a + width) return 1;
+  if (b === a - 1) return 2;
+  return 3;
+}
+
+/** Number of 90° turns between two headings (0, 1 or 2). */
+export function turns(h1: Heading, h2: Heading): number {
+  const d = Math.abs(h1 - h2);
+  return d === 3 ? 1 : d;
+}
+
+/** Integer ticks for a dwell given in seconds (rounded up). */
+export function secToTicks(sec: number): number {
+  return Math.max(1, Math.ceil((sec * 1000) / TICK_MS));
+}

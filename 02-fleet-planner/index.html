@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Fleet Planner: which warehouse robots to buy, and when they pay back</title>
+    <meta name="description" content="A 3D warehouse simulator in your browser that tells a warehouse owner which robots to buy, how many, and when they pay for themselves." />
+    <meta name="theme-color" content="#090c11" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%23090c11%22/%3E%3Crect x=%226%22 y=%2214%22 width=%2220%22 height=%228%22 rx=%222%22 fill=%22%2338d9ff%22/%3E%3Crect x=%2210%22 y=%228%22 width=%2212%22 height=%226%22 fill=%22%23ffc531%22/%3E%3C/svg%3E" />
+    <style>
+      html, body { margin: 0; height: 100%; background: #090c11; }
+      #boot { position: fixed; inset: 0; display: grid; place-items: center; color: #8d99ab; font: 14px system-ui, sans-serif; }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <div id="ui"></div>
+    <div id="boot">Loading the warehouse…</div>
+    <noscript>Fleet Planner needs JavaScript and WebGL.</noscript>
+    <script type="module" src="/src/app/main.ts"></script>
+  </body>
+</html>
