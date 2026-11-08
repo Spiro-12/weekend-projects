@@ -1,0 +1,32 @@
+{
+ "_note": "PLAN.md \u00a79 budgets. Spikes may tighten these; loosening needs a reason in RESULTS.md.",
+ "jsInitialGzKB": 250,
+ "firstUsefulViewKB": 400,
+ "firstUsefulViewMs": 2000,
+ "fullLookGzKB": 4096,
+ "fullLookMs": 5000,
+ "allAssetsGzKB": 15360,
+ "phoneAssetsGzKB": 2048,
+ "frameP95Ms": 16.7,
+ "frameP95MaxFleetMs": 25,
+ "phoneFps": 30,
+ "drawCalls": 150,
+ "triangles": 1500000,
+ "phoneDrawCalls": 60,
+ "phoneTriangles": 500000,
+ "simMsPerTickCentral": 0.2,
+ "simMsPerTickSiloed": 0.2,
+ "shift8hSec": 10,
+ "evaluateMs": 2000,
+ "sweep20Sec": 60,
+ "ciSlack": 3,
+ "throttle": {
+  "downloadKbps": 20000,
+  "uploadKbps": 5000,
+  "latencyMs": 40
+ },
+ "plannerMsPerTick": 0.1,
+ "_simNote": "Whole tick (planner + detection + work) at 150 robots + people, both modes. Spike b: planner 0.04-0.09 ms; whole tick 0.14 ms before the jam detector was bucketed.",
+ "droppedFramesPct": 0.5,
+ "_perfNote": "Gate frame cost with `npm run perf -- --sync` (work p95) and dropped frames in the normal loop; the GPU timer query reads high on ANGLE/Metal (spike a)."
+}

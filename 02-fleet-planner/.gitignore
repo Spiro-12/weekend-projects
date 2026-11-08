@@ -1,0 +1,6 @@
+.cache/
+tests/perf/out/
+tests/visual/out/
+spikes/**/out/
+*.local.*
+.refs/

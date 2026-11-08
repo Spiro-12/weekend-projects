@@ -20,3 +20,37 @@ jobs:
       - run: ./scripts/build-site.sh && test -f _site/index.html
       # Projects that moved to their own repo keep a forwarding page here.
       - run: grep -q 'spiro-12.github.io/silent-speech/' _site/01-silent-speech/index.html
+
+  fleet:
+    name: Fleet Planner (typecheck, unit, golden, e2e, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 02-fleet-planner
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: 02-fleet-planner/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run typecheck
+      - run: npx vitest run --project unit
+      - run: npx vitest run --project golden --passWithNoTests
+      # e2e builds the app, serves it gzipped like Pages, checks budgets (bytes, draw calls) and the
+      # cross-engine determinism hash (Chromium, Firefox, WebKit vs Node). Real fps is measured on Spiro's Mac.
+      - run: npx playwright test
+      - name: Pages build includes 02 with the right base path
+        working-directory: .
+        run: |
+          ./scripts/build-site.sh
+          test -f _site/02-fleet-planner/index.html
+          grep -q '/weekend-projects/02-fleet-planner/assets/' _site/02-fleet-planner/index.html
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-test-results
+          path: 02-fleet-planner/test-results
+          retention-days: 7

@@ -1,0 +1,40 @@
+{
+  "name": "fleet-planner",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "tsx scripts/serve-gz.ts dist",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.sim.json",
+    "test": "vitest run --project unit",
+    "golden": "vitest run --project golden",
+    "e2e": "playwright test",
+    "layouts": "tsx scripts/layout-gen.ts",
+    "gate": "bash scripts/gate.sh",
+    "perf": "tsx scripts/perf.ts",
+    "shots": "tsx scripts/shots.ts"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.11.4",
+    "preact": "^11.2.0",
+    "three": "^0.187.0",
+    "uplot": "^1.6.32"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "@playwright/test": "1.65.0",
+    "@types/node": "^26.6.6",
+    "@types/three": "^0.187.0",
+    "mediabunny": "^1.65.2",
+    "meshoptimizer": "^1.3.0",
+    "sharp": "^0.35.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}

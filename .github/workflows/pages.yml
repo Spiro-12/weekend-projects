@@ -36,9 +36,17 @@ jobs:
         # Claude's sandbox can't open github.io, so the deploy checks itself.
         run: |
           url="${{ steps.deployment.outputs.page_url }}"
+          # Fleet Planner (02): pin to this build's hashed entry file so the old deploy can't pass the check.
+          fp=$(grep -o 'assets/index-[A-Za-z0-9_-]*\.js' _site/02-fleet-planner/index.html | head -1)
+          test -n "$fp" || { echo "::error::could not find the 02 entry file"; exit 1; }
           for i in $(seq 1 12); do
             if curl -fsS --max-time 20 "${url}" | grep -q 'Weekend Projects' \
-               && curl -fsS --max-time 20 "${url}01-silent-speech/" | grep -qF 'spiro-12.github.io/silent-speech/'; then
+               && curl -fsS --max-time 20 "${url}01-silent-speech/" | grep -qF 'spiro-12.github.io/silent-speech/' \
+               && curl -fsS --max-time 20 "${url}02-fleet-planner/" | grep -qF "/weekend-projects/02-fleet-planner/$fp"; then
+              # Gzipped size of the 02 entry script as GitHub Pages serves it (budget: 250 KB, budgets.json jsInitialGzKB).
+              gz=$(curl -fsS --compressed --max-time 20 -o /dev/null -w '%{size_download}' -H 'Accept-Encoding: gzip' "${url}02-fleet-planner/$fp")
+              echo "02 entry script: $gz bytes over the wire"
+              if [ "$gz" -gt 256000 ]; then echo "::error title=Fleet Planner JS budget::entry script is $gz bytes gzipped (> 250 KB)"; exit 1; fi
               echo "Live site OK: ${url}"; exit 0
             fi
             echo "not ready yet ($i), retrying"; sleep 10

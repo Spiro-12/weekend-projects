@@ -1,0 +1,310 @@
+{
+ "format": "fp-sources",
+ "v": 1,
+ "sources": [
+  {
+   "id": "locus-origin-sheet",
+   "title": "Origin product sheet (Origin 2)",
+   "publisher": "Locus Robotics",
+   "url": "https://locusrobotics.com/wp-content/uploads/2026/06/Origin-Product-Sheet-2-2.pdf",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "robotomated-origin",
+   "title": "Locus Origin listing (secondary)",
+   "publisher": "Robotomated",
+   "url": "https://robotomated.com/explore/warehouse/locus-origin",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "otto-100",
+   "title": "OTTO 100 data sheet",
+   "publisher": "OTTO Motors (Rockwell)",
+   "url": "https://s3.amazonaws.com/assets.ottomotors.com/pdf/OTTO-100-Data-Sheet.pdf",
+   "date": "n.d.",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "brightpick-faq",
+   "title": "Brightpick FAQ (RaaS list price)",
+   "publisher": "Brightpick",
+   "url": "https://brightpick.ai/faq/",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "sacra-locus",
+   "title": "Locus Robotics company profile (analyst estimate)",
+   "publisher": "Sacra",
+   "url": "https://sacra.com/c/locus-robotics",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "vecna-cpj-sheet",
+   "title": "CPJ 2026 spec sheet",
+   "publisher": "Vecna Robotics",
+   "url": "https://www.vecnarobotics.com/wp-content/uploads/2025/11/CPJ-CobotPalletJack-2026.pdf",
+   "date": "2025-11",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "otto-lifter",
+   "title": "OTTO Lifter spec",
+   "publisher": "OTTO Motors (Rockwell)",
+   "url": "https://res.cloudinary.com/wernerelectric/image/upload/f_pdf,q_auto:good/Yaskawa/OTTO-LIFTER-SPEC.pdf",
+   "date": "n.d.",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "eks215a",
+   "title": "EKS 215a automated truck spec sheet",
+   "publisher": "Jungheinrich",
+   "url": "https://lifttrucks.ringpower.com/uploads/eqYjjAJ9/eks_215a_spec_sheet-english.pdf",
+   "date": "n.d.",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "robotomated-forklift-guide",
+   "title": "Autonomous forklift buyer guide (secondary)",
+   "publisher": "Robotomated",
+   "url": "https://robotomated.com/learn/warehouse/autonomous-forklift-guide",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "iso3691-4-pilz",
+   "title": "ISO 3691-4 driverless industrial trucks, safety zoning",
+   "publisher": "Pilz",
+   "url": "https://www.pilz.com/en-FR/company/news/articles/238928",
+   "date": "2023-09-28",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "amr-cost-guide",
+   "title": "AMR cost guide: pricing tiers and hidden costs (vendor-affiliated, weak)",
+   "publisher": "Reeman Robotics",
+   "url": "https://aicms-reeman-robotics.vercel.app/posts/amr-cost-guide-pricing-tiers-hidden-costs-and-roi-drivers",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "robot-prices-au-2026",
+   "title": "Industrial mobile robot prices Australia 2026 (secondary)",
+   "publisher": "Hospitality Hub",
+   "url": "https://img0.hospitalityhub.com.au/industrial-mobile-robot-prices-australia-2026-labour-payback-for-warehouse-and-manufacturing-automation/f/27708",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "locus-claims",
+   "title": "Locus \"2-3 times faster\" partner listing (vendor claim)",
+   "publisher": "SAP / Locus Robotics",
+   "url": "https://www.sap.com/denmark/products/scm/partners/locus-robotics-inc-locus-autonomous-mobile-robots-for-sap-ewm.html",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "robotreport-digit-cost",
+   "title": "Here's what it could cost to hire a Digit humanoid",
+   "publisher": "The Robot Report",
+   "url": "https://www.therobotreport.com/heres-what-it-could-cost-to-hire-a-digit-humanoid/",
+   "date": "2024-07-17",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "dynamo-agility",
+   "title": "Agility Robotics: the $8,500 question (reads the S-4 filing)",
+   "publisher": "Dynamo Ventures",
+   "url": "https://dynamo.vc/insights-and-news/agility-robotics-the-8500-question",
+   "date": "2026-09-10",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "humanoid-guide-digit",
+   "title": "Digit listing (secondary)",
+   "publisher": "Humanoid.guide",
+   "url": "https://humanoid.guide/product/digit/",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "beri-gxo-no-roi",
+   "title": "GXO expands Digit; CEO: no ROI yet after 45 pilots",
+   "publisher": "BERI",
+   "url": "https://www.beri.net/article/gxo-agility-digit-humanoid-expansion-statesville-lebanon-raas-no-roi-yet-45-pilots-warehouse-automation",
+   "date": "2026-10-27",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "figure-03",
+   "title": "Figure 03",
+   "publisher": "Figure AI",
+   "url": "https://www.figure.ai/figure",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "tompkins-gatech",
+   "title": "Order picking systems (Tompkins time breakdown: ~50% walking)",
+   "publisher": "Georgia Tech ISyE",
+   "url": "https://www2.isye.gatech.edu/~mgoetsch/cali/Logistics%20Systems%20Design/Full%20Text%20PDF/Order%20Picking%20Systems.pdf",
+   "date": "n.d.",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "wsc17-picking",
+   "title": "Order picking simulation (travel is ~50% of picking time; cart speeds 0.25-1.1 m/s)",
+   "publisher": "Winter Simulation Conference",
+   "url": "https://www.informs-sim.org/wsc17papers/includes/files/263.pdf",
+   "date": "2017",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "sralab-gait",
+   "title": "Gait speed norms (Bohannon 1997)",
+   "publisher": "Shirley Ryan AbilityLab",
+   "url": "https://www.sralab.org/rehabilitation-measures/gait-speed",
+   "date": "n.d.",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "niosh-lifting",
+   "title": "Revised NIOSH lifting equation (23 kg load constant)",
+   "publisher": "CDC / NIOSH",
+   "url": "https://stacks.cdc.gov/view/cdc/186586/cdc_186586_DS1.pdf",
+   "date": "2021",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "locus-mypillow",
+   "title": "Case study: MyPillow 119 to 210 units/h",
+   "publisher": "Locus Robotics",
+   "url": "https://locusrobotics.com/resources/case-study/mypillow-increases-uph-by-87-with-locusbots",
+   "date": "n.d.",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "locus-verst",
+   "title": "Case study: Verst 71 to 155 units/h",
+   "publisher": "Locus Robotics",
+   "url": "https://locusrobotics.com/resources/case-study/verst-fulfillment-productivity-soars-more-than-100-with-locus",
+   "date": "n.d.",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "prologis-dhl",
+   "title": "DHL 78 to 150 units/h with AMRs",
+   "publisher": "Prologis Groundbreakers",
+   "url": "https://dev.groundbreakersmag.prologis.com/groundbreaker/groundbreakers-14",
+   "date": "n.d.",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "metricrig-pallets",
+   "title": "Pallets per hour warehouse benchmark (secondary)",
+   "publisher": "MetricRig",
+   "url": "https://metricrig.pages.dev/answers/pallets-per-hour-warehouse-benchmark",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "cisco-eagle-forklift-safety",
+   "title": "Forklift pedestrian safety (3 mph in rack aisles, 5 mph indoor)",
+   "publisher": "Cisco-Eagle",
+   "url": "https://www.cisco-eagle.com/uploads/brochures/forklift-pedestrian-safety.pdf",
+   "date": "n.d.",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "bls-hand-laborers",
+   "title": "Hand laborers and material movers, May 2025 wages",
+   "publisher": "U.S. Bureau of Labor Statistics",
+   "url": "https://www.bls.gov/ooh/transportation-and-material-moving/hand-laborers-and-material-movers.htm",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "bls-machine-operators",
+   "title": "Material moving machine operators, May 2025 wages",
+   "publisher": "U.S. Bureau of Labor Statistics",
+   "url": "https://www.bls.gov/ooh/transportation-and-material-moving/material-moving-machine-operators.htm",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "bls-ecec",
+   "title": "Employer costs for employee compensation, Table 4, June 2026",
+   "publisher": "U.S. Bureau of Labor Statistics",
+   "url": "https://www.bls.gov/news.release/ecec.t04.htm",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "bls-jolts-separations",
+   "title": "JOLTS annual total separations rates, Table 20",
+   "publisher": "U.S. Bureau of Labor Statistics",
+   "url": "https://www.bls.gov/news.release/jolts.t20.htm",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "interact-roi-nbwa",
+   "title": "Interact Analysis: robot ROI expected in 2-3 years",
+   "publisher": "NBWA citing Interact Analysis",
+   "url": "https://nbwa.org/?p=7918",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "interact-buyers-survey",
+   "title": "Interact Analysis survey of 300 mobile robot buyers (3.4 brands, ROI within 3 years)",
+   "publisher": "Automated Warehouse",
+   "url": "https://www.automatedwarehouseonline.com/interact-analysis-asks-what-customers-want-from-mobile-robots-in-global-survey/",
+   "date": "2024-07-27",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "interact-voice-2026",
+   "title": "Material transportation automation is a top priority (integration 45%, cost 41%)",
+   "publisher": "Automated Warehouse / Interact Analysis",
+   "url": "https://www.automatedwarehouseonline.com/?p=11798",
+   "date": "2026-07-02",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "iso-21423",
+   "title": "New ISO interoperability standard covers mobile robots from multiple vendors",
+   "publisher": "The Robot Report",
+   "url": "https://www.therobotreport.com/new-iso-interoperability-standard-covers-collaboration-among-mobile-robots-from-multiple-vendors/",
+   "date": "2026-11-03",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "vda5050-v3",
+   "title": "Version 3.0 of VDA 5050 released",
+   "publisher": "VDA / VDMA",
+   "url": "https://www.vda.de/en/press/press-releases/2026/260421_PM_VDA_5050_EN",
+   "date": "2026-04-20",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "simready-central",
+   "title": "SimReady Central: assets for robotics and AI factories",
+   "publisher": "NVIDIA (Hugging Face blog)",
+   "url": "https://huggingface.co/blog/nvidia/simready-central-assets-robotics-ai-factories",
+   "date": "2026-10-21",
+   "accessed": "2026-11-08"
+  },
+  {
+   "id": "gxo-no-humanoids",
+   "title": "GXO plans 20,000 robots in 2026, none of them humanoids",
+   "publisher": "A3",
+   "url": "https://automate.org/robotics/industry-insights/gxo-plans-20-000-robots-in-2026-none-of-them-will-be-humanoids",
+   "date": "2026",
+   "accessed": "2026-11-08"
+  }
+ ]
+}

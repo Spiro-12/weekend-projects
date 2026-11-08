@@ -1,0 +1,71 @@
+:root {
+  --bg: #090c11;
+  --panel: rgba(16, 20, 28, 0.74);
+  --panel-solid: #121722;
+  --line: rgba(255, 255, 255, 0.09);
+  --text: #e9eef5;
+  --muted: #9aa4b2;
+  --accent: #ffc531;
+  --cyan: #38d9ff;
+  --good: #3ddc97;
+  --warn: #ffb547;
+  --bad: #ff5d6c;
+  --radius: 14px;
+  --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); overflow: hidden; }
+body { -webkit-font-smoothing: antialiased; }
+#stage { position: fixed; inset: 0; }
+#stage canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+#ui { position: fixed; inset: 0; pointer-events: none; }
+#ui > * { pointer-events: none; }
+.card { pointer-events: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); box-shadow: 0 8px 30px rgba(0,0,0,.35); }
+.slot-kpi { position: absolute; top: 14px; left: 14px; right: 380px; display: flex; flex-direction: column; gap: 10px; }
+.slot-left { position: absolute; top: 150px; left: 14px; width: 320px; display: flex; flex-direction: column; gap: 10px; max-height: calc(100% - 230px); overflow: auto; }
+.slot-right { position: absolute; top: 14px; right: 14px; width: 352px; display: flex; flex-direction: column; gap: 10px; max-height: calc(100% - 100px); overflow: auto; }
+.slot-bottom { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 10px; }
+.slot-overlay { position: absolute; inset: 0; }
+.slot-kpi > *, .slot-left > *, .slot-right > *, .slot-bottom > * { pointer-events: auto; }
+/* Overlay panels position their own content (position: absolute); the full-size section never blocks clicks. */
+.slot-overlay > section { position: absolute; inset: 0; pointer-events: none; }
+.slot-overlay > section > * { pointer-events: auto; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 8px 14px; width: max-content; }
+.brand h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
+.brand .sub { color: var(--muted); font-size: 12px; }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: rgba(255,197,49,.14); color: var(--accent); border: 1px solid rgba(255,197,49,.35); }
+.tiles { display: flex; gap: 10px; flex-wrap: wrap; }
+.tile { padding: 10px 14px; min-width: 132px; }
+.tile .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
+.tile .short { display: none; }
+.tile .value { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile .unit { font-size: 13px; color: var(--muted); margin-left: 4px; font-weight: 500; }
+.tile .note { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.tile.pending .value { opacity: .55; }
+.perf { position: absolute; top: auto; bottom: 14px; left: 14px; font: 11px/1.45 var(--mono); padding: 8px 10px; min-width: 210px; }
+.perf b { color: var(--cyan); font-weight: 600; }
+.lost { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(5,7,10,.85); pointer-events: auto; }
+.lost .card { padding: 22px; max-width: 360px; text-align: center; }
+button { font: inherit; color: var(--text); background: rgba(255,255,255,.07); border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; cursor: pointer; }
+button:hover { background: rgba(255,255,255,.12); }
+button.primary { background: var(--accent); color: #141414; border-color: transparent; font-weight: 600; }
+.sheet-tabs { display: none; }
+@media (max-width: 760px), (pointer: coarse) and (max-height: 520px) {
+  .slot-kpi { right: 14px; left: 10px; top: 10px; }
+  .tiles { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .tile { min-width: 0; padding: 7px 10px; box-shadow: none; flex: 0 0 auto; }
+  .tile .value { font-size: 19px; }
+  .tile .label, .tile .note { white-space: nowrap; }
+  .tile .long { display: none; }
+  .tile .short { display: inline; }
+  .brand { padding: 6px 12px; }
+  .slot-left, .slot-right, .slot-bottom { display: none; }
+  .slot-left.open, .slot-right.open, .slot-bottom.open { display: flex; position: absolute; left: 0; right: 0; top: auto; bottom: 52px; width: auto; transform: none;
+    max-height: 55%; padding: 10px; flex-direction: column; }
+  .sheet-tabs { display: flex; pointer-events: auto; position: absolute; left: 10px; right: 10px; bottom: 10px; gap: 6px; }
+  .sheet-tabs button { flex: 1; }
+  .perf { bottom: 60px; }
+}

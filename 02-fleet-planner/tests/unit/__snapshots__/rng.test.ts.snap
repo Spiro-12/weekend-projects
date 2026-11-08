@@ -1,0 +1,13 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`rng > pins the first values (cross-engine reference) 1`] = `
+[
+  3384357204,
+  4001177017,
+  406009659,
+]
+`;
+
+exports[`rng > pins the first values (cross-engine reference) 2`] = `619976612`;
+
+exports[`rng > pins the first values (cross-engine reference) 3`] = `507947475`;

@@ -1,0 +1,5 @@
+{
+  // Spike-only typecheck: npx tsc --noEmit -p spikes/a-render/tsconfig.json (the app tsconfig does not include spikes/).
+  "extends": "../../tsconfig.json",
+  "include": ["src", "*.ts"]
+}
