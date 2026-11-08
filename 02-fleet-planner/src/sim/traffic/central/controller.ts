@@ -515,9 +515,11 @@ export class CentralController implements TrafficController {
 
   /**
    * Bounded local detour (PROTOCOL §5 rule 5). BFS within detourRadius over the robot's cells, treating people and
-   * parked robots within sensorCells as walls (beyond that it can't see them). Target: the cell closer to the goal than
-   * the robot is now with the smallest (path + remaining distance), ties to the smaller remaining distance, then the
-   * lower cell index. No wall in sight means the blocker is a robot PIBT can push: nothing to go round.
+   * parked robots within sensorCells as walls (beyond that it can't see them); a forklift also can't take a step whose
+   * safety cell holds a wall it can see (spike b's search ignored the field, so a forklift's "detour" ran straight at
+   * the person in front of it). Target: the cell closer to the goal than the robot is now with the smallest (path +
+   * remaining distance), ties to the smaller remaining distance, then the lower cell index. No wall in sight means the
+   * blocker is a robot PIBT can push: nothing to go round.
    */
   private computeDetour(a: TrafficAgent): void {
     const w = this.world!;
