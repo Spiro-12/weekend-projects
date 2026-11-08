@@ -431,11 +431,45 @@ describe('trust: every Explained explains itself', () => {
       expect(m.paybackMonths.inputs.some((i) => i.label.startsWith('For reference'))).toBe(false);
     }
   });
-  it('a line whose own inputs are all estimates cites the published labor it is compared with, as context', () => {
-    const amr = money(base).lines.find((l) => l.type === 'amr')!;
-    const ctx = amr.capex.inputs.filter((i) => i.label.startsWith('Compared with (context)'));
-    expect(ctx.map((i) => i.from)).toEqual(['source:bls-hand-laborers', 'source:bls-ecec']);
-    expect(amr.capex.value).toBe(1_092_000);
+  it('a line whose own inputs are all estimates cites, as context, the wage of the people that robot replaces', () => {
+    const m = money(base);
+    const ctx = (t: string, k: 'capex' | 'opexYear' = 'capex') => m.lines.find((l) => l.type === t)![k].inputs.filter((i) => i.label.startsWith('Compared with (context)')).map((i) => i.from);
+    expect(ctx('amr')).toEqual(['source:bls-hand-laborers', 'source:bls-ecec']); // cart robots → pickers
+    expect(ctx('forklift')).toEqual(['source:bls-machine-operators', 'source:bls-ecec']); // autonomous forklifts → drivers
+    expect(ctx('forklift', 'opexYear')).toEqual(['source:bls-machine-operators', 'source:bls-ecec']);
+    expect(ctx('driver')).toEqual(['source:bls-machine-operators', 'source:bls-ecec']); // the trucks line
+    expect(ctx('humanoid')).toEqual([]); // humanoid prices are published: nothing to add
+    expect(m.lines.find((l) => l.type === 'amr')!.capex.value).toBe(1_092_000);
+  });
+  it('payback, 3-year net and savings show the estimates behind them too, and how much of the upfront is estimated', () => {
+    const m = money(base);
+    for (const e of [m.paybackMonths, m.threeYearNet]) {
+      const amrPrice = e.inputs.find((i) => i.label === 'Cart robot price')!;
+      expect(amrPrice).toMatchObject({ from: 'estimate', value: 35_000 });
+      expect(amrPrice.note).toBeTruthy();
+      expect(e.inputs.find((i) => i.label === 'Autonomous forklift price')!.from).toBe('estimate');
+      expect(e.inputs.find((i) => i.label === 'Humanoid robot price')!.from).toBe('source:dynamo-agility');
+      // 24 × 45,500 + 4 × 195,000 = 1,872,000 of the 2,312,000 rests on estimates; the humanoids' 440,000 is published
+      expect(e.note).toContain("$1,872,000 of the $2,312,000 upfront rests on our estimates (cart robot, autonomous forklift prices); see each robot's hover.");
+    }
+    expect(m.savingsYear.inputs.find((i) => i.label === 'Cart robot maintenance')!.from).toBe('estimate');
+    const allEst = money(withFleet(base, { forklift: 0, humanoid: 0 }));
+    expect(allEst.paybackMonths.note ?? allEst.threeYearNet.note).toContain('All of the $1,092,000 upfront rests on our estimates (cart robot prices)');
+    const none = money(withFleet(base, { amr: 0, forklift: 0, humanoid: 2, driver: 2 }));
+    expect(none.threeYearNet.note).not.toContain('rests on our estimates');
+  });
+  it('a flagged payback or 3-year net lists the keep-up numbers first and the costs behind it only as context', () => {
+    for (const m of [money(base, { cand: mkRun({ keepsUp: false, oph: 410, backlogTrendPerHour: 190 }) }), money(base, { baseRun: mkRun({ keepsUp: false, oph: 410, backlogTrendPerHour: 190 }) })]) {
+      for (const e of [m.paybackMonths, m.threeYearNet]) {
+        expect(e.flag).toBe('doesntKeepUp');
+        expect(e.inputs.slice(0, 3).map((i) => i.from)).toEqual(['sim', 'user', 'sim']);
+        const rest = e.inputs.slice(3);
+        expect(rest.length).toBeGreaterThan(0);
+        for (const i of rest) expect(i.label).toMatch(/^Behind the costs \(context\): /);
+        expect(rest.some((i) => i.from.startsWith('source:'))).toBe(true);
+        expect(e.note).toContain('listed for context only');
+      }
+    }
   });
   it.each(reports)('%s: payback and 3-year net cite at least one published source in every branch', (_, m) => {
     for (const e of [m.paybackMonths, m.threeYearNet]) {
