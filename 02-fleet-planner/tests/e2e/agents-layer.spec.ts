@@ -210,3 +210,45 @@ test('high tier turns bloom on without errors', async ({ page }) => {
   expect(info.calls).toBeGreaterThan(0);
   await expectNoErrors(errors);
 });
+
+test('hover shows name · type · state over an agent (desktop)', async ({ page }) => {
+  const errors = await openApp(page, '?tier=medium');
+  await page.evaluate(() => {
+    window.__fp!.freeze(true);
+    window.__fp!.host.live.stepTicks(20);
+  });
+  await frames(page);
+  const t = await page.evaluate(() => {
+    const fp = window.__fp!;
+    let best: { name: string; x: number; y: number; d: number } | null = null;
+    for (const a of fp.host.live.snapshot.agents) {
+      if (a.type !== 'humanoid' && a.type !== 'amr') continue;
+      const p = fp.render.project(a.id);
+      if (!p) continue;
+      const d = Math.hypot(p.x - innerWidth / 2, p.y - innerHeight * 0.6);
+      if (!best || d < best.d) best = { name: a.name, x: p.x, y: p.y, d };
+    }
+    return best!;
+  });
+  await page.mouse.move(t.x - 30, t.y - 30);
+  await page.mouse.move(t.x, t.y, { steps: 4 });
+  const label = page.getByTestId('agent-hover');
+  await expect(label).toBeVisible();
+  await expect(label).toContainText(`${t.name} · `);
+  await expectNoErrors(errors);
+});
+
+test('switching to another layout rebuilds the agent layer cleanly', async ({ page }) => {
+  const errors = await openApp(page, '?tier=medium');
+  await page.evaluate(() => window.__fp!.host.setScenario('small'));
+  await page.waitForTimeout(1500);
+  const r = await page.evaluate(() => {
+    const fp = window.__fp!;
+    const d = fp.render.layers.agents.debug!() as { instances: Record<string, number> };
+    const total = Object.values(d.instances).reduce((a, b) => a + b, 0);
+    return { total, agents: fp.host.live.snapshot.agents.length, overlays: document.querySelectorAll('[data-testid="agent-labels"]').length };
+  });
+  expect(r.total).toBe(r.agents);
+  expect(r.overlays).toBe(1);
+  await expectNoErrors(errors);
+});
