@@ -155,6 +155,14 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
     - `traffic/central/`: Track B, one PIBT over every robot
     - `traffic/siloed/`: Track G (Phase 2), one PIBT per vendor + physical layer + recovery ladder
   - **Reference implementation:** `spikes/b-traffic/src/traffic.ts`.
+  - **Interface assumptions both sides keep** (Track B review):
+    - `order` lists every ready robot. A ready robot left out gets no `want` and can't be pushed.
+    - Robots parked or waiting at their goal may be `ready` with `goal === cell` (so they can be pushed); the planner decides them **last** (standard PIBT).
+    - `ready` is valid before `recover()`. After applying resets the sim refreshes the views (`cell`, `sinceProgress = 0`, `blockedSinceProgress = 0`) and `occ`, then calls `plan()` with the same input.
+    - `blockedSinceProgress` drops to 0 on progress or a new goal.
+    - A forklift's safety cell is released when it arrives; the planner treats a safety cell holding its own id as free.
+    - `world` and `dist` keep the same object identity for a run (a new `World` resets controller state).
+    - Central mode never emits `safetyStop` (there are no cross-vendor conflicts); the one-brain safety-stop count is 0 by design.
 - **Assignment:** greedy nearest-idle by default (both modes). One brain may use batch optimal assignment capped at 32 robots per batch (Phase 2; 150 × 150 optimal costs 28 s per shift).
 
 ## §6 Runner and KPIs (`src/host/runner/`)
