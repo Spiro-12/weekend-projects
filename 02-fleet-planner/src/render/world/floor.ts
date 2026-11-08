@@ -500,11 +500,16 @@ roughnessFactor = mix(roughnessFactor, 0.62, max(fpPaint, fpYard));`,
       .replace(
         '#include <tonemapping_fragment>',
         `#include <tonemapping_fragment>
+#ifdef TONE_MAPPING
 if (fpYellow > 0.0) {
   const vec3 LW = vec3(0.2126, 0.7152, 0.0722);
   vec3 tgt = uYellow * clamp(dot(gl_FragColor.rgb, LW) / dot(uYellow, LW), 0.0, 1.0);
   gl_FragColor.rgb = mix(gl_FragColor.rgb, tgt, fpYellow);
-}`,
+}
+#else
+// Rendering into an HDR target (high tier bloom): AgX runs later in Track E's output pass, which this shader cannot
+// follow; pre-saturating here only shifts the hue toward brown (measured), so the high tier leaves the paint as is.
+#endif`,
       )
       // Indoors: no sun glare on the polished floor (the scene's key light is a sun); keep the hall reflections.
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular *= 0.12;\nreflectedLight.indirectSpecular *= 1.0 - 0.75 * fpPaint;');

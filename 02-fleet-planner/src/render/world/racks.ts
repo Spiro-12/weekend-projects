@@ -86,6 +86,8 @@ export class Racks {
   private lastCams: { p: Vector3; d: Vector3 }[] = [];
   private lastRebuild = -1e9;
   private dirty = true;
+  /** The composites' instance lists no longer match `near` (setFaceFill emptied a near slot, or new parts). */
+  private nearStale = true;
   private loadAttr: InstancedBufferAttribute;
 
   constructor(
@@ -214,11 +216,13 @@ export class Racks {
   }
 
   /** Install the composites (call again after a tier change with the other LOD). */
-  setGlb(full: GlbPart[], wrap: GlbPart[]) {
-    this.full.setParts(full, this.group);
-    this.wrap.setParts(wrap, this.group);
-    this.glbReady = true;
+  setGlb(full: GlbPart[] | null, wrap: GlbPart[] | null) {
+    // null keeps what that composite already has (its file did not change).
+    if (full) this.full.setParts(full, this.group);
+    if (wrap) this.wrap.setParts(wrap, this.group);
+    this.glbReady = this.full.meshes.length > 0 && this.wrap.meshes.length > 0;
     this.dirty = true;
+    this.nearStale = true;
   }
 
   setTier(t: Tier) {
@@ -254,7 +258,10 @@ export class Racks {
       this.setBlockVisible(b, on && !this.near.has(i));
       // The loose cartons on top go with their pallet.
       if (this.slotTop[i] >= 0) this.setBlockVisible(this.slotTop[i], on);
-      if (!on && this.near.has(i)) this.near.delete(i);
+      if (!on && this.near.has(i)) {
+        this.near.delete(i);
+        this.nearStale = true;
+      }
       (s as Slot & { hidden?: boolean }).hidden = !on;
     }
     this.flushBlocks();
@@ -363,7 +370,9 @@ export class Racks {
     // Same pallets as before: nothing to upload.
     let same = next.size === this.near.size;
     if (same) for (const i of next) if (!this.near.has(i)) same = false;
-    if (same) return;
+    // Unchanged set and nothing removed behind its back: nothing to upload.
+    if (same && !this.nearStale) return;
+    this.nearStale = false;
     for (const i of this.near) if (!next.has(i)) this.setBlockVisible(this.slotBlock[i], true);
     for (const i of next) if (!this.near.has(i)) this.setBlockVisible(this.slotBlock[i], false);
     this.flushBlocks();

@@ -66,16 +66,11 @@ export function createWorldLayer(o: WorldLayerOptions): WorldLayerExt {
         Promise.all([fetchParts('pallet_loaded', t), fetchParts('pallet_wrapped', t)]).then(([full, wrap]) => {
           if (!full && !wrap) return;
           if (disposed || t !== tier) return void (drop(full), drop(wrap));
-          // Both composites swap together; reuse the other file's parts only if it was unchanged (refetch then).
-          if (full && wrap) {
-            racks.setGlb(full.parts, wrap.parts);
-            installed.set('pallet_loaded', full.url);
-            installed.set('pallet_wrapped', wrap.url);
-            budgetDirty = true;
-          } else {
-            drop(full);
-            drop(wrap);
-          }
+          // A null side is a file that did not change: the racks keep its installed parts.
+          racks.setGlb(full?.parts ?? null, wrap?.parts ?? null);
+          if (full) installed.set('pallet_loaded', full.url);
+          if (wrap) installed.set('pallet_wrapped', wrap.url);
+          budgetDirty = true;
         }),
       );
     for (const key of PROP_KEYS) {

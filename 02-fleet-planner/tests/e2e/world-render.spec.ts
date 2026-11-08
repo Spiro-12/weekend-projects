@@ -114,6 +114,33 @@ test('a rack face can be emptied and refilled (Phase 2 stock hook), loose top ca
   await expectNoErrors(errors);
 });
 
+test('emptying every face in view also removes the near SimReady pallets', async ({ page }) => {
+  const errors = await openApp(page, '?tier=medium');
+  await page.waitForFunction(() => window.__fp!.perf.fullLookMs != null, null, { timeout: 30_000 });
+  await page.evaluate(() => {
+    void window.__fp!.tour('aisle', 600);
+  });
+  await page.waitForFunction(() => (window.__fp!.render.layers.world.debug?.() as { racks: { nearPallets: number } }).racks.nearPallets > 20, null, { timeout: 15_000 });
+  await page.evaluate(() => {
+    const w = window.__fp!.render.layers.world as unknown as { setFaceFill(cell: number, fill: number): number; debug(): { grid: [number, number] } };
+    const [W, H] = w.debug().grid;
+    for (let c = 0; c < W * H; c++) w.setFaceFill(c, 0);
+  });
+  // The camera holds still on the tour pose; the next re-pick must clear the composites anyway.
+  await page.waitForFunction(
+    () => {
+      const r = (window.__fp!.render.layers.world.debug?.() as { racks: { nearFull: number; nearWrap: number } }).racks;
+      return r.nearFull + r.nearWrap === 0;
+    },
+    null,
+    { timeout: 5_000 },
+  );
+  const r = await page.evaluate(() => (window.__fp!.render.layers.world.debug?.() as { racks: { nearPallets: number; nearFull: number; nearWrap: number } }).racks);
+  expect(r.nearPallets).toBe(0);
+  expect(r.nearFull + r.nearWrap).toBe(0);
+  await expectNoErrors(errors);
+});
+
 test('switching layouts twice frees the old world (GPU geometries and textures come back to the same counts)', async ({ page }) => {
   const errors = await openApp(page, '?tier=medium');
   type Dbg = { fullLookDone: boolean; gpu: { geometries: number; textures: number }; size: number[] };
