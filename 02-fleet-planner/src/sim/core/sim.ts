@@ -971,10 +971,12 @@ export class CoreSim implements Sim {
   /** A stationary robot the planner may push: a cart robot waiting at a stop (not being picked into), or a robot with
    *  nothing to do resting on open floor (not in a pocket). */
   private pushable(r: CoreAgent): boolean {
-    if (r.to >= 0 || r.brokenUntil > 0 || r.dwellUntil > 0 || this.world.isPocket[r.cell] || r.removing) return false;
+    if (r.to >= 0 || r.brokenUntil > 0 || r.dwellUntil > 0 || this.world.isPocket[r.cell]) return false;
+    // a held robot is pushable even when it is being removed: it still has its batch to finish
+    if (r.job === J_PICK && (r.stage === PK_HOLD || r.stage === PK_ZONE_HOLD)) return r.goal < 0;
+    if (r.removing) return false;
     if (r.job === J_REST) return r.stage === RS_AT;
     if (r.job === J_NONE) return true;
-    if (r.job === J_PICK && (r.stage === PK_HOLD || r.stage === PK_ZONE_HOLD)) return r.goal < 0;
     if (r.job !== J_PICK || r.stage !== PK_AT_STOP || r.waiting !== 1 || !this.isAmrTask(r)) return false;
     const w = r.partner >= 0 ? this.byId[r.partner] : null;
     return !w || (w.stage !== SV_PICKING && w.stage !== SV_WAIT_STOCK);
@@ -1059,7 +1061,7 @@ export class CoreSim implements Sim {
     const before = r.goal;
     if (r.job === J_PICK && r.stage === PK_TO_PACK) {
       const task = this.taskById.get(r.taskId) as PickTask;
-      const s = this.pack.leastLoaded((st) => this.dist.to(r.distCls, st.service)[r.cell], task.station);
+      const s = this.pack.leastLoaded((st) => this.dist.to(r.distCls, st.service)[r.cell], task.station, (st) => this.packQueue(st.id) < PACK_QUEUE_SLOTS);
       if (s >= 0 && s !== task.station) {
         this.pack.stations[task.station].load -= task.orders.length;
         this.pack.stations[s].load += task.orders.length;
@@ -1073,7 +1075,9 @@ export class CoreSim implements Sim {
         const [cur] = task.stops.splice(task.stop, 1);
         task.stops.push(cur);
         this.releasePartner(r);
-        this.setGoal(r, this.world.faces[task.stops[task.stop].face].cell, G_NEAR, t);
+        // the rotated stop list goes through zone admission like any next stop
+        if (this.admitStop(r, task)) this.setGoal(r, this.world.faces[task.stops[task.stop].face].cell, G_NEAR, t);
+        else this.zoneHoldCarrier(r, t);
       }
     } else if (r.job === J_PALLET && r.stage === PL_TO_DOCK) {
       const task = this.taskById.get(r.taskId) as PalletTask;
@@ -1268,8 +1272,8 @@ export class CoreSim implements Sim {
             const wk = a.partner >= 0 ? this.byId[a.partner] : null;
             if (wk && wk.partner === a.id && wk.stage === SV_TO_AMR && wk.goal !== a.cell) this.sendToMeet(wk, a, t);
           } else this.tryCartPick(a, t);
-        } else if (a.stage === PK_HOLD) {
-          // reached its holding cell: keep waiting for a pack slot
+        } else if (a.stage === PK_HOLD || a.stage === PK_ZONE_HOLD) {
+          // reached its holding cell: keep waiting for a pack slot / room in a zone
         } else if (a.stage === PK_TO_PACK) {
           a.stage = PK_HANDOFF;
           // a cart robot hands its totes off in one go (its spec handoffSec); a person unloads a cart tote by tote
@@ -1435,12 +1439,7 @@ export class CoreSim implements Sim {
     task.stop++;
     if (task.stop < task.stops.length) {
       if (!this.admitStop(carrier, task)) {
-        // every remaining zone is full: hold here (on the pick-aisle cell of the last stop, pushable) until one has room
-        carrier.stage = PK_ZONE_HOLD;
-        carrier.waiting = 1;
-        carrier.waitSince = t;
-        this.clearGoal(carrier);
-        this.zoneHold.push(carrier.id);
+        this.zoneHoldCarrier(carrier, t);
         return;
       }
       carrier.stage = PK_TO_STOP;
@@ -1463,15 +1462,34 @@ export class CoreSim implements Sim {
     this.packHold.splice(slot, 0, carrier.id);
     this.clearGoal(carrier);
     // hold out of the main and cross aisles: stay on a pick-aisle cell, or move to the nearest free one
+    this.goToHoldCell(carrier, t);
+  }
+
+  /** Every remaining zone is full: hold (pushable, state 'wait') until one has room, on a pick-aisle cell (moving to the
+   *  nearest free one if the carrier stands on a main or cross aisle). */
+  private zoneHoldCarrier(carrier: CoreAgent, t: number): void {
+    carrier.stage = PK_ZONE_HOLD;
+    carrier.waiting = 1;
+    carrier.waitSince = t;
+    this.clearGoal(carrier);
+    this.zoneHold.push(carrier.id);
+    this.goToHoldCell(carrier, t);
+  }
+
+  private goToHoldCell(carrier: CoreAgent, t: number): void {
     const at = carrier.to >= 0 ? carrier.to : carrier.cell;
-    if (this.world.faceAt[at] < 0) {
-      const c = this.findHoldCell(carrier);
-      if (c >= 0) {
-        this.restHolder[c] = carrier.id;
-        carrier.restCell = c;
-        this.setGoal(carrier, c, G_EXACT, t);
-      }
-    }
+    if (this.world.faceAt[at] >= 0) return;
+    const c = this.findHoldCell(carrier);
+    if (c < 0) return;
+    this.restHolder[c] = carrier.id;
+    carrier.restCell = c;
+    this.setGoal(carrier, c, G_EXACT, t);
+  }
+
+  private releaseHoldCell(a: CoreAgent): void {
+    if (a.restCell < 0) return;
+    if (this.restHolder[a.restCell] === a.id) this.restHolder[a.restCell] = -1;
+    a.restCell = -1;
   }
 
   /** Carriers (cart robots and manual carts) heading to or handing off at pack station s. */
@@ -1490,10 +1508,7 @@ export class CoreSim implements Sim {
     const from = carrier.to >= 0 ? carrier.to : carrier.cell;
     const s = this.pack.leastLoaded((st) => this.dist.to(carrier.distCls, st.service)[from], -1, (st) => this.packQueue(st.id) < PACK_QUEUE_SLOTS);
     if (s < 0) return false;
-    if (carrier.restCell >= 0) {
-      if (this.restHolder[carrier.restCell] === carrier.id) this.restHolder[carrier.restCell] = -1;
-      carrier.restCell = -1;
-    }
+    this.releaseHoldCell(carrier);
     task.station = s;
     this.pack.stations[s].load += task.orders.length;
     for (const oid of task.orders) this.orders.open.get(oid)!.station = s;
@@ -1605,11 +1620,8 @@ export class CoreSim implements Sim {
         if (a.stage === PK_HOLD) {
           const k = this.packHold.indexOf(a.id);
           if (k >= 0) this.packHold.splice(k, 1);
-          if (a.restCell >= 0) {
-            if (this.restHolder[a.restCell] === a.id) this.restHolder[a.restCell] = -1;
-            a.restCell = -1;
-          }
         }
+        if (a.stage === PK_HOLD || a.stage === PK_ZONE_HOLD) this.releaseHoldCell(a);
         a.cargo = C_NONE;
         break;
       }
@@ -1690,6 +1702,8 @@ export class CoreSim implements Sim {
     for (const r of this.robots) {
       if (r.type !== T_AMR || r.job !== J_PICK || r.partner >= 0 || r.brokenUntil > 0) continue;
       if (r.stage !== PK_AT_STOP && r.stage !== PK_TO_STOP) continue;
+      // a robot still blocked past MEET_GIVEUP_TICKS is not offered again (its picker just gave the meeting up)
+      if (r.stage === PK_TO_STOP && r.blockedTicks >= MEET_GIVEUP_TICKS) continue;
       // a robot on its way counts once it is within PRESEND_CELLS of the face (bestDist = cells to go, at a boundary)
       if (r.stage === PK_TO_STOP && r.bestDist > PRESEND_CELLS) continue;
       const task = this.taskById.get(r.taskId) as PickTask;
@@ -1734,7 +1748,7 @@ export class CoreSim implements Sim {
         if (cur && cur.partner === w.id) {
           const k0 = this.meetKey(w, cur);
           const k = k0 < 0 ? k0 : k0 - this.waitCredit(cur, t);
-          if (k >= 0 && k <= bestKey) continue;
+          if (k0 >= 0 && k <= bestKey) continue;
           cur.partner = -1;
         }
       } else this.releaseRest(w);
@@ -1867,6 +1881,7 @@ export class CoreSim implements Sim {
         continue;
       }
       this.zoneHold.splice(i, 1);
+      this.releaseHoldCell(a);
       a.stage = PK_TO_STOP;
       a.waiting = 0;
       this.setGoal(a, this.world.faces[task.stops[task.stop].face].cell, G_NEAR, t);
