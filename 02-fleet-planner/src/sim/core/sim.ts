@@ -149,6 +149,8 @@ interface Stop {
   orders: number[];
   /** Units still to pick at this face, per order. */
   left: number[];
+  /** Units already taken from the face for this task (put back if the task is dropped). */
+  picked: number;
 }
 
 interface PickTask {
@@ -163,6 +165,8 @@ interface PickTask {
   stops: Stop[];
   stop: number;
   station: number;
+  /** Units picked so far, per picking agent type: credited to SimStats.unitsPicked when the tote reaches packing. */
+  pickedBy: number[];
 }
 
 interface PalletTask {
@@ -275,6 +279,8 @@ export class CoreSim implements Sim {
   private readonly zoneOrder: number[];
   private readonly zoneWeights: number[];
   private activeAmrs = 0;
+  /** Cart robots, humanoids and pickers present (saturate-mode queue size). */
+  private pickingAgents = 0;
   private amrTasks = 0;
   private pools: Pool[] = [];
   private poolsDirty = true;
@@ -639,8 +645,13 @@ export class CoreSim implements Sim {
 
   private recountAmrs(): void {
     let n = 0;
-    for (const a of this.robots) if (a.type === T_AMR && !a.removing) n++;
+    let p = 0;
+    for (const a of this.agents) {
+      if (a.type === T_AMR && !a.removing) n++;
+      if (a.type === T_AMR || a.type === T_HUMANOID || a.type === T_PICKER) p++;
+    }
     this.activeAmrs = n;
+    this.pickingAgents = p;
   }
 
   /** Largest-remainder vendor split for `count` agents of a type (robots), people get vendor '-'. */
@@ -776,9 +787,7 @@ export class CoreSim implements Sim {
       if (hit && !this.saturate) this.newOrder(t);
     }
     if (this.saturate) {
-      let pickers = 0;
-      for (const a of this.agents) if (a.type === T_AMR || a.type === T_HUMANOID || a.type === T_PICKER) pickers++;
-      const target = SATURATE_MIN_QUEUE + SATURATE_ORDERS_PER_AGENT * pickers;
+      const target = SATURATE_MIN_QUEUE + SATURATE_ORDERS_PER_AGENT * this.pickingAgents;
       while (this.orders.queued < target) this.newOrder(t);
     }
     if (this.inboundEvery > 0 && t >= this.nextInbound) {
@@ -903,6 +912,7 @@ export class CoreSim implements Sim {
     const rec = this.traffic.recover(tin);
     for (const r of rec.resets) this.applyReset(r.agent, r.cell, t);
     for (const id of rec.retasks) this.applyRetask(id, t);
+    if (this.orderDirty) this.sortOrder(); // a re-task draws a new goal tick and tie-break
 
     const plan = this.plan;
     clearPlan(plan);
@@ -1008,11 +1018,7 @@ export class CoreSim implements Sim {
     r.sinceProgress = 0;
     r.blockedSinceProgress = 0;
     if (r.goal >= 0) r.bestDist = this.dist.to(r.distCls, r.goal)[cell];
-    this.tviews[id]!.cell = cell;
-    if (this.atGoal(r)) {
-      this.ready[id] = -1;
-      this.tviews[id]!.goal = -1;
-    }
+    this.refreshView(r, t);
     this.counters.resets++;
     this.events.push({ t: 'manualReset', tick: t, agent: id });
   }
@@ -1069,12 +1075,22 @@ export class CoreSim implements Sim {
     if (r.goal !== before && r.goal >= 0) {
       this.counters.retasks++;
       this.events.push({ t: 'retask', tick: t, agent: id, goal: r.goal });
-      const v = this.tviews[id]!;
-      v.goal = this.atGoal(r) ? -1 : r.goal;
-      v.sinceProgress = 0;
-      v.blockedSinceProgress = 0;
-      this.ready[id] = v.goal >= 0 && r.to < 0 && r.dwellUntil === 0 ? t : -1;
+      this.refreshView(r, t);
     }
+  }
+
+  /** After a reset or a re-task, the planner's view of the robot is rebuilt exactly as phase 5 builds it: new cell and
+   *  goal, fresh progress counters (the planner must not start a detour from stale ones), the final-stop safety rule. */
+  private refreshView(r: CoreAgent, t: number): void {
+    const v = this.tviews[r.id]!;
+    const travel = r.goal >= 0 && r.dwellUntil === 0 && !this.atGoal(r);
+    v.cell = r.cell;
+    v.heading = r.heading;
+    v.goal = travel ? r.goal : -1;
+    v.sinceProgress = r.sinceProgress;
+    v.blockedSinceProgress = r.blockedSinceProgress;
+    v.safetyCells = r.safetyCells > 0 && travel && this.nearStop(r) ? 0 : r.safetyCells;
+    this.ready[r.id] = travel && r.to < 0 ? t : -1;
   }
 
   // ── goals ──
@@ -1305,7 +1321,8 @@ export class CoreSim implements Sim {
       u -= take;
       this.events.push({ t: 'pickDone', tick: t, agent: picker.id, order: s.orders[k], units: take });
     }
-    this.unitsPicked[picker.type] += units;
+    s.picked += units;
+    task.pickedBy[picker.type] += units;
   }
 
   /** Take up to `want` units from a face. A pick at an empty face waits for the replenishment. */
@@ -1387,6 +1404,8 @@ export class CoreSim implements Sim {
       o.task = -1;
       st.queue.push(oid);
     }
+    // units count once, when they reach packing: a dropped and re-picked batch is never counted twice
+    for (let k = 0; k < task.pickedBy.length; k++) this.unitsPicked[k] += task.pickedBy[k];
     a.cargo = C_NONE;
     this.removeTask(task.id);
     this.freeAgent(a);
@@ -1410,6 +1429,9 @@ export class CoreSim implements Sim {
         const task = this.taskById.get(a.taskId) as PickTask | undefined;
         if (task) {
           if (task.station >= 0) this.pack.stations[task.station].load -= task.orders.length;
+          // the totes are emptied back onto their faces, and the orders are released again
+          const L2 = 2 * this.linesPerReplenish;
+          for (const st of task.stops) if (st.picked > 0 && this.stock[st.face] >= 0) this.stock[st.face] = Math.min(L2, this.stock[st.face] + st.picked);
           this.orders.requeue(task.orders);
           if (a.partner >= 0) {
             const wk = this.byId[a.partner];
@@ -1646,13 +1668,16 @@ export class CoreSim implements Sim {
   }
 
   /** Free agents of the given types from every matching pool (id order within a pool, pools in key order). */
-  private candidates(types: readonly number[], out: CoreAgent[], filter: (a: CoreAgent) => boolean): CoreAgent[] {
+  /** Free agents of type t1 or t2 that can do the work (not leaving, not needing a charge, with a pick or pallet
+   *  time), from every matching pool (id order within a pool, pools in key order). */
+  private candidates(t1: number, t2: number, work: 'pick' | 'pallet', out: CoreAgent[]): CoreAgent[] {
     out.length = 0;
     for (const p of this.pools) {
-      if (!types.includes(p.type)) continue;
+      if (p.type !== t1 && p.type !== t2) continue;
       for (const id of p.ids) {
         const a = this.byId[id];
-        if (a && this.isFree(a) && !a.removing && filter(a)) out.push(a);
+        if (!a || !this.isFree(a) || a.removing || a.needCharge !== 0) continue;
+        if (work === 'pallet' ? a.palletTicks > 0 : a.type === T_AMR || a.pickTicks > 0) out.push(a);
       }
     }
     return out;
@@ -1705,7 +1730,7 @@ export class CoreSim implements Sim {
     // 3. pick batches: oldest orders first; each batch to the nearest free carrier
     const zone = this.zoneMode();
     if (this.orders.queued > 0) {
-      const carriers = this.candidates(zone ? [T_AMR] : [T_PICKER, T_HUMANOID], this.cand, (a) => a.needCharge === 0 && (zone || a.pickTicks > 0));
+      const carriers = zone ? this.candidates(T_AMR, T_AMR, 'pick', this.cand) : this.candidates(T_PICKER, T_HUMANOID, 'pick', this.cand);
       const cap = zone ? TOTES_PER_AMR : ORDERS_PER_CART;
       while (this.orders.queued > 0 && carriers.length > 0) {
         const batch = this.formBatch(cap);
@@ -1722,7 +1747,7 @@ export class CoreSim implements Sim {
     }
     // 4. pallet moves: oldest first, each to the nearest free forklift or driver
     if (this.palletTasks.length > 0) {
-      const movers = this.candidates([T_FORKLIFT, T_DRIVER], this.cand, (a) => a.needCharge === 0 && a.palletTicks > 0);
+      const movers = this.candidates(T_FORKLIFT, T_DRIVER, 'pallet', this.cand);
       for (const task of this.palletTasks) {
         if (movers.length === 0) break;
         if (task.agent >= 0) continue;
@@ -1793,7 +1818,7 @@ export class CoreSim implements Sim {
         lines++;
         let s = stopsByFace.get(f);
         if (!s) {
-          s = { face: f, orders: [], left: [] };
+          s = { face: f, orders: [], left: [], picked: 0 };
           stopsByFace.set(f, s);
           faces.push(f);
         }
@@ -1822,7 +1847,7 @@ export class CoreSim implements Sim {
       cur = this.world.faces[f].cell;
     }
     const task: PickTask = {
-      kind: 'pick', id: this.nextTask++, created: t, agent: c.id, amr, orders: batch.map((o) => o.id), lines, stops, stop: 0, station: -1,
+      kind: 'pick', id: this.nextTask++, created: t, agent: c.id, amr, orders: batch.map((o) => o.id), lines, stops, stop: 0, station: -1, pickedBy: AGENT_TYPES.map(() => 0),
     };
     for (const o of batch) o.task = task.id;
     this.addTask(task);
@@ -2145,9 +2170,16 @@ export class CoreSim implements Sim {
     for (const e of j.ended) this.events.push({ t: 'jamEnd', tick: t, jam: e.id });
   }
 
+  /** The agent's state this tick. Moving counts as 'travel' only on a task (PROTOCOL §6: productive = moving to or
+   *  with a task, or task work); a trip to park or rest is 'idle' and a trip to a charger is 'charge'. */
   private stateOf(a: CoreAgent, t: number): number {
     if (a.brokenUntil > 0) return ST_BROKEN;
-    if (a.to >= 0) return ST_TRAVEL;
+    const moving = a.to >= 0;
+    if (moving || a.goal >= 0) {
+      if (a.job === J_REST || a.job === J_NONE) return moving || a.blockedAt !== t ? (a.waiting === 1 ? ST_WAIT : ST_IDLE) : ST_BLOCKED;
+      if (a.job === J_CHARGE) return moving || a.blockedAt !== t ? ST_CHARGE : ST_BLOCKED;
+    }
+    if (moving) return ST_TRAVEL;
     if (a.job === J_CHARGE && a.stage === CH_ON) return ST_CHARGE;
     if (a.lastWork === t) return ST_WORK;
     if (a.blockedAt === t) return ST_BLOCKED;
@@ -2317,7 +2349,8 @@ export class CoreSim implements Sim {
       words.push(task.id, task.created, task.agent, fnv1a32(task.kind));
       if (task.kind === 'pick') {
         words.push(task.amr ? 1 : 0, task.lines, task.stop, task.station, task.orders.length, ...task.orders, task.stops.length);
-        for (const s of task.stops) words.push(s.face, s.orders.length, ...s.orders, ...s.left);
+        for (const s of task.stops) words.push(s.face, s.picked, s.orders.length, ...s.orders, ...s.left);
+        words.push(...task.pickedBy);
       } else if (task.kind === 'replenish' || task.kind === 'inbound') words.push(task.face, task.dock);
     }
     for (const p of this.palletTasks) words.push(p.id);
