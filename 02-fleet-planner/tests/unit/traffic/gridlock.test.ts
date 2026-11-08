@@ -6,7 +6,8 @@ import { Harness, meanP95, mix, TICKS_PER_HOUR } from './harness.ts';
 describe('one brain: no permanent gridlock', () => {
   it('8 h at 150 robots + 16 people: every robot reaches a goal every hour', () => {
     const hours = 8;
-    const h = new Harness({ seed: 42, robots: mix(150), pickers: 14, drivers: 2, detect: true, time: true, pocketGoalPct: 10 });
+    // parked robots are ready with goal = cell, as Track A's core marks them
+    const h = new Harness({ seed: 42, robots: mix(150), pickers: 14, drivers: 2, detect: true, time: true, pocketGoalPct: 10, parkedReady: true });
     h.run(hours * TICKS_PER_HOUR);
     const d = h.finishDeadlocks();
     let worst = Infinity;

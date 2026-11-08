@@ -1,15 +1,19 @@
 // Track B bench (not a test): planner time and liveness at 30 / 60 / 100 / 150 robots on the default layout.
 //   npx tsx tests/unit/traffic/bench.ts [runs=3] [hours=8] [sizes=30,60,100,150] [people=16]
 //   env: GOALS=work|any (harness goal model, default work), STATION=20 (percent of robot goals at stations),
-//        ALL_AMR=1 (every robot an AMR)
+//        ALL_AMR=1 (every robot an AMR), PARKED=0 (parked robots not ready; default 1, Track A's convention),
+//        WAIT=5 (CentralController waitTicks)
 // Prints per fleet size: planner ms/tick mean and p95 (averaged over runs, min-max in brackets), max tick, deadlocks
 // (detect.ts), resets, detours, yields, the worst robot-hour (fewest goals reached by any robot in any hour) with the
 // number of robot-hours at 0, and goals per hour. Seeds 42, 43, ...
+import { CentralController } from '../../../src/sim/traffic/central/index.ts';
 import { Harness, meanP95, mix, TICKS_PER_HOUR } from './harness.ts';
 
 const GOALS = (process.env.GOALS ?? 'work') as 'work' | 'any';
 const STATION = Number(process.env.STATION ?? 20);
 const ALL_AMR = process.env.ALL_AMR === '1';
+const PARKED = process.env.PARKED !== '0';
+const WAIT = Number(process.env.WAIT ?? 5);
 
 const runs = Number(process.argv[2] ?? 3);
 const hours = Number(process.argv[3] ?? 8);
@@ -17,7 +21,7 @@ const sizes = (process.argv[4] ?? '30,60,100,150').split(',').map(Number);
 const people = Number(process.argv[5] ?? 16);
 
 const fmt = (x: number) => x.toFixed(4);
-console.log(`default layout, ${runs} runs x ${hours} h, ${people} people (${people - Math.round(people / 8)} pickers + ${Math.round(people / 8)} drivers); planner = recover() + plan()`);
+console.log(`waitTicks ${WAIT}, parked robots ready: ${PARKED}; default layout, ${runs} runs x ${hours} h, ${people} people (${people - Math.round(people / 8)} pickers + ${Math.round(people / 8)} drivers); planner = recover() + plan()`);
 console.log('robots | mean ms/tick (min-max) | p95 ms/tick (min-max) | max ms | deadlocks (>2 min, max s) | resets | detours | yields | worst robot-hour goals');
 for (const robots of sizes) {
   const means: number[] = [];
@@ -34,7 +38,7 @@ for (const robots of sizes) {
   let goals = 0;
   for (let r = 0; r < runs; r++) {
     const drivers = Math.round(people / 8);
-    const h = new Harness({ seed: 42 + r, robots: ALL_AMR ? { amr: robots } : mix(robots), pickers: people - drivers, drivers, time: true, detect: true, pocketGoalPct: 10, goals: GOALS, stationPct: STATION });
+    const h = new Harness({ seed: 42 + r, robots: ALL_AMR ? { amr: robots } : mix(robots), pickers: people - drivers, drivers, time: true, detect: true, pocketGoalPct: 10, goals: GOALS, stationPct: STATION, parkedReady: PARKED, controller: new CentralController({ waitTicks: WAIT }) });
     h.run(hours * TICKS_PER_HOUR);
     const s = meanP95(h.plannerMs);
     means.push(s.mean);
