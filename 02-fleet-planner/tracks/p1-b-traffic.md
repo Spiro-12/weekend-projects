@@ -31,7 +31,7 @@ The orchestrator. One planner moves every robot from every vendor so that nothin
   - a forklift on a `.` cell
   - a robot entering a person's cell
   - a move into a cell being vacated
-- **Head-on:** robot vs person in a 2-cell aisle pass. 3 robots + 3 people crossing all get through within 120 ticks.
+- **Head-on:** robot vs person in a 2-cell aisle pass. 3 robots + 3 people crossing all get through within 150 ticks (lead sign-off: two robots abreast must back out of the aisle; the spike took 175).
 - **Forklift safety:** two forklifts facing each other one cell apart resolve.
 - **No permanent gridlock:** an 8 h run at 150 robots on the default layout. Every robot reaches at least one goal per simulated hour; count deadlocks via `detect.ts` and report them.
 - **Determinism:** the same input sequence gives the same `stateWords()` and outputs.

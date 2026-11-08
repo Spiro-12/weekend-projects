@@ -65,7 +65,7 @@ button.primary { background: var(--accent); color: #141414; border-color: transp
   .slot-left, .slot-right, .slot-bottom { display: none; }
   .slot-left.open, .slot-right.open, .slot-bottom.open { display: flex; position: absolute; left: 0; right: 0; top: auto; bottom: 52px; width: auto; transform: none;
     max-height: 55%; padding: 10px; flex-direction: column; }
-  .sheet-tabs { display: flex; pointer-events: auto; position: absolute; left: 10px; right: 10px; bottom: 10px; gap: 6px; }
+  #ui > .sheet-tabs { display: flex; pointer-events: auto; position: absolute; left: 10px; right: 10px; bottom: 10px; gap: 6px; }
   .sheet-tabs button { flex: 1; }
   .perf { bottom: 60px; }
 }

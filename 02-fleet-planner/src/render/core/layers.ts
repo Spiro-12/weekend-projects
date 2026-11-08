@@ -32,9 +32,10 @@ export interface AgentLayer {
   group: Group;
   /** Interpolate every agent to `renderTick` and update instances, effects and labels. */
   update(snap: Snapshot, renderTick: number, selectedId: number | null, dtMs: number): void;
+  /** Shared result: valid until the next call. Copy it if you keep it. */
   positionOf(id: number): Vector3 | null;
   /** Position and smoothed yaw for the follow camera; optional distance/height override the default chase framing
-   *  (e.g. pull out during a long dwell). */
+   *  (e.g. pull out during a long dwell). Shared result: valid until the next call; copy it if you keep it. */
   followTarget(id: number): { pos: Vector3; yaw: number; distance?: number; height?: number } | null;
   /** Agent id under the ray, or null. */
   pick(ray: Raycaster): number | null;
