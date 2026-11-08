@@ -113,18 +113,65 @@ test('raising cart robots changes the numbers, with a recalculating state in bet
   await expectNoErrors(errors);
 });
 
-test('more orders than the fleet can handle: warning words, no fake payback', async ({ page }) => {
+test('more orders than the fleet can handle: the plan is blamed, savings are words, no fake payback', async ({ page }) => {
   const errors = await openApp(page);
   await settled(page);
-  await page.getByTestId('order-rate').fill('3000');
+  // 700 orders/h: above the default fleet's capacity (about 645 in the fake model), below the people-only crew's
+  // (720, the 6 pack stations), so only the plan falls behind and the baseline search stays short (about 10 runs).
+  await page.getByTestId('order-rate').fill('700');
   await settled(page);
   expect(await page.evaluate(() => window.__fp!.host.result.value!.kpis.keepsUp)).toBe(false);
+  expect(await page.evaluate(() => window.__fp!.host.money.value!.baseline.keepsUp)).toBe(true);
   await expect(page.getByTestId('kpi-oph')).toHaveClass(/warn/);
   await expect(page.getByTestId('kpi-oph-note')).toHaveText('backlog growing');
-  await expect(page.getByTestId('money-keepsup')).toBeVisible();
-  await expect(page.getByTestId('money-payback')).toHaveText(/Can’t keep up with the orders|Can't keep up with the orders/);
-  // Savings of a plan that can't keep up: a dash or the flag words, never a number.
-  await expect(page.getByTestId('money-3yr')).toHaveText(/^(—|Can't keep up with the orders)$/);
-  await expect(page.getByTestId('money-savings')).toHaveText(/^(—|Can't keep up with the orders)$/);
+  await expect(page.getByTestId('money-keepsup')).toContainText("Can't keep up with the orders. This plan ships");
+  await expect(page.getByTestId('money-keepsup')).not.toContainText('either');
+  await expect(page.getByTestId('money-payback')).toHaveText("Can't keep up with the orders");
+  // Savings of a plan that can't keep up: words, never a number (the hover keeps it small, for reference).
+  await expect(page.getByTestId('money-3yr')).toHaveText('Not comparable');
+  await expect(page.locator('.hero-item').nth(1)).toContainText('this plan falls behind the orders');
+  await expect(page.getByTestId('money-savings')).toHaveText('not comparable');
+  await page.getByTestId('money-savings').hover();
+  const pop = page.getByTestId('explain-popover');
+  await expect(pop.getByTestId('explain-flag')).toHaveText('Not comparable: this plan falls behind the orders');
+  await expect(pop.getByTestId('explain-reference')).toHaveText(/^For reference only: /);
+  await expect(pop.locator('.xp-value')).toHaveCount(0);
+  await expect(page.getByTestId('money-baseline')).not.toContainText('can’t keep up');
+  await expectNoErrors(errors);
+});
+
+test('robots keep up but people only can’t: the blame goes to the people-only crew', async ({ page }) => {
+  const errors = await openApp(page);
+  await settled(page);
+  // The real economics flag payback and the 3-year net when either side falls behind. Here the plan keeps up and
+  // the people-only crew doesn't (the strongest sales case), shaped like Track C's report.
+  await page.evaluate(() => {
+    const h = window.__fp!.host;
+    const m = h.money.value!;
+    const why = "the people-only crew (18 pickers + 3 drivers) can't keep up with the orders: it ships 520.0 orders/h of the 600 ordered";
+    h.money.value = {
+      ...m,
+      baseline: { ...m.baseline, keepsUp: false },
+      paybackMonths: { ...m.paybackMonths, value: null, flag: 'doesntKeepUp', formula: `no payback: ${why}` },
+      threeYearNet: { ...m.threeYearNet, value: null, flag: 'doesntKeepUp', formula: `no 3-year net: ${why}` },
+    };
+  });
+  expect(await page.evaluate(() => window.__fp!.host.result.value!.kpis.keepsUp)).toBe(true);
+  await expect(page.getByTestId('money-people-behind')).toContainText('This plan keeps up; people only can’t.');
+  await expect(page.getByTestId('money-people-behind')).toContainText('no like-for-like payback');
+  await expect(page.getByTestId('money-keepsup')).toHaveCount(0);
+  await expect(page.getByTestId('money-payback')).toHaveText('People only can’t keep up');
+  await expect(page.locator('.hero-item').first()).toContainText('so there’s no like-for-like payback');
+  await expect(page.locator('.hero-item').first()).not.toContainText('add robots or people');
+  await expect(page.getByTestId('money-3yr')).toHaveText('Not comparable');
+  await expect(page.locator('.hero-item').nth(1)).toContainText('people only falls behind the orders');
+  await expect(page.locator('.hero-item').nth(1)).not.toContainText('shown once the plan keeps up');
+  await expect(page.getByTestId('money-savings')).toHaveText('not comparable');
+  await expect(page.getByTestId('money-baseline')).toContainText('This crew can’t keep up with these orders.');
+  await expect(page.getByTestId('money-baseline')).not.toContainText('either');
+  await page.getByTestId('money-payback').hover();
+  const pop = page.getByTestId('explain-popover');
+  await expect(pop.getByTestId('explain-flag')).toHaveText('The people-only crew can’t keep up with these orders, so there’s no like-for-like payback');
+  await expect(pop).not.toContainText('orders pile up');
   await expectNoErrors(errors);
 });

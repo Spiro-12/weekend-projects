@@ -1,5 +1,6 @@
 // KPI tiles (Track F, slot `kpi`): the run's headline numbers, each hovering to how it is measured (PROTOCOL §6).
 // Numbers come from the runner (host.result) and the money report (cost per order), never from the live view.
+import { useEffect, useRef } from 'preact/hooks';
 import { ROBOT_TYPES } from '../../contracts/types.ts';
 import type { Host } from '../../host/index.ts';
 import type { ExplainContent } from '../explain/content.ts';
@@ -10,6 +11,7 @@ import { Num } from '../explain/num.tsx';
 import { Explain } from '../explain/popover.tsx';
 import { definePanel } from '../panel.ts';
 import '../panels.css';
+import { moneyCtx, moneyView } from './money/view.ts';
 
 interface TileProps {
   id: string;
@@ -47,24 +49,39 @@ function KpiTiles({ host }: { host: Host }) {
   const k = r?.kpis;
   const s = host.settings.value;
   const pending = host.pending.value;
-  const m = host.money.value;
-  const moneyPending = host.moneyPending.value;
+  // Cost per order comes from the money report, read through the same consistent view as the money panel.
+  const view = moneyView(host).value;
+  const m = view.m;
+  const moneyPending = view.pending;
   const behind = !!k && !k.keepsUp;
   const robots = r ? ROBOT_TYPES.reduce((a, t) => a + (r.fleet[t] ?? 0), 0) : 0;
-  const kc = (id: KpiId) => () => kpiContent(id, host.result.value, host.settings.value, host.data.agents);
+  const kc = (id: KpiId) => () => ({ ...kpiContent(id, host.result.value, host.settings.value, host.data.agents), stale: host.pending.value });
   const cpo = m?.costPerOrder;
   const baseCpo = m?.baselineCostPerOrder;
   const costContent = (): ExplainContent => {
-    const mm = host.money.value;
-    if (!mm) return { title: 'Cost per order', text: [host.moneyPending.value ? 'Working out the money for these settings…' : 'The money could not be worked out for these settings.'] };
-    return moneyContent('costPerOrder', mm, {
-      oph: host.result.value?.kpis.oph,
-      baselineOph: host.baseline.value?.result.kpis.oph,
-      demand: host.settings.value.orders.perHour,
-      sources: host.data.sources.sources,
-      demo: host.demoData,
-    });
+    const v = moneyView(host).value;
+    if (!v.m) return { title: 'Cost per order', text: [v.pending ? 'Working out the money for these settings…' : 'The money could not be worked out for these settings.'] };
+    return moneyContent('costPerOrder', v.m, moneyCtx(host, v));
   };
+  // Scroll cue: fade the edge of the tile row when more tiles sit off-screen (narrow desktops, phones).
+  const row = useRef<HTMLDivElement>(null);
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = row.current;
+    const w = wrap.current;
+    if (!el || !w) return;
+    const update = () => {
+      w.classList.toggle('more-right', el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+      w.classList.toggle('more-left', el.scrollLeft > 2);
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    addEventListener('resize', update);
+    return () => {
+      el.removeEventListener('scroll', update);
+      removeEventListener('resize', update);
+    };
+  });
   return (
     <>
       <div class="card brand">
@@ -76,69 +93,75 @@ function KpiTiles({ host }: { host: Host }) {
           </span>
         )}
       </div>
-      <div class="kpis">
-        <Tile
-          id="oph"
-          label="Orders / hour"
-          short="Orders/h"
-          value={k?.oph}
-          format={(v) => (v >= 100 ? num(v) : n1(v))}
-          note={behind ? 'backlog growing' : `demand ${num(s.orders.perHour)}`}
-          warn={behind}
-          pending={pending}
-          content={kc('oph')}
-        />
-        <Tile
-          id="util"
-          label="Robot utilization"
-          short="Utilization"
-          value={k && robots > 0 ? k.robotUtilizationPct : null}
-          format={(v) => num(v)}
-          unit="%"
-          note={k && robots === 0 ? 'no robots' : 'busy time'}
-          pending={pending}
-          content={kc('util')}
-        />
-        <Tile
-          id="jams"
-          label="Jams"
-          short="Jams/h"
-          value={k?.jamsPerHour}
-          format={(v) => num(v, 1)}
-          unit="/h"
-          note={k ? `${n1(k.deadlocksPerShift)} deadlocks/shift` : 'deadlocks/shift'}
-          pending={pending}
-          content={kc('jams')}
-        />
-        <Tile
-          id="order-time"
-          label="Avg order time"
-          short="Order time"
-          value={k ? k.avgOrderSec / 60 : undefined}
-          format={(v) => minutes(v * 60)}
-          unit="min"
-          note={k ? `90% within ${minutes(k.p90OrderSec)} min` : 'arrive → ship'}
-          pending={pending}
-          content={kc('order-time')}
-        />
-        <Tile
-          id="cost"
-          label="Cost per order"
-          short="Cost/order"
-          value={cpo && !cpo.flag ? cpo.value : null}
-          format={(v) => usd(v)}
-          note={
-            cpo?.flag
-              ? 'not available'
-              : baseCpo && baseCpo.value !== null && !baseCpo.flag
-                ? `people only ${usd(baseCpo.value)}`
-                : !m && !moneyPending
-                  ? 'not available'
-                  : 'people only —'
-          }
-          pending={pending || moneyPending}
-          content={costContent}
-        />
+      <div class="kpis-wrap" ref={wrap} data-testid="kpi-row">
+        <span class="kpis-more left" aria-hidden="true" />
+        <span class="kpis-more right" aria-hidden="true">
+          ›
+        </span>
+        <div class="kpis" ref={row}>
+          <Tile
+            id="oph"
+            label="Orders / hour"
+            short="Orders/h"
+            value={k?.oph}
+            format={(v) => (v >= 100 ? num(v) : n1(v))}
+            note={behind ? 'backlog growing' : `demand ${num(s.orders.perHour)}`}
+            warn={behind}
+            pending={pending}
+            content={kc('oph')}
+          />
+          <Tile
+            id="util"
+            label="Robot utilization"
+            short="Utilization"
+            value={k && robots > 0 ? k.robotUtilizationPct : null}
+            format={(v) => num(v)}
+            unit="%"
+            note={k && robots === 0 ? 'no robots' : 'busy time'}
+            pending={pending}
+            content={kc('util')}
+          />
+          <Tile
+            id="jams"
+            label="Jams"
+            short="Jams/h"
+            value={k?.jamsPerHour}
+            format={(v) => num(v, 1)}
+            unit="/h"
+            note={k ? `${n1(k.deadlocksPerShift)} ${n1(k.deadlocksPerShift) === '1' ? 'deadlock' : 'deadlocks'}/shift` : 'deadlocks/shift'}
+            pending={pending}
+            content={kc('jams')}
+          />
+          <Tile
+            id="order-time"
+            label="Avg order time"
+            short="Order time"
+            value={k ? k.avgOrderSec / 60 : undefined}
+            format={(v) => minutes(v * 60)}
+            unit="min"
+            note={k ? `90% within ${minutes(k.p90OrderSec)} min` : 'arrive → ship'}
+            pending={pending}
+            content={kc('order-time')}
+          />
+          <Tile
+            id="cost"
+            label="Cost per order"
+            short="Cost/order"
+            value={cpo && !cpo.flag ? cpo.value : null}
+            format={(v) => usd(v)}
+            note={
+              cpo?.flag
+                ? 'not available'
+                : baseCpo && baseCpo.value !== null && !baseCpo.flag
+                  ? `people only ${usd(baseCpo.value)}`
+                  : !m && !moneyPending
+                    ? 'not available'
+                    : 'people only —'
+            }
+            pending={pending || moneyPending}
+            content={costContent}
+          />
+        </div>
       </div>
     </>
   );

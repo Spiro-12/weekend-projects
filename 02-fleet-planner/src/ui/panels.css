@@ -42,6 +42,14 @@
 .kpi.warn { border-color: rgba(255,181,71,.55); }
 .kpi.warn .kpi-note { color: var(--warn); font-weight: 600; }
 .kpi.warn .kpi-note::before { content: '▲ '; font-size: 9px; }
+/* Scroll cue: a fade and a chevron at the edge when more tiles sit off-screen (an overlay, not a mask: a mask would
+   switch off the tiles' frosted blur). */
+.kpis-wrap { position: relative; }
+.kpis-more { display: none; position: absolute; top: 8px; bottom: 0; width: 40px; z-index: 1; pointer-events: none; color: var(--text);
+  font-size: 20px; line-height: 1; align-items: center; justify-content: flex-end; padding-right: 4px; }
+.kpis-more.right { right: 0; background: linear-gradient(to right, rgba(9,12,17,0), rgba(9,12,17,.9)); border-radius: 0 12px 12px 0; }
+.kpis-more.left { left: 0; background: linear-gradient(to left, rgba(9,12,17,0), rgba(9,12,17,.9)); border-radius: 12px 0 0 12px; }
+.kpis-wrap.more-right .kpis-more.right, .kpis-wrap.more-left .kpis-more.left { display: flex; }
 /* Narrow desktops: keep one row (a second row would run into the left panels); tighter tiles, sideways scroll. */
 @media (min-width: 761px) and (max-width: 1260px) {
   .kpis { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
@@ -92,6 +100,11 @@
 .money-flag { margin-top: 8px; padding: 7px 10px; border-radius: 10px; font-size: 12px; line-height: 1.4; color: #ffd9a0;
   background: rgba(255,181,71,.1); border: 1px solid rgba(255,181,71,.3); }
 .money-flag b { color: var(--warn); }
+.money-flag.info { color: #bfeedd; background: rgba(61,220,151,.08); border-color: rgba(61,220,151,.3); }
+.money-flag.info b { color: var(--good); }
+.hero-sub .mark { font-size: inherit; text-decoration: underline dotted rgba(255,255,255,.22); text-underline-offset: 3px; }
+.hero-sub .mark.good { color: var(--good); }
+.hero-sub .mark.warn { color: var(--warn); }
 .hero { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 .hero-item { padding: 10px 11px 9px; border-radius: 12px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.05); min-width: 0; }
 .hero-label { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; }
@@ -185,6 +198,9 @@
 .xp-x { width: 26px; height: 26px; padding: 0; display: grid; place-items: center; font-size: 16px; line-height: 1; border-radius: 8px; flex: 0 0 auto; }
 .xp-value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
 .xp-flag { font-size: 15px; font-weight: 650; color: var(--warn); margin-top: 4px; }
+.xp-ref { font-size: 11.5px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.xp-hint { flex: 0 0 auto; color: var(--muted); font-size: 10.5px; padding-top: 3px; white-space: nowrap; }
+.xp-stale { margin: 6px 0 0; padding: 4px 8px; border-radius: 8px; font-size: 11px; color: var(--cyan); background: rgba(56,217,255,.08); border: 1px solid rgba(56,217,255,.25); }
 .xp-text { margin: 6px 0 0; color: #c9d1dc; }
 .xp-sec { margin-top: 10px; }
 .xp-h { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .7px; margin-bottom: 5px; }
@@ -216,9 +232,6 @@ a.xp-src::after { content: ' ↗'; }
 
 /* ───────── phone (same breakpoint as the shell) ───────── */
 @media (max-width: 760px), (pointer: coarse) and (max-height: 520px) {
-  /* The shell's `#ui > * { pointer-events: none }` outranks `.sheet-tabs { pointer-events: auto }`, so the tabs
-     couldn't be tapped. Workaround until the lead moves this into styles.css (reported as a change request). */
-  #ui > .sheet-tabs { pointer-events: auto; }
   #ui button, .xp-pop button { -webkit-tap-highlight-color: transparent; }
   /* A tap that opens the sheet must not leave a text selection behind on it. */
   .xp-pop.xp-sheet { -webkit-user-select: none; user-select: none; }

@@ -1,68 +1,86 @@
 // Money panel (Track F, slot `right`): when do the robots pay back, compared with doing it with people only.
 // Every number hovers (taps on phones) to its formula with the real numbers, its inputs and their sources.
-// Flags are words, never numbers. While the money is recalculating the numbers dim; after a failure none are shown.
+// Flags are words, never numbers, and they blame the right side: this plan, or the people-only crew it is compared
+// with. The panel reads one consistent snapshot (money/view.ts); while it recalculates the numbers dim; after a
+// failure none are shown.
 import { ROBOT_TYPES, type Explained, type MoneyLine, type MoneyReport } from '../../contracts/types.ts';
 import type { Host } from '../../host/index.ts';
-import { FLAG_WORDS, runLine, typeCount, type ExplainContent } from '../explain/content.ts';
+import { FLAG_WORDS, runLine, sourceById, typeCount, type ExplainContent } from '../explain/content.ts';
 import { monthsShort, num, plural, usd, usdShort, yearsFromMonths } from '../explain/format.ts';
-import { lineContent, moneyContent, type MoneyCtx, type MoneyKey } from '../explain/money.ts';
+import { BEHIND_WORDS, lineContent, moneyContent, NOT_COMPARABLE, type Behind, type MoneyKey } from '../explain/money.ts';
 import { Num } from '../explain/num.tsx';
 import { Explain } from '../explain/popover.tsx';
 import { definePanel } from '../panel.ts';
 import '../panels.css';
+import { moneyCtx, moneyView, type MoneyView } from './money/view.ts';
 
 const ok = (e: Explained | undefined): number | null => (e && !e.flag && e.value !== null ? e.value : null);
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
-/** A money number: flag words when flagged (never a number), a dash when hidden or missing, else the tweened value. */
-function MoneyNum({ e, format, hide }: { e: Explained | undefined; format: (v: number) => string; hide?: boolean }) {
-  if (e?.flag) return <span class="flag-words small">{FLAG_WORDS[e.flag]}</span>;
-  if (hide) return <>—</>;
+/** A money number: flag words when flagged (never a number), words when not comparable, else the tweened value. */
+function MoneyNum({ e, format, words, lower }: { e: Explained | undefined; format: (v: number) => string; words?: string; lower?: boolean }) {
+  const w = words ?? (e?.flag ? FLAG_WORDS[e.flag] : undefined);
+  if (w) return <span class="flag-words small">{lower ? lowerFirst(w) : w}</span>;
   return <Num value={ok(e)} format={format} />;
 }
 
+/** The same value as plain text, for screen readers. */
+function spoken(e: Explained | undefined, format: (v: number) => string, words?: string): string {
+  if (words) return words;
+  if (e?.flag) return FLAG_WORDS[e.flag];
+  const v = ok(e);
+  return v === null ? 'not available' : format(v);
+}
+
 function MoneyPanel({ host }: { host: Host }) {
-  const m = host.money.value;
-  const pending = host.moneyPending.value;
+  const view = moneyView(host).value;
+  const { m, behind, pending } = view;
   const s = host.settings.value;
-  const r = host.result.value;
-  const runPending = host.pending.value;
   const financing = s.economics.financing;
-  const ctx = (): MoneyCtx => ({
-    oph: host.result.value?.kpis.oph,
-    baselineOph: host.baseline.value?.result.kpis.oph,
-    demand: host.settings.value.orders.perHour,
-    sources: host.data.sources.sources,
-    demo: host.demoData,
-  });
+  const current = () => moneyView(host).value;
   const waiting = (title: string): ExplainContent => ({
     title,
     text: [host.moneyPending.value ? 'Working out the money for these settings…' : 'The money could not be worked out for these settings. Change a setting to try again.'],
   });
   const explain = (key: MoneyKey, title: string) => () => {
-    const mm = host.money.value;
-    if (!mm) return waiting(title);
-    const c = moneyContent(key, mm, ctx());
-    const k = host.result.value?.kpis;
-    if ((key === 'threeYearNet' || key === 'savingsYear') && !mm[key].flag && (k?.keepsUp === false || mm.paybackMonths.flag === 'doesntKeepUp'))
-      c.text = [
-        'Not shown on the panel: this plan can’t keep up with the orders, so it looks cheaper only because it ships fewer of them. The math is below for reference.',
-        ...(c.text ?? []),
-      ];
-    return c;
+    const v = current();
+    return v.m ? moneyContent(key, v.m, moneyCtx(host, v)) : waiting(title);
   };
   const explainLine = (type: MoneyLine['type'], part: 'capex' | 'opexYear') => () => {
-    const line = host.money.value?.lines.find((l) => l.type === type);
-    return line ? lineContent(line, part, ctx(), host.settings.value.economics.financing) : waiting('By type');
+    const v = current();
+    const line = v.m?.lines.find((l) => l.type === type);
+    return line ? lineContent(line, part, moneyCtx(host, v), host.settings.value.economics.financing) : waiting('By type');
   };
 
   const pb = m?.paybackMonths;
-  const pbValue = ok(pb);
+  const pbValue = behind ? null : ok(pb);
   const net = ok(m?.threeYearNet);
-  const keepsUp = r?.kpis.keepsUp ?? true;
-  // A plan that can't keep up looks cheaper only because it ships fewer orders: its savings are not shown as numbers.
-  const unfair = !keepsUp || pb?.flag === 'doesntKeepUp';
+  const S = ok(m?.savingsYear);
+  const sameCost = S === 0;
   const lines = (m?.lines ?? []).filter((l) => l.count > 0);
   const failed = !m && !pending;
+
+  // Payback: who is behind first, then the economics' own flag, then the number.
+  const pbWords = behind ? BEHIND_WORDS[behind].payback : pb?.flag ? FLAG_WORDS[pb.flag] : pb && pb.value === null ? 'No payback date' : undefined;
+  const pbSub = behind
+    ? behind === 'people'
+      ? 'so there’s no like-for-like payback'
+      : 'add robots or people until it keeps up'
+    : pb?.flag === 'never'
+      ? sameCost
+        ? 'it costs the same each year as people only'
+        : 'it costs more each year than people only'
+      : undefined;
+  const netWords = behind ? NOT_COMPARABLE : m?.threeYearNet.flag ? FLAG_WORDS[m.threeYearNet.flag] : undefined;
+  const netSub = behind
+    ? BEHIND_WORDS[behind].why
+    : m?.threeYearNet.flag === 'never'
+      ? sameCost
+        ? 'it costs the same each year as people only'
+        : 'it costs more each year than people only'
+      : net !== null && net < 0
+        ? 'you lose money over 3 years'
+        : 'after paying for the robots';
 
   return (
     <div class={`card money${pending ? ' pending' : ''}`} data-testid="money-panel">
@@ -81,40 +99,38 @@ function MoneyPanel({ host }: { host: Host }) {
         {financing === 'raas' ? 'Renting: a monthly fee per robot, setup paid up front.' : 'Buying: pay for the robots up front, then upkeep each year.'}
       </p>
       <div class="money-status" data-testid="money-status" aria-live="polite">
-        {pending ? (runPending || !m ? 'Working it out…' : 'Recalculating…') : failed ? 'Couldn’t work out the money for these settings. Change a setting to try again.' : ''}
+        {pending ? (m ? 'Recalculating…' : 'Working it out…') : failed ? 'Couldn’t work out the money for these settings. Change a setting to try again.' : ''}
       </div>
-      {r && !keepsUp && !runPending && (
-        <div class="money-flag" data-testid="money-keepsup">
-          <b>{FLAG_WORDS.doesntKeepUp}.</b> This plan ships {num(r.kpis.oph)} of the {num(s.orders.perHour)} orders coming in each hour, so orders pile up.
-        </div>
-      )}
+      <Banner view={view} />
 
       <div class="hero">
         <div class="hero-item">
           <div class="hero-label">Pays back in</div>
-          <Explain id="money-payback" class={`hero-num${pb?.flag ? ' flagged' : ''}`} content={explain('paybackMonths', 'Pays back in')}>
-            {pb?.flag ? (
-              <span class="flag-words">{FLAG_WORDS[pb.flag]}</span>
-            ) : pb && pbValue === null ? (
-              <span class="flag-words">No payback date</span>
+          <Explain
+            id="money-payback"
+            class={`hero-num${pbWords ? ' flagged' : ''}`}
+            label={`Pays back in: ${pbWords ?? (pbValue === null ? 'not available' : `${monthsShort(pbValue)} months`)}`}
+            content={explain('paybackMonths', 'Pays back in')}
+          >
+            {pbWords ? (
+              <span class="flag-words">{pbWords}</span>
             ) : (
               <>
                 <Num value={pbValue} format={monthsShort} />
-                <span class="hero-unit">{pbValue === 1 ? 'month' : 'months'}</span>
+                {pbValue !== null && <span class="hero-unit">{pbValue === 1 ? 'month' : 'months'}</span>}
               </>
             )}
           </Explain>
           <div class="hero-sub">
             {pbValue !== null ? (
               <>
-                {yearsFromMonths(pbValue)} · <span class={pbValue <= 36 ? 'good' : 'warn'}>{pbValue <= 36 ? 'within' : 'over'} the 3 years most buyers want</span>
+                {yearsFromMonths(pbValue)} ·{' '}
+                <Explain id="money-3yr-mark" class={`mark ${pbValue <= 36 ? 'good' : 'warn'}`} content={() => markContent(host)}>
+                  {pbValue <= 36 ? 'within' : 'over'} the 3 years most buyers want
+                </Explain>
               </>
-            ) : pb?.flag === 'never' ? (
-              'it costs more each year than people only'
-            ) : pb?.flag === 'doesntKeepUp' ? (
-              'add robots or people until it keeps up'
             ) : (
-              ' '
+              (pbSub ?? ' ')
             )}
           </div>
         </div>
@@ -122,20 +138,13 @@ function MoneyPanel({ host }: { host: Host }) {
           <div class="hero-label">Net savings, 3 years</div>
           <Explain
             id="money-3yr"
-            class={`hero-num${m?.threeYearNet.flag ? ' flagged' : unfair ? ' unfair' : net !== null && net < 0 ? ' neg' : ''}`}
+            class={`hero-num${netWords ? ' flagged' : net !== null && net < 0 ? ' neg' : ''}`}
+            label={`Net savings over 3 years: ${netWords ?? (net === null ? 'not available' : usdShort(net))}`}
             content={explain('threeYearNet', 'Net savings over 3 years')}
           >
-            {m?.threeYearNet.flag ? <span class="flag-words">{FLAG_WORDS[m.threeYearNet.flag]}</span> : unfair ? '—' : <Num value={net} format={usdShort} />}
+            {netWords ? <span class="flag-words">{netWords}</span> : <Num value={net} format={usdShort} />}
           </Explain>
-          <div class="hero-sub">
-            {m?.threeYearNet.flag === 'doesntKeepUp' || unfair
-              ? 'shown once the plan keeps up'
-              : m?.threeYearNet.flag === 'never'
-                ? 'it costs more each year than people only'
-                : net !== null && net < 0
-                  ? 'you lose money over 3 years'
-                  : 'after paying for the robots'}
-          </div>
+          <div class="hero-sub">{netSub}</div>
         </div>
       </div>
 
@@ -162,7 +171,14 @@ function MoneyPanel({ host }: { host: Host }) {
           content={explain('costPerOrder', 'Cost per order')}
           base={{ id: 'money-cpo-base', e: m?.baselineCostPerOrder, content: explain('baselineCostPerOrder', 'Cost per order (people only)') }}
         />
-        <MoneyRow label="Savings per year" id="money-savings" e={m?.savingsYear} content={explain('savingsYear', 'Savings per year')} tone hide={unfair} />
+        <MoneyRow
+          label="Savings per year"
+          id="money-savings"
+          e={m?.savingsYear}
+          content={explain('savingsYear', 'Savings per year')}
+          tone
+          words={behind ? lowerFirst(NOT_COMPARABLE) : undefined}
+        />
       </div>
 
       <div class="msec">
@@ -177,19 +193,47 @@ function MoneyPanel({ host }: { host: Host }) {
             <span class="mline-name" title={l.label}>
               <b>{num(l.count)}</b> {typeCount(l.type, l.count, l.label).replace(/^\S+ /, '')}
             </span>
-            <Explain id={`money-line-${l.type}-capex`} class="mval" content={explainLine(l.type, 'capex')}>
+            <Explain id={`money-line-${l.type}-capex`} class="mval" label={`${typeCount(l.type, l.count, l.label)}, upfront: ${spoken(l.capex, usdShort)}`} content={explainLine(l.type, 'capex')}>
               <MoneyNum e={l.capex} format={usdShort} />
             </Explain>
-            <Explain id={`money-line-${l.type}-opex`} class="mval" content={explainLine(l.type, 'opexYear')}>
+            <Explain id={`money-line-${l.type}-opex`} class="mval" label={`${typeCount(l.type, l.count, l.label)}, per year: ${spoken(l.opexYear, usdShort)}`} content={explainLine(l.type, 'opexYear')}>
               <MoneyNum e={l.opexYear} format={usdShort} />
             </Explain>
           </div>
         ))}
       </div>
 
-      <Baseline host={host} m={m} />
+      <Baseline host={host} m={m} behind={behind} />
     </div>
   );
+}
+
+/** Who is behind, in plain words, from the same snapshot as the numbers. */
+function Banner({ view }: { view: MoneyView }) {
+  const { behind, r, b, m, demand } = view;
+  if (!behind || !m) return null;
+  if (behind === 'people')
+    return (
+      <div class="money-flag info" data-testid="money-people-behind">
+        <b>This plan keeps up; people only can’t.</b> The people-only crew ({plural(m.baseline.picker, 'picker')} + {plural(m.baseline.driver, 'driver')})
+        {b ? ` ships ${num(b.result.kpis.oph)} of the ${num(demand)} orders coming in each hour` : ' falls behind the orders'}, so there’s no like-for-like payback.
+      </div>
+    );
+  return (
+    <div class="money-flag" data-testid="money-keepsup">
+      <b>{FLAG_WORDS.doesntKeepUp}.</b> This plan {r ? `ships ${num(r.kpis.oph)} of the ${num(demand)} orders coming in each hour` : 'falls behind the orders'}, so orders pile up.
+      {behind === 'both' && ' The people-only crew can’t keep up either.'}
+    </div>
+  );
+}
+
+function markContent(host: Host): ExplainContent {
+  const from = 'source:interact-buyers-survey' as const;
+  return {
+    title: 'The 3-year mark',
+    text: ['In a survey of 300 mobile robot buyers, 80% expected their money back within 3 years. That is the bar most buyers use.'],
+    inputs: [{ label: 'Buyers who expect payback within 3 years', value: '80%', from, source: sourceById(host.data.sources.sources, from) }],
+  };
 }
 
 function MoneyRow(p: {
@@ -199,23 +243,24 @@ function MoneyRow(p: {
   content: () => ExplainContent;
   exact?: boolean;
   tone?: boolean;
-  /** Show a dash instead of the number (the hover still has the math). */
-  hide?: boolean;
+  /** Words instead of the number (the hover still has the math, for reference). */
+  words?: string;
   base?: { id: string; e: Explained | undefined; content: () => ExplainContent };
 }) {
   const fmt = p.exact ? usd : usdShort;
   const v = ok(p.e);
-  const tone = p.hide ? ' unfair' : p.tone && v !== null ? (v > 0 ? ' good' : v < 0 ? ' bad' : '') : '';
+  const tone = p.words ? ' unfair' : p.tone && v !== null ? (v > 0 ? ' good' : v < 0 ? ' bad' : '') : '';
   return (
     <div class="mrow">
       <span class="mrow-label">{p.label}</span>
       <span class="mrow-vals">
-        <Explain id={p.id} class={`mval${tone}`} content={p.content}>
-          <MoneyNum e={p.e} format={fmt} hide={p.hide} />
+        <Explain id={p.id} class={`mval${tone}`} label={`${p.label}: ${spoken(p.e, fmt, p.words)}`} content={p.content}>
+          <MoneyNum e={p.e} format={fmt} words={p.words} />
         </Explain>
         {p.base && (
-          <Explain id={p.base.id} class="mval base" content={p.base.content}>
-            people only <MoneyNum e={p.base.e} format={fmt} />
+          <Explain id={p.base.id} class="mval base" label={`${p.label}, people only: ${spoken(p.base.e, fmt)}`} content={p.base.content}>
+            people only{p.base.e?.flag ? ': ' : ' '}
+            <MoneyNum e={p.base.e} format={fmt} lower />
           </Explain>
         )}
       </span>
@@ -223,13 +268,14 @@ function MoneyRow(p: {
   );
 }
 
-function Baseline({ host, m }: { host: Host; m: MoneyReport | null }) {
+function Baseline({ host, m, behind }: { host: Host; m: MoneyReport | null; behind: Behind }) {
   const b = m?.baseline;
   const auto = host.settings.value.economics.baseline === 'auto';
+  const behindWords = behind === 'both' ? 'This crew can’t keep up either.' : 'This crew can’t keep up with these orders.';
   const content = (): ExplainContent => {
-    const mm = host.money.value;
-    const base = host.baseline.value;
+    const v = moneyView(host).value;
     const s = host.settings.value;
+    const mm = v.m;
     return {
       title: 'Compared with people only',
       text: [
@@ -237,16 +283,25 @@ function Baseline({ host, m }: { host: Host; m: MoneyReport | null }) {
           ? 'Your warehouse today, without robots: the smallest crew of pickers and forklift drivers that keeps up with the same orders, in the same building.'
           : 'The people-only crew you set, running the same orders in the same building.',
         'Both plans see exactly the same orders (same seed), so the only difference is the fleet.',
-        ...(mm && !mm.baseline.keepsUp ? ['This crew can’t keep up either, so the comparison is not fair.'] : []),
+        ...(mm && !mm.baseline.keepsUp
+          ? [
+              v.behind === 'both'
+                ? 'This crew can’t keep up either, so the two can’t be compared.'
+                : s.economics.baseline === 'auto'
+                  ? 'Even the biggest people-only crew tried can’t keep up with these orders, so there’s no like-for-like payback. This plan keeps up.'
+                  : 'The crew you set can’t keep up with these orders, so there’s no like-for-like payback. This plan keeps up.',
+            ]
+          : []),
       ],
       inputs: mm
         ? [
             { label: 'Pickers', value: plural(mm.baseline.picker, 'person', 'people') + ' per shift', from: s.economics.baseline === 'auto' ? 'sim' : 'user' },
             { label: 'Forklift drivers', value: plural(mm.baseline.driver, 'person', 'people') + ' per shift', from: s.economics.baseline === 'auto' ? 'sim' : 'user' },
-            ...(base ? [{ label: 'Orders shipped by this crew', value: `${num(base.result.kpis.oph)} an hour`, from: 'sim' as const }] : []),
+            ...(v.b ? [{ label: 'Orders shipped by this crew', value: `${num(v.b.result.kpis.oph)} an hour`, from: 'sim' as const }] : []),
           ]
         : [],
       run: runLine(s),
+      stale: v.pending,
     };
   };
   return (
@@ -255,7 +310,7 @@ function Baseline({ host, m }: { host: Host; m: MoneyReport | null }) {
         <>
           <span class="muted">Compared with:</span> {plural(b.picker, 'picker')} + {plural(b.driver, 'driver')}, people only{' '}
           <span class="muted">({auto ? 'sized to keep up with the same orders' : 'your crew'})</span>
-          {!b.keepsUp && <span class="warn"> This crew can’t keep up either.</span>}
+          {!b.keepsUp && <span class="warn"> {behindWords}</span>}
         </>
       ) : (
         <span class="muted">Compared with: people only (sized to keep up with the same orders)</span>

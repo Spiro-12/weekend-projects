@@ -46,10 +46,12 @@ export function monthsShort(m: number): string {
   return m < 10 ? trim(m.toFixed(1)) : num(Math.round(m));
 }
 
-/** "1.6 years" from months, for the line under the payback. */
+/** "1.6 years" from months, for the line under the payback ("under a year" below 12 months). */
 export function yearsFromMonths(m: number): string {
+  if (!(m >= 12)) return 'under a year';
   const y = m / 12;
-  return `${trim(y.toFixed(y < 10 ? 1 : 0))} ${y === 1 ? 'year' : 'years'}`;
+  const s = trim(y.toFixed(y < 10 ? 1 : 0));
+  return `${s} ${s === '1' ? 'year' : 'years'}`;
 }
 
 /** Minutes from seconds, one decimal under 10: "11.5 min", "21 min". */

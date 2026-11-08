@@ -36,6 +36,10 @@ export interface ExplainContent {
   value?: string;
   /** Words shown instead of a number ("Never pays back at these numbers"). */
   flag?: string;
+  /** A number kept for reference only, shown small under the flag ("For reference only: $571,647 a year"). */
+  reference?: string;
+  /** The numbers are being recalculated: these are for the previous settings. */
+  stale?: boolean;
   /** Plain-word paragraphs: what the number means and how it is measured. */
   text?: string[];
   formula?: string;

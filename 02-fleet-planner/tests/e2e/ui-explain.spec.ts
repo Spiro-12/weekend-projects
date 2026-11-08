@@ -13,13 +13,17 @@ test('hovering the payback shows the formula, the worked numbers and real source
   await expect(pop).toBeVisible();
   await expect(pop).toContainText('Pays back in');
   await expect(pop.getByTestId('explain-formula')).not.toBeEmpty();
+  // Hovering says how to keep it open.
+  await expect(pop.getByTestId('explain-hint')).toHaveText('click to keep open');
   const flag = await page.evaluate(() => window.__fp!.host.money.value!.paybackMonths.flag ?? null);
   if (flag === null) {
-    // The formula with the real numbers: "$X ÷ ($Y ÷ 12 months) = Z months".
-    await expect(pop.getByTestId('explain-worked')).toContainText(/\$[\d,]+ ÷ \(\$[\d,]+ ÷ 12 months\) = [\d.]+ months/);
+    // The formula with the real numbers, once: in the worked line (fake economics) or in the formula itself
+    // (Track C's formulas carry the numbers, so no worked line repeats them).
+    await expect(pop).toContainText(/\$[\d,]+[^=]*÷[^=]*= [\d.]+ months/);
+    const formula = await pop.getByTestId('explain-formula').innerText();
+    if (/\$\d/.test(formula)) await expect(pop.getByTestId('explain-worked')).toHaveCount(0);
   } else {
-    await expect(pop.getByTestId('explain-flag')).toHaveText(/Never pays back at these numbers|Can't keep up with the orders/);
-    await expect(pop.getByTestId('explain-worked')).not.toBeEmpty();
+    await expect(pop.getByTestId('explain-flag')).not.toBeEmpty();
   }
   const hrefs = await pop.getByTestId('explain-source').evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).href));
   expect(hrefs.length).toBeGreaterThan(0);
@@ -81,7 +85,7 @@ test('KPI tiles explain how they are measured', async ({ page }) => {
   await mouseAway(page);
   await page.getByTestId('kpi-cost').hover();
   await expect(pop).toContainText('Cost per order');
-  await expect(pop.getByTestId('explain-worked')).toContainText('orders an hour');
+  await expect(pop).toContainText(/orders an hour|orders\/h/);
   await expectNoErrors(errors);
 });
 
@@ -91,6 +95,9 @@ test('keyboard: Tab shows the popover, Enter pins it, Esc closes it (and does no
   const pop = page.getByTestId('explain-popover');
   const id = await page.evaluate(() => window.__fp!.host.live.snapshot.agents.find((a) => a.type === 'amr')!.id);
   await page.evaluate((i) => window.__fp!.host.select(0, i), id);
+  // Hero numbers have an accessible name with their label.
+  await expect(page.getByTestId('money-payback')).toHaveAttribute('aria-label', /^Pays back in: /);
+  await expect(page.getByTestId('money-3yr')).toHaveAttribute('aria-label', /^Net savings over 3 years: /);
   await page.getByTestId('financing-raas').focus();
   await page.keyboard.press('Tab');
   await expect(page.getByTestId('money-payback')).toBeFocused();
@@ -105,8 +112,20 @@ test('keyboard: Tab shows the popover, Enter pins it, Esc closes it (and does no
   await page.keyboard.press('Escape');
   await expect(pop).toBeHidden();
   await expect(page.getByTestId('money-payback')).toBeFocused();
-  // Tab moves on to the next number and its explanation.
+  // A pinned popover closes when keyboard focus leaves it, and focus goes back to its number.
+  await page.keyboard.press('Enter');
+  await expect(pop).toBeFocused();
+  for (let i = 0; i < 8 && (await pop.isVisible()); i++) await page.keyboard.press('Tab');
+  await expect(pop).toBeHidden();
+  await expect(page.getByTestId('money-payback')).toBeFocused();
+  // Tab moves on to the next explained text (the 3-year mark, with its survey source), then the next number.
   await page.keyboard.press('Tab');
+  const next = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'));
+  if (next === 'money-3yr-mark') {
+    await expect(pop).toContainText('80% expected their money back within 3 years');
+    await expect(pop.getByTestId('explain-source')).toHaveAttribute('href', /automatedwarehouseonline\.com/);
+    await page.keyboard.press('Tab');
+  }
   await expect(page.getByTestId('money-3yr')).toBeFocused();
   await expect(pop).toContainText('Net savings over 3 years');
   await page.keyboard.press('Escape');
@@ -127,5 +146,59 @@ test('a click pins the popover until you click elsewhere', async ({ page }) => {
   const p = emptyFloor(page);
   await page.mouse.click(p.x, p.y);
   await expect(pop).toBeHidden();
+  await expectNoErrors(errors);
+});
+
+test('a hover popover waits for the pointer to travel to it, so its source links can be clicked', async ({ page }) => {
+  const errors = await openApp(page);
+  await settled(page);
+  const pop = page.getByTestId('explain-popover');
+  const anchor = (await page.getByTestId('money-payback').boundingBox())!;
+  const start = { x: anchor.x + anchor.width / 2, y: anchor.y + anchor.height / 2 };
+  await page.mouse.move(start.x, start.y);
+  await expect(pop).toBeVisible();
+  const box = (await pop.boundingBox())!;
+  const lb = (await pop.getByTestId('explain-source').first().boundingBox())!;
+  // A slow, steady walk (16 steps × 60 ms ≈ 1 s, longer than the 500 ms grace): first left across the empty part of
+  // the card into the popover, then down to its first source link.
+  const path = [
+    { x: box.x + box.width - 16, y: Math.min(start.y, box.y + box.height - 16) },
+    { x: lb.x + lb.width / 2, y: lb.y + lb.height / 2 },
+  ];
+  let from = start;
+  for (const to of path) {
+    for (let i = 1; i <= 8; i++) {
+      await page.mouse.move(from.x + ((to.x - from.x) * i) / 8, from.y + ((to.y - from.y) * i) / 8);
+      await page.waitForTimeout(60);
+    }
+    from = to;
+  }
+  await expect(pop).toBeVisible();
+  await expect(pop).toContainText('Pays back in');
+  await page.waitForTimeout(700);
+  await expect(pop).toBeVisible();
+  // Moving away still closes it.
+  await mouseAway(page);
+  await expect(pop).toBeHidden();
+  await expectNoErrors(errors);
+});
+
+test('while recalculating, a popover says so; before any money, no stray units', async ({ page }) => {
+  const errors = await openApp(page);
+  await settled(page);
+  const pop = page.getByTestId('explain-popover');
+  await page.evaluate(() => (window.__fp!.host.moneyPending.value = true));
+  await expect(page.getByTestId('money-status')).toHaveText('Recalculating…');
+  await page.getByTestId('money-capex').hover();
+  await expect(pop.getByTestId('explain-stale')).toBeVisible();
+  await mouseAway(page);
+  await page.evaluate(() => (window.__fp!.host.moneyPending.value = false));
+  await page.getByTestId('money-capex').hover();
+  await expect(pop).toBeVisible();
+  await expect(pop.getByTestId('explain-stale')).toHaveCount(0);
+  await mouseAway(page);
+  // No money yet: a dash, not "— months".
+  await page.evaluate(() => (window.__fp!.host.money.value = null));
+  await expect(page.getByTestId('money-payback')).toHaveText('—');
   await expectNoErrors(errors);
 });

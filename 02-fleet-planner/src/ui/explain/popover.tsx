@@ -29,6 +29,7 @@ let returningFocus = false;
 function clearTimers() {
   clearTimeout(openTimer);
   clearTimeout(closeTimer);
+  stopTravel();
 }
 
 export function openExplain(anchor: HTMLElement, content: () => ExplainContent, pinned: boolean, focus = false): void {
@@ -48,11 +49,37 @@ export function closeExplain(returnFocus = false): void {
   }
 }
 
-function scheduleClose() {
+function scheduleClose(ms: number) {
   clearTimeout(closeTimer);
   closeTimer = setTimeout(() => {
     if (explainOpen.value && !explainOpen.value.pinned) closeExplain();
-  }, 220);
+  }, ms);
+}
+
+/** Grace and hover intent: after the pointer leaves a number, its popover (often 300 px away, beside the panel) stays
+ *  open for 500 ms, and keeps extending while the pointer is still heading toward it. */
+const GRACE_MS = 500;
+const TRAVEL_MS = 350;
+let travel: ((e: PointerEvent) => void) | null = null;
+function stopTravel() {
+  if (travel) document.removeEventListener('pointermove', travel);
+  travel = null;
+}
+function distanceToPop(x: number, y: number): number {
+  const r = popEl()?.getBoundingClientRect();
+  if (!r) return Infinity;
+  return Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+}
+function leaveAnchor(e: PointerEvent) {
+  stopTravel();
+  scheduleClose(GRACE_MS);
+  let last = distanceToPop(e.clientX, e.clientY);
+  travel = (ev) => {
+    const d = distanceToPop(ev.clientX, ev.clientY);
+    if (d < last - 0.5) scheduleClose(TRAVEL_MS);
+    last = d;
+  };
+  document.addEventListener('pointermove', travel);
 }
 
 let mounted = false;
@@ -161,6 +188,7 @@ function Layer() {
   if (!st) return null;
   const c = st.content();
   const body = <Body c={c} pinned={st.pinned || phone} />;
+
   const common = {
     ref,
     id: 'fp-explain-pop',
@@ -168,9 +196,31 @@ function Layer() {
     'aria-labelledby': 'fp-explain-title',
     tabIndex: -1,
     'data-testid': 'explain-popover',
-    onPointerEnter: () => clearTimeout(closeTimer),
+    onPointerEnter: () => {
+      clearTimeout(closeTimer);
+      stopTravel();
+    },
     onPointerLeave: (e: PointerEvent) => {
-      if (e.pointerType === 'mouse') scheduleClose();
+      if (e.pointerType === 'mouse') scheduleClose(300);
+    },
+    // Keyboard: Tab past the last link (or Shift+Tab before the first) closes the popover and hands focus back to its
+    // number, so the next Tab carries on through the panel instead of leaving the page.
+    onKeyDown: (e: KeyboardEvent) => {
+      const pop = ref.current;
+      if (e.key !== 'Tab' || !pop) return;
+      const items = [...pop.querySelectorAll<HTMLElement>('a[href], button')];
+      const active = document.activeElement;
+      const out = e.shiftKey ? active === pop || active === items[0] : items.length === 0 || active === items[items.length - 1];
+      if (!out) return;
+      e.preventDefault();
+      closeExplain(true);
+    },
+    // Focus leaving a popover any other way closes it too; leaving to nowhere hands focus back to its number.
+    onFocusOut: (e: FocusEvent) => {
+      const cur = explainOpen.value;
+      const to = e.relatedTarget as Node | null;
+      if (!cur || (to && (popEl()?.contains(to) || cur.anchor.contains(to)))) return;
+      closeExplain(!to);
     },
   };
   if (phone)
@@ -218,12 +268,21 @@ function Body({ c, pinned }: { c: ExplainContent; pinned: boolean }) {
         <div class="xp-title" id="fp-explain-title">
           {c.title}
         </div>
-        {pinned && (
+        {pinned ? (
           <button type="button" class="xp-x" aria-label="Close" data-testid="explain-close" onClick={() => closeExplain(true)}>
             ×
           </button>
+        ) : (
+          <span class="xp-hint" data-testid="explain-hint">
+            click to keep open
+          </span>
         )}
       </div>
+      {c.stale && (
+        <p class="xp-stale" data-testid="explain-stale">
+          Recalculating… these numbers are for the previous settings.
+        </p>
+      )}
       {c.flag ? (
         <div class="xp-flag" data-testid="explain-flag">
           {c.flag}
@@ -231,6 +290,11 @@ function Body({ c, pinned }: { c: ExplainContent; pinned: boolean }) {
       ) : c.value ? (
         <div class="xp-value">{c.value}</div>
       ) : null}
+      {c.reference && (
+        <div class="xp-ref" data-testid="explain-reference">
+          {c.reference}
+        </div>
+      )}
       {c.text?.map((t) => (
         <p class="xp-text" key={t}>
           {t}
@@ -300,12 +364,13 @@ export function Explain(props: { id?: string; content: () => ExplainContent; cla
         clearTimeout(closeTimer);
         if (cur?.anchor === ref.current || cur?.pinned) return;
         clearTimeout(openTimer);
-        openTimer = setTimeout(() => ref.current && openExplain(ref.current, get, false), cur ? 40 : 140);
+        // Hover intent: the pointer has to rest briefly, so crossing another number on the way doesn't switch.
+        openTimer = setTimeout(() => ref.current && openExplain(ref.current, get, false), 140);
       }}
       onPointerLeave={(e) => {
         if (e.pointerType !== 'mouse') return;
         clearTimeout(openTimer);
-        scheduleClose();
+        if (explainOpen.value?.anchor === ref.current) leaveAnchor(e);
       }}
       onFocus={() => {
         const el = ref.current;
@@ -314,9 +379,11 @@ export function Explain(props: { id?: string; content: () => ExplainContent; cla
       }}
       onBlur={(e) => {
         const cur = explainOpen.value;
-        if (!cur || cur.anchor !== ref.current || cur.pinned) return;
+        if (!cur || cur.anchor !== ref.current) return;
         const to = e.relatedTarget as Node | null;
         if (to && popEl()?.contains(to)) return;
+        // A pinned popover stays when focus just drops (a tap on plain text); it closes when focus moves to a control.
+        if (cur.pinned && !to) return;
         closeExplain();
       }}
       onClick={(e) => {
