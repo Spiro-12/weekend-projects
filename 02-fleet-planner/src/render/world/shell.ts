@@ -107,7 +107,7 @@ export function buildShell(p: WorldPlan, envMap: Texture | null): Shell {
   const SEAM = '#c2c7ce';
   const UPPER = '#cfd4da';
   const CAP = '#8c929a';
-  const winY0 = H - 5.0;
+  const winY0 = H - 4.4;
   const winY1 = H - 1.0;
   const GLASS = new Color('#cfe0f2');
   const MULLION = '#30353c';
@@ -159,6 +159,29 @@ export function buildShell(p: WorldPlan, envMap: Texture | null): Shell {
     }
     // Plinth top edge.
     B(a0, 1.17, a1, 1.23, '#9aa0a7', cut, 0, Math.min(inner, si), Math.max(inner, si));
+  }
+
+  // Roof deck seen from inside only: it faces down, so from above (the overview) it is back-face culled and the hall
+  // stays open. Corrugated strips plus skylight bands every 12 m (they glow like daylight).
+  {
+    const yR = p.trussY1 + 0.25;
+    const deckA = new Color('#aab0b8');
+    const deckB = new Color('#9fa5ad');
+    const sky = new Color('#dfe9f5');
+    const skyZ = p.trussZ.filter((_, i) => i % 2 === 1).map((z) => z + 3);
+    const down = [0, -1, 0];
+    const strip = (x0: number, x1: number, z0: number, z1: number, c: Color, glow: number) =>
+      M.quad([[x0, yR, z0], [x1, yR, z0], [x1, yR, z1], [x0, yR, z1]], down, c, NONE, glow);
+    for (let x = -hx, i = 0; x < hx - 1e-3; x += 1.5, i++) {
+      const x1 = Math.min(hx, x + 1.5);
+      let z = -hz;
+      for (const sz of skyZ) {
+        strip(x, x1, z, sz - 1, i % 2 ? deckA : deckB, 0.28);
+        strip(x, x1, sz - 1, sz + 1, sky, 1.1);
+        z = sz + 1;
+      }
+      strip(x, x1, z, hz, i % 2 ? deckA : deckB, 0.28);
+    }
   }
 
   // Dock wall (north) with door openings.
@@ -436,8 +459,9 @@ function buildSigns(p: WorldPlan, u: CutUniforms, envMap: Texture | null, doorTo
       gap = { x: (a + b) / 2, w: b - a };
     }
   }
-  const bw = Math.min(16, gap.w - 1);
-  const by = doorTop + 0.55;
+  const by = doorTop + 1.5;
+  const bh = Math.min(1.6, p.wallH - 4.4 - 0.25 - by);
+  const bw = Math.min(bh * 8, gap.w - 1);
   quad(gap.x - bw / 2, by, gap.x + bw / 2, by + bw / 8, 0, 0.5, 1, 1);
   p.doors.forEach((d, i) => {
     const k = i % 8;

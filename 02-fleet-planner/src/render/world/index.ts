@@ -5,7 +5,7 @@
 //
 // Draw calls per view at the overview (medium): floor 1, walls 1, steel 1, rack frames 1, rack loads 1 (+5 for the
 // near SimReady loads in close views), props 3 + conveyor cartons 1, SimReady props 13. See debug().
-import { Group } from 'three';
+import { Group, type InstancedMesh, type Mesh } from 'three';
 import type { Tier } from '../../host/index.ts';
 import type { AssetLoader } from '../core/assets.ts';
 import type { WorldLayer, WorldLayerOptions } from '../core/layers.ts';
@@ -61,6 +61,7 @@ export function createWorldLayer(o: WorldLayerOptions): WorldLayerExt {
         Promise.all([load('pallet_loaded', t), load('pallet_wrapped', t)]).then(([full, wrap]) => {
           if (disposed || t !== tier) return;
           racks.setGlb(full, wrap);
+          budgetDirty = true;
         }),
       );
     let keep = false;
@@ -74,6 +75,7 @@ export function createWorldLayer(o: WorldLayerOptions): WorldLayerExt {
         load(key, pt).then((parts) => {
           if (disposed || t !== tier) return;
           props.setGlb(key, parts);
+          budgetDirty = true;
         }),
       );
     }
@@ -84,6 +86,22 @@ export function createWorldLayer(o: WorldLayerOptions): WorldLayerExt {
         console.warn('[world] a model failed to load; keeping its stand-in:', r.reason);
       }
     if (keep && !disposed) props.keepStandIns();
+  }
+
+  // Triangle budget per view for the world alone (PLAN §9 / brief): the near SimReady pallets get what is left.
+  const budget = (t: Tier) => (t === 'high' || t === 'medium' ? 600_000 : t === 'low' ? 330_000 : 200_000);
+  let budgetDirty = true;
+  let staticTris = 0;
+  function countStatic(): number {
+    let n = 0;
+    group.traverse((o) => {
+      const m = o as Mesh;
+      if (!m.isMesh || !m.visible || m.name.startsWith('rack-loads-near')) return;
+      const g = m.geometry;
+      const per = (g.index ? g.index.count : g.getAttribute('position').count) / 3;
+      n += per * ((m as InstancedMesh).isInstancedMesh ? (m as InstancedMesh).count : 1);
+    });
+    return n;
   }
 
   // Downloads wait for the first useful view, so they never compete with it.
@@ -102,6 +120,7 @@ export function createWorldLayer(o: WorldLayerOptions): WorldLayerExt {
       const prev = tier;
       tier = t;
       racks.setTier(t);
+      budgetDirty = true;
       const lodChanged = useLow(prev) !== useLow(t) || nearCaps(prev).pallets === 0 || t === 'high' || prev === 'high';
       if (lodChanged && loadStarted) void loadTier(t);
     },
@@ -118,12 +137,19 @@ export function createWorldLayer(o: WorldLayerOptions): WorldLayerExt {
         now,
       );
       props.update(now);
+      if (budgetDirty) {
+        budgetDirty = false;
+        staticTris = countStatic();
+        racks.setTriangleBudget(budget(tier) - staticTris);
+      }
     },
     setFaceFill: (cell, fill) => racks.setFaceFill(cell, fill),
     debug() {
       return {
         tier,
         buildMs,
+        staticTriangles: staticTris,
+        triangleBudget: budget(tier),
         size: [plan.sizeX, plan.sizeZ],
         grid: [plan.W, plan.H],
         /** A rack cell with stock, for tests of setFaceFill. */

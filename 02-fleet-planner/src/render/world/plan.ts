@@ -309,6 +309,8 @@ export function planWorld(layout: LayoutFile): WorldPlan {
     if (open(at(x, probeRow)) && open(at(x + 1, probeRow)) && !open(at(x - 1, probeRow))) lightXs.push((wx(x) + wx(x + 1)) / 2);
   }
   if (lightXs.length < 3) for (let x = -sizeX / 2 + 6; x < sizeX / 2; x += 6) lightXs.push(x);
+  // Big halls: every other aisle, so the panel count (and triangles) stays about the same as the default hall.
+  if (lightXs.length > 16) for (let i = lightXs.length - 2; i > 0; i -= 2) lightXs.splice(i, 1);
   const ly = Math.min(trussY0 - 0.25, rackH + 0.9);
   for (let i = 0; i + 1 < trussZ.length; i++) for (const x of lightXs) lights.push({ x, y: ly, z: (trussZ[i] + trussZ[i + 1]) / 2 });
 

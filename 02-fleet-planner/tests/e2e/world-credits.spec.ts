@@ -51,7 +51,15 @@ test('About button sits clear of the phone sheet tabs', async ({ browser }) => {
   const errors = await openApp(page);
   const btn = await page.getByTestId('about-button').boundingBox();
   expect(btn).not.toBeNull();
-  expect(btn!.y).toBeLessThan(100);
+  // Below the KPI strip, far above the bottom sheet tabs, and not on top of any KPI card.
+  expect(btn!.y).toBeLessThan(300);
+  const overlaps = await page.evaluate(([x, y, w, h]) => {
+    return [...document.querySelectorAll('[data-slot="kpi"] .card')].some((el) => {
+      const r = el.getBoundingClientRect();
+      return r.left < x + w && r.right > x && r.top < y + h && r.bottom > y;
+    });
+  }, [btn!.x, btn!.y, btn!.width, btn!.height]);
+  expect(overlaps).toBe(false);
   await page.getByTestId('about-button').tap();
   const card = await page.getByTestId('about-card').boundingBox();
   expect(card!.x).toBeGreaterThanOrEqual(0);

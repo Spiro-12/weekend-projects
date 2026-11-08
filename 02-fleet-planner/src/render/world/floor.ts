@@ -425,7 +425,7 @@ export function buildFloor(p: WorldPlan, layout: LayoutFile, tier: Tier, envMap:
   const lin = (hex: string) => new Color(hex);
   const uniforms = {
     uPaint: { value: tex },
-    uConcrete: { value: lin('#282b30') },
+    uConcrete: { value: lin('#262a2f') },
     uYard: { value: lin('#16181b') },
     uYellow: { value: lin('#f2c230') },
     uWhite: { value: lin('#e4e7ea') },
@@ -474,7 +474,9 @@ float fpYard = 0.0;`,
         '#include <roughnessmap_fragment>',
         `#include <roughnessmap_fragment>
 roughnessFactor = mix(roughnessFactor, 0.62, max(fpPaint, fpYard));`,
-      );
+      )
+      // Indoors: no sun glare on the polished floor (the scene's key light is a sun); keep the hall reflections.
+      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular *= 0.12;');
   };
   const mesh = new Mesh(geo, mat);
   mesh.name = 'floor';

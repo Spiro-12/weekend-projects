@@ -44,6 +44,9 @@ export function blockGeometry(): BufferGeometry {
   return g;
 }
 
+/** Triangles one near SimReady pallet adds (composite ~1.2-1.5k; its hidden far block still draws). */
+export const NEAR_PALLET_TRIS = 1400;
+
 export interface NearCaps {
   /** How many pallets may use the SimReady composites at once. */
   pallets: number;
@@ -73,6 +76,9 @@ export class Racks {
   private blockMatrix: Float32Array;
   private near = new Set<number>();
   private caps: NearCaps;
+  private tier: Tier;
+  /** Max near pallets the world's triangle budget leaves room for (set by the layer once the props are in). */
+  private budgetPallets = Infinity;
   private glbReady = false;
   private lastCams: { p: Vector3; d: Vector3 }[] = [];
   private lastRebuild = -1e9;
@@ -87,6 +93,7 @@ export class Racks {
     extra: { x: number; y: number; z: number }[] = [],
   ) {
     this.group.name = 'racks';
+    this.tier = tier;
     this.caps = nearCaps(tier);
     const p = plan;
 
@@ -106,7 +113,7 @@ export class Racks {
         // Frame bracing: bottom tie, zig-zag diagonals, top tie.
         parts.push({ p: v((xf + xb) / 2, 0.12, z), s: v(depth, 0.045, 0.035), c: BRACE });
         parts.push({ p: v((xf + xb) / 2, rackH - 0.12, z), s: v(depth, 0.045, 0.035), c: BRACE });
-        const step = 1.25;
+        const step = 1.6;
         for (let y = 0.15, i = 0; y + step < rackH - 0.1; y += step, i++) {
           const len = Math.hypot(depth, step);
           const a = Math.atan2(step, depth) * (i % 2 ? -1 : 1);
@@ -114,18 +121,14 @@ export class Racks {
           parts.push({ p: v((xf + xb) / 2, y + step / 2 - 0.0175, z), s: v(len, 0.035, 0.03), q: qz(a), c: BRACE });
         }
       });
-      for (let b = 0; b < r.frames.length - 1; b++) {
-        const za = r.frames[b];
-        const zb = r.frames[b + 1];
-        for (let l = 1; l < p.levels; l++) {
-          const y = l * p.levelH - BEAM_H;
-          for (const x of [r.x0 + 0.03, r.x1 - 0.03])
-            parts.push({ p: v(x, y, (za + zb) / 2), s: v(0.055, BEAM_H, zb - za - 0.06), c: BEAM });
-        }
+      // Beams: one continuous member per level and side (it runs through the uprights, so it reads as one beam per
+      // bay at a tenth of the triangles).
+      for (let l = 1; l < p.levels; l++) {
+        const y = l * p.levelH - BEAM_H;
+        for (const x of [r.x0 + 0.03, r.x1 - 0.03]) parts.push({ p: v(x, y, (r.z0 + r.z1) / 2), s: v(0.055, BEAM_H, r.z1 - r.z0 - 0.06), c: BEAM });
       }
     }
-    const unit = new BoxGeometry(1, 1, 1);
-    unit.translate(0, 0.5, 0);
+    const unit = blockGeometry();
     this.frameMat = new MeshStandardMaterial({ roughness: 0.42, metalness: 0.45, envMap, envMapIntensity: 0.9 });
     this.frameMat.name = 'rack-frames';
     this.frames = new InstancedMesh(unit, this.frameMat, parts.length);
@@ -214,8 +217,19 @@ export class Racks {
   }
 
   setTier(t: Tier) {
-    this.caps = nearCaps(t);
+    this.tier = t;
+    this.caps = { ...nearCaps(t), pallets: Math.min(nearCaps(t).pallets, this.budgetPallets) };
     this.dirty = true;
+  }
+
+  /** Cap the near SimReady pallets so the whole world stays inside `trianglesLeft`. */
+  setTriangleBudget(trianglesLeft: number) {
+    this.budgetPallets = Math.max(0, Math.floor(trianglesLeft / NEAR_PALLET_TRIS));
+    this.setTier(this.tier);
+  }
+
+  get nearCap() {
+    return this.caps.pallets;
   }
 
   /**
@@ -317,6 +331,7 @@ export class Racks {
       frameParts: this.frames.count,
       blocks: this.blocks.count,
       nearPallets: this.near.size,
+      nearCap: this.caps.pallets,
       nearFull: this.full.size,
       nearWrap: this.wrap.size,
     };

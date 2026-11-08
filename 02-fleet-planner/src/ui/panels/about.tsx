@@ -45,8 +45,8 @@ const CSS = `
 .fp-about .muted { color: var(--muted); }
 .fp-about .close { position: sticky; top: 0; float: right; margin: -6px -8px 0 0; padding: 2px 9px; }
 @media (max-width: 760px), (pointer: coarse) and (max-height: 520px) {
-  .fp-about-btn { left: auto; right: 12px; bottom: auto; top: 12px; width: 28px; height: 28px; line-height: 26px; }
-  .fp-about { left: 10px; right: 10px; width: auto; bottom: auto; top: 48px; max-height: calc(100% - 120px); }
+  .fp-about-btn { left: auto; right: 10px; bottom: auto; top: 132px; width: 28px; height: 28px; line-height: 26px; }
+  .fp-about { left: 10px; right: 10px; width: auto; bottom: auto; top: 168px; max-height: calc(100% - 240px); }
 }`;
 
 function Credit({ pieces }: { pieces: Piece[] }) {

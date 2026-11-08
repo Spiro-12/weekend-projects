@@ -122,7 +122,8 @@ export class Props {
     this.conv = null;
     if (p.conveyor) {
       const c = p.conveyor;
-      const n = Math.max(1, Math.round((c.x1 - c.x0) / 2));
+      // Sections stretched to about 3 m (the 2 m model has close rollers; at 3 m it still reads as a roller bed).
+      const n = Math.max(1, Math.round((c.x1 - c.x0) / 3));
       const len = (c.x1 - c.x0) / n;
       for (let i = 0; i < n; i++) {
         const x = c.x0 + len * (i + 0.5);
