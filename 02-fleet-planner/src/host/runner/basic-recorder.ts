@@ -40,6 +40,8 @@ export const basicRecorder: KpiRecorderFactory = (s, w) => {
         backlogTrendPerHour: trend,
         keepsUp: trend <= 0.02 * s.orders.perHour,
         resetsPerHour: 0,
+        retasksPerHour: 0,
+        deadlocksOver2MinPerShift: 0,
         unitsPerPickerHour: 0,
         byType: {},
       };

@@ -1,0 +1,6 @@
+{
+  // Spike b's sim code under the sim-purity rules (PROTOCOL §8): ES2022 only, no DOM, no node.
+  //   npx tsc -p spikes/b-traffic/tsconfig.src.json
+  "extends": "../../tsconfig.sim.json",
+  "include": ["src"]
+}

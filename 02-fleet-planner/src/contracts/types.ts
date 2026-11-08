@@ -44,6 +44,8 @@ export interface AgentSpec {
   payloadKg: Sourced;
   /** Extra cells kept clear ahead while moving (forklift safety field). */
   safetyCells: number;
+  /** Extra ticks per 90° turn (AMR 1, forklift 2, others 0). A turn also resets the speed remainder. */
+  turnTicks: number;
   can: Capability[];
   /** Seconds per order line at a pick face (pickers, humanoids). */
   pickSecPerLine?: Sourced;
@@ -174,8 +176,11 @@ export interface Scenario {
   vendors: Partial<Record<RobotTypeId, VendorShare[]>>;
   traffic: {
     mode: TrafficMode;
-    /** Many-brains recovery ladder knobs ("how smart are the vendors' robots"). */
-    silo: { sensorCells: number; waitTicks: number; resetMin: number };
+    /**
+     * Many-brains recovery ladder knobs ("how smart are the vendors' robots"), spike b defaults (typical vendors):
+     * sensorCells 3, waitTicks 5, resetMin 5, retaskSec 90. Presets: smart 60 s / 3 ticks, poor 120 s / 8 ticks.
+     */
+    silo: { sensorCells: number; waitTicks: number; resetMin: number; retaskSec: number };
   };
   economics: {
     financing: 'buy' | 'raas';
@@ -215,6 +220,8 @@ export interface AgentView {
   /** 0..100. Humans report 100. */
   batteryPct: number;
   blockedTicks: number;
+  /** Agent this one is waiting for (wait-for graph), or -1. The renderer draws "waiting for" arrows from it. */
+  waitOn: number;
 }
 
 export type TaskKind = 'pick' | 'replenish' | 'inbound' | 'charge' | 'park';
@@ -256,6 +263,9 @@ export type SimEvent =
   | { t: 'deadlockStart'; tick: number; deadlock: number; agents: number[] }
   | { t: 'deadlockEnd'; tick: number; deadlock: number }
   | { t: 'manualReset'; tick: number; agent: number }
+  | { t: 'retask'; tick: number; agent: number; goal: number }
+  | { t: 'safetyStop'; tick: number; agent: number; cell: number }
+  | { t: 'yield'; tick: number; agent: number; person: number }
   | { t: 'chargeStart'; tick: number; agent: number; charger: number }
   | { t: 'chargeEnd'; tick: number; agent: number }
   | { t: 'breakdown'; tick: number; agent: number }
@@ -322,6 +332,10 @@ export interface Kpis {
   /** Units per picker-hour divided by the people-only rate, both at capacity (when measured). */
   pickerUplift?: number;
   resetsPerHour: number;
+  /** Many-brains fleet-manager job timeouts per hour (one brain: 0). */
+  retasksPerHour: number;
+  /** Deadlocks that lasted more than 2 minutes, per shift. */
+  deadlocksOver2MinPerShift: number;
   unitsPerPickerHour: number;
   byType: Partial<Record<AgentTypeId, StateShare>>;
 }

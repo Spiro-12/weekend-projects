@@ -66,6 +66,8 @@ export function fakeEvaluate(s: Scenario, opts: EvaluateOptions = {}): RunResult
     keepsUp,
     pickerUplift: f.amr > 0 && f.picker > 0 ? Math.round(uplift * 100) / 100 : undefined,
     resetsPerHour: siloed ? Math.round(robots * 0.02 * 10) / 10 : 0,
+    retasksPerHour: siloed ? Math.round(robots * 0.4) : 0,
+    deadlocksOver2MinPerShift: 0,
     unitsPerPickerHour: f.picker > 0 ? Math.round(75 * uplift * congestion) : 0,
     byType,
   };

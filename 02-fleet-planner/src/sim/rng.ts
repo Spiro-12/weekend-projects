@@ -101,5 +101,5 @@ export function stream(seed: number, name: string): Rng {
   return new Rng(mix32((seed >>> 0) ^ fnv1a32(name)));
 }
 
-/** Stream names used by the sim (PROTOCOL §8). Vendor tie-break streams are `tiebreak:<vendorId>`. */
-export const STREAMS = ['arrivals', 'humans', 'faults', 'battery', 'physical'] as const;
+/** Stream names used by the sim (PROTOCOL §8). Per-vendor streams are `tiebreak:<vendor>` and `ladder:<vendor>`. */
+export const STREAMS = ['arrivals', 'humans', 'faults', 'battery', 'physical', 'spawn'] as const;

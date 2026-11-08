@@ -1,5 +1,5 @@
 {
- "_note": "PLAN.md §9 budgets. Spikes may tighten these; loosening needs a reason in RESULTS.md.",
+ "_note": "PLAN.md \u00a79 budgets. Spikes may tighten these; loosening needs a reason in RESULTS.md.",
  "jsInitialGzKB": 300,
  "firstUsefulViewKB": 400,
  "firstUsefulViewMs": 2000,
@@ -14,11 +14,17 @@
  "triangles": 2500000,
  "phoneDrawCalls": 60,
  "phoneTriangles": 500000,
- "simMsPerTickCentral": 0.1,
+ "simMsPerTickCentral": 0.2,
  "simMsPerTickSiloed": 0.2,
  "shift8hSec": 10,
  "evaluateMs": 2000,
  "sweep20Sec": 60,
  "ciSlack": 3,
- "throttle": { "downloadKbps": 20000, "uploadKbps": 5000, "latencyMs": 40 }
+ "throttle": {
+  "downloadKbps": 20000,
+  "uploadKbps": 5000,
+  "latencyMs": 40
+ },
+ "plannerMsPerTick": 0.1,
+ "_simNote": "Whole tick (planner + detection + work) at 150 robots + people, both modes. Spike b: planner 0.04-0.09 ms; whole tick 0.14 ms before the jam detector was bucketed."
 }

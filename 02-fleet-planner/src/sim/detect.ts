@@ -105,21 +105,40 @@ export class JamTracker {
   update(tick: number, cells: ArrayLike<number>, blockedTicks: ArrayLike<number>): { started: JamInfo[]; ended: JamInfo[] } {
     const stopped: number[] = [];
     for (let i = 0; i < cells.length; i++) if (blockedTicks[i] >= JAM_MIN_TICKS && cells[i] >= 0) stopped.push(i);
-    // Union-find over stopped agents within JAM_RADIUS (Manhattan).
+    // Union-find over stopped agents within JAM_RADIUS (Manhattan). Bucket cells into JAM_RADIUS-sized squares so
+    // only neighbouring buckets are compared: O(n) for spread-out agents instead of O(n²).
     const parent = stopped.map((_, k) => k);
     const find = (k: number): number => (parent[k] === k ? k : (parent[k] = find(parent[k])));
     const w = this.width;
-    for (let a = 0; a < stopped.length; a++)
-      for (let b = a + 1; b < stopped.length; b++) {
-        const ca = cells[stopped[a]];
-        const cb = cells[stopped[b]];
-        const d = Math.abs((ca % w) - (cb % w)) + Math.abs(((ca - (ca % w)) / w) - ((cb - (cb % w)) / w));
-        if (d <= JAM_RADIUS) {
-          const ra = find(a);
-          const rb = find(b);
-          if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb);
+    const B = JAM_RADIUS;
+    const bucketOf = new Map<number, number[]>();
+    const bx = (c: number) => Math.floor((c % w) / B);
+    const by = (c: number) => Math.floor((c - (c % w)) / w / B);
+    stopped.forEach((agent, k) => {
+      const key = by(cells[agent]) * 65536 + bx(cells[agent]);
+      if (!bucketOf.has(key)) bucketOf.set(key, []);
+      bucketOf.get(key)!.push(k);
+    });
+    for (let a = 0; a < stopped.length; a++) {
+      const ca = cells[stopped[a]];
+      const ax = bx(ca);
+      const ay = by(ca);
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          const list = bucketOf.get((ay + dy) * 65536 + (ax + dx));
+          if (!list) continue;
+          for (const b of list) {
+            if (b <= a) continue;
+            const cb = cells[stopped[b]];
+            const d = Math.abs((ca % w) - (cb % w)) + Math.abs((ca - (ca % w)) / w - (cb - (cb % w)) / w);
+            if (d <= JAM_RADIUS) {
+              const ra = find(a);
+              const rb = find(b);
+              if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb);
+            }
+          }
         }
-      }
+    }
     const groups = new Map<number, number[]>();
     for (let k = 0; k < stopped.length; k++) {
       const r = find(k);

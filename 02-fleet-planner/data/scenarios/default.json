@@ -77,7 +77,8 @@
   "silo": {
    "sensorCells": 3,
    "waitTicks": 5,
-   "resetMin": 5
+   "resetMin": 5,
+   "retaskSec": 90
   }
  },
  "economics": {

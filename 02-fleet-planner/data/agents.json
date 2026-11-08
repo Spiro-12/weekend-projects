@@ -36,6 +36,7 @@
     "src": "locus-origin-sheet"
    },
    "safetyCells": 0,
+   "turnTicks": 1,
    "can": [
     "carry_tote"
    ],
@@ -155,6 +156,7 @@
     "src": "vecna-cpj-sheet"
    },
    "safetyCells": 1,
+   "turnTicks": 2,
    "can": [
     "carry_pallet"
    ],
@@ -273,6 +275,7 @@
     "note": "Digit 4; Digit 5 option lists 23 kg."
    },
    "safetyCells": 0,
+   "turnTicks": 0,
    "can": [
     "pick",
     "carry_tote"
@@ -366,6 +369,7 @@
     "note": "Per lift."
    },
    "safetyCells": 0,
+   "turnTicks": 0,
    "can": [
     "pick",
     "carry_tote"
@@ -417,6 +421,7 @@
     "note": "Common 5,000 lb counterbalance rating."
    },
    "safetyCells": 1,
+   "turnTicks": 2,
    "can": [
     "carry_pallet"
    ],

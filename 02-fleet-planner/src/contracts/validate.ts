@@ -61,6 +61,7 @@ export function validateAgents(f: AgentsFile): string[] {
     if (a.can.includes('pick') && !a.pickSecPerLine) errs.push(`agents.${a.id}: pickers need pickSecPerLine`);
     if (a.can.includes('carry_pallet') && !a.palletSecPerMove) errs.push(`agents.${a.id}: pallet movers need palletSecPerMove`);
     if (!isInt(a.safetyCells) || a.safetyCells < 0) errs.push(`agents.${a.id}: safetyCells must be a non-negative integer`);
+    if (!isInt(a.turnTicks) || a.turnTicks < 0) errs.push(`agents.${a.id}: turnTicks must be a non-negative integer`);
   }
   return errs;
 }
@@ -126,6 +127,7 @@ export function validateScenario(s: Scenario, layouts?: string[]): string[] {
   int(s.traffic?.silo?.sensorCells, 'traffic.silo.sensorCells', 1);
   int(s.traffic?.silo?.waitTicks, 'traffic.silo.waitTicks', 1);
   int(s.traffic?.silo?.resetMin, 'traffic.silo.resetMin', 1);
+  int(s.traffic?.silo?.retaskSec, 'traffic.silo.retaskSec', 1);
   if (!['buy', 'raas'].includes(s.economics?.financing)) errs.push('scenario.economics.financing: buy or raas');
   const b = s.economics?.baseline;
   if (b !== 'auto') {

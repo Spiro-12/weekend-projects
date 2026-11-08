@@ -4,7 +4,9 @@
 //   wall with dock doors (D) · staging (S) and forklift chargers (C) · front cross aisle (=, 3 rows)
 //   storage: single rack · [aisle (2 wide) · back-to-back rack pair] … · aisle · single rack, side aisles on both ends
 //   (large layouts get a 2-row mid cross aisle) · back cross aisle (=, 3 rows)
-//   pack zone: narrow tote lane (.) · pack stations (P), robot chargers (C) and parking (K) as pockets · conveyors · wall
+//   pack zone: 2-wide tote lane (.) · pack stations (P), robot chargers (C) and parking (K) as pockets · conveyors · wall
+//   (the lane is 2 wide so robots and people can queue and pass at the stations: spike b found a 1-wide lane was the
+//   main hotspot in both traffic modes)
 import { CELL_MM, type LayoutFile, type LayoutZone } from '../contracts/types.ts';
 
 export interface LayoutParams {
@@ -34,7 +36,7 @@ export function generateLayout(p: LayoutParams): LayoutFile {
   const top = 1 + 2 + 3; // wall, staging rows, front cross aisle
   const storageH = p.rackLen + midRows;
   const backCross = 3;
-  const packRows = 4; // tote lane, stations/pockets, conveyor x2
+  const packRows = 5; // tote lane x2, stations/pockets, conveyor x2
   const H = top + storageH + backCross + packRows + 1;
 
   const g: string[][] = Array.from({ length: H }, () => Array.from({ length: W }, () => 'X'));
@@ -86,9 +88,12 @@ export function generateLayout(p: LayoutParams): LayoutFile {
   for (let y = yb; y < yb + backCross; y++) for (let x = 1; x < W - 1; x++) set(x, y, '=');
 
   // Pack zone.
-  const yLane = yb + backCross; // narrow tote lane (robots and people only)
-  const yPocket = yLane + 1; // stations and pockets, served from the lane
-  for (let x = 1; x < W - 1; x++) set(x, yLane, '.');
+  const yLane = yb + backCross; // narrow tote lane (robots and people only), 2 rows
+  const yPocket = yLane + 2; // stations and pockets, served from the lane
+  for (let x = 1; x < W - 1; x++) {
+    set(x, yLane, '.');
+    set(x, yLane + 1, '.');
+  }
   // Robot chargers at the left, parking at the right, pack stations (2 wide) spread across the middle.
   for (let i = 0; i < p.robotChargers; i++) set(1 + i, yPocket, 'C');
   for (let i = 0; i < p.parking; i++) set(W - 2 - i, yPocket, 'K');
@@ -105,7 +110,7 @@ export function generateLayout(p: LayoutParams): LayoutFile {
   const zones: LayoutZone[] = [
     { id: 'dock', label: 'SHIPPING & RECEIVING', kind: 'dock', x: 1, y: 1, w: W - 2, h: 2 },
     { id: 'storage', label: 'STORAGE', kind: 'storage', x: 3, y: y0, w: storageW, h: storageH },
-    { id: 'pack', label: 'PICK AND PACK', kind: 'pack', x: midL, y: yLane, w: midR - midL + 1, h: 2 },
+    { id: 'pack', label: 'PICK AND PACK', kind: 'pack', x: midL, y: yLane, w: midR - midL + 1, h: 3 },
     { id: 'charge', label: 'CHARGING', kind: 'charge', x: 1, y: yPocket, w: p.robotChargers, h: 1 },
     { id: 'charge-forklift', label: 'CHARGING', kind: 'charge', x: 1, y: 1, w: p.forkliftChargers, h: 1 },
     { id: 'park', label: 'PARKING', kind: 'park', x: W - 1 - p.parking, y: yPocket, w: p.parking, h: 1 },

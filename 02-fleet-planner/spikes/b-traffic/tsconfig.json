@@ -1,0 +1,6 @@
+{
+  // Spike b, everything (bench scripts and tests use node types): npx tsc -p spikes/b-traffic/tsconfig.json
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "types": ["node"] },
+  "include": ["src", "bench", "browser", "tests", "vitest.config.ts"]
+}

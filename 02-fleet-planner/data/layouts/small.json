@@ -31,6 +31,7 @@
   "X====================================X",
   "X====================================X",
   "X....................................X",
+  "X....................................X",
   "XCCCCCCCCXXPPXXPPXXPPXXPPXXXXKKKKKKKKX",
   "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
   "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
@@ -66,14 +67,14 @@
    "x": 10,
    "y": 25,
    "w": 18,
-   "h": 2
+   "h": 3
   },
   {
    "id": "charge",
    "label": "CHARGING",
    "kind": "charge",
    "x": 1,
-   "y": 26,
+   "y": 27,
    "w": 8,
    "h": 1
   },
@@ -91,7 +92,7 @@
    "label": "PARKING",
    "kind": "park",
    "x": 29,
-   "y": 26,
+   "y": 27,
    "w": 8,
    "h": 1
   },
@@ -100,7 +101,7 @@
    "label": "TO SHIPPING",
    "kind": "conveyor",
    "x": 1,
-   "y": 27,
+   "y": 28,
    "w": 36,
    "h": 2
   }

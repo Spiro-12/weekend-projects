@@ -61,6 +61,7 @@ interface FAgent {
   batteryMax: number;
   charging: number; // charger index or -1
   blockedTicks: number;
+  waitOn: number;
   removing: boolean;
 }
 
@@ -172,6 +173,7 @@ export class FakeSim implements Sim {
         batteryMax: max,
         charging: -1,
         blockedTicks: 0,
+        waitOn: -1,
         removing: false,
       };
       this.occ[cell] = a.id;
@@ -290,6 +292,7 @@ export class FakeSim implements Sim {
     }
     const occupant = this.occ[next];
     if (occupant >= 0) {
+      a.waitOn = occupant;
       a.blockedTicks++;
       a.state = 'blocked';
       waitFor[a.id] = occupant;
@@ -301,7 +304,7 @@ export class FakeSim implements Sim {
       return;
     }
     const h = headingOf(a.cell, next, this.world.width);
-    const extra = turns(a.heading, h) * (a.type === 'forklift' ? 2 : a.type === 'amr' ? 1 : 0);
+    const extra = turns(a.heading, h) * a.spec.turnTicks;
     const m = moveTicks(a.blockedTicks > 0 ? 0 : a.carry, a.speed, extra);
     a.carry = m.carryMm;
     a.heading = h;
@@ -310,6 +313,7 @@ export class FakeSim implements Sim {
     a.moveEnd = tick + m.ticks;
     this.occ[next] = a.id;
     a.blockedTicks = 0;
+    a.waitOn = -1;
     a.state = 'travel';
   }
 
@@ -421,6 +425,7 @@ export class FakeSim implements Sim {
       cargo: a.cargo,
       batteryPct: a.spec.kind === 'robot' ? Math.floor((a.battery * 100) / a.batteryMax) : 100,
       blockedTicks: a.blockedTicks,
+      waitOn: a.state === 'blocked' ? a.waitOn : -1,
     }));
     const tasks: TaskView[] = this.agents
       .filter((a) => a.taskId >= 0)

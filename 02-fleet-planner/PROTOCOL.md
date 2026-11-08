@@ -8,13 +8,13 @@ The contracts every track follows. **Frozen at the end of Phase 0.** Only the le
 
 ## §1 Units, time, state
 - **Tick** = 0.5 s of warehouse time (`TICK_MS = 500`, `TICKS_PER_HOUR = 7200`).
-- **Cell** = 1.5 m (`CELL_MM = 1500`). One agent per cell. A moving agent holds both its cell and the cell it is moving into until it arrives.
+- **Cell** = 1.5 m (`CELL_MM = 1500`). One agent per cell. A moving agent holds both its cell and the cell it is moving into until it arrives. **Nobody may start a move into a cell that is being left** (causal PIBT), so followers keep one empty cell of spacing.
 - **Sim state is integers only:**
   - positions: cell indices `y * width + x`
   - money: cents (economics) or whole dollars (inputs)
   - battery: `batteryTicksLeft` (percent only in snapshots)
-  - **speed:** millimetres per tick, `round(speedMps × 500)`. Each agent carries its leftover distance (`src/sim/motion.ts → moveTicks`), so move durations alternate and the average speed is exact (within 1% over 1,000 cells).
-- **Turns:** AMR +1 tick per 90°, forklift +2.
+  - **speed:** millimetres per tick, `round(speedMps × 500)`. Each agent carries its leftover distance (`src/sim/motion.ts → moveTicks`) **only while moving continuously**; a stop or a turn resets it to 0. Move durations alternate and the average speed is exact (AMR 3 ticks/cell, humanoid 4,4,4,3, driver 3,2,2,2,3…).
+- **Turns:** `AgentSpec.turnTicks` extra ticks per 90° (AMR 1, forklift and driver 2, others 0).
 - `hash()` throws if any state number is not an integer.
 - **Conversions** to m/s, $, % happen in UI code only.
 
@@ -31,7 +31,7 @@ The contracts every track follows. **Frozen at the end of Phase 0.** Only the le
 
 - **Per type:**
   - identity: `kind` (robot/human), `model` (render key; `code:` = built in code), `basedOn[]` (real products the numbers come from; shown in hovers, never as branding)
-  - movement: `passClass` (`small` / `forklift` / `human`), `speedMps` (in shared aisles), `topSpeedMps`, `payloadKg`, `safetyCells` (forklift 1)
+  - movement: `passClass` (`small` / `forklift` / `human`), `speedMps` (in shared aisles), `topSpeedMps`, `payloadKg`, `safetyCells` (forklift 1), `turnTicks`
   - work: `can[]` (`pick`, `carry_tote`, `carry_pallet`), `pickSecPerLine`, `palletSecPerMove`, `handoffSec`
   - `battery {runtimeH, chargeH, chargeAtPct}` (robots)
   - `cost {buyUsd, raasUsdPerMonth, raasSetupUsd, maintPctPerYear, softwareUsdPerYear, integrationUsd, wageUsdPerHour, equipmentUsd}`
@@ -59,14 +59,14 @@ The contracts every track follows. **Frozen at the end of Phase 0.** Only the le
   | `> < ^ v` | one-way hint on a `=` cell (one-brain guidance only) |
 
 - **Shape:**
-  - picking aisles are 2 cells wide (3 m: people and robots pass); cross aisles 3 cells
+  - picking aisles are 2 cells wide (3 m: people and robots pass); cross aisles 3 cells; **the pack lane is 2 cells wide** (spike b: a 1-wide lane was the main hotspot in both modes)
   - racks run back to back between aisles
   - the pack zone is at the bottom, docks across the top
 - **Also:**
   - `racks {levels, heightMm}`
   - `zones[] {id, label, kind, x, y, w, h}`; kinds `storage | pack | dock | charge | park | conveyor`; zone `charge-forklift` marks forklift chargers
   - `aisles`, `cellMm`
-- **Presets:** `small` (8 aisles, 38×30), `default` (14 aisles, 62×34, about 93 × 51 m), `large` (22 aisles, 94×46).
+- **Presets:** `small` (8 aisles, 38×31), `default` (14 aisles, 62×35, about 93 × 53 m), `large` (22 aisles, 94×47).
 - **`src/sim/world.ts`** builds the graph:
   - per-class passable cells
   - 4-neighbours in fixed E, S, W, N order
@@ -89,7 +89,15 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
 - **`vendors`:** per robot type, `[{id: 'A', pct: 60}, …]`. Ids are single capital letters; percentages add to 100; counts are split by largest remainder.
 - **`traffic {mode, silo}`:**
   - `mode`: `central` (one brain), `siloed` (many brains) or `shared-status` (ISO 21423 level, Phase 2)
-  - `silo` = the many-brains recovery-ladder knobs: `sensorCells`, `waitTicks`, `resetMin`
+  - `silo` = the many-brains recovery-ladder knobs ("how smart are the vendors' robots"): `sensorCells`, `waitTicks`, `resetMin`, `retaskSec` (the vendor fleet manager's job timeout, the main gap knob). Presets (spike b, default fleet):
+
+    | Preset | Knobs | Many brains vs one brain |
+    |---|---|---|
+    | smart | `retaskSec 60`, `waitTicks 3` | 7 to 9% fewer tasks/h |
+    | **typical (default)** | `retaskSec 90`, `waitTicks 5` | 11 to 12% fewer |
+    | poor | `retaskSec 120`, `waitTicks 8` | 17 to 26% fewer, with 7 to 10 manual resets/h |
+
+    The gap grows with crowding (spike b, large layout: 6.7% at 30 robots, 64.5% at 60 while one brain still gains). The 10 to 40% band is our judgment; no public field data exists.
 - **`economics {financing: buy|raas, baseline: 'auto' | {picker, driver}}`:** `auto` = the smallest all-human crew that keeps up, on the same orders.
 - **`events`:**
   - Phase 1: `breakdown {atMin, agent, forMin}`
@@ -115,9 +123,19 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
   - `openOrders`, `shippedOrders`, `chargers[] {cell, vendor, agentId}`
   - `deadlocks[] {ids, sinceTick}`
   - `heat` (blocked agent-ticks per cell)
-- **Agent states:** `idle`, `travel`, `work`, `wait` (e.g. an AMR waiting for a picker), `blocked` (wants to move, can't), `charge`, `broken`.
-- **Events** (`SimEvent`, all with `tick`): `orderArrived`, `orderPacked`, `orderShipped {arrivedTick}`, `taskAssigned`, `pickDone`, `toteDelivered`, `palletMoved`, `jamStart/End`, `deadlockStart/End`, `manualReset`, `chargeStart/End`, `breakdown/repair`, `personInAisle`.
-- **People are cell agents, not in the robot planner.** The sim core moves them along the `human` distance gradient. Robots treat people's cells (and the cell a person is moving into) as fixed obstacles each tick. A person blocked 4 ticks steps aside to a free neighbour cell. Robots slow down within 2 cells of a person.
+- **Agent states:** `idle`, `travel`, `work`, `wait` (e.g. an AMR waiting for a picker), `blocked` (wants to move, can't), `charge`, `broken`. `AgentView.waitOn` = the agent it waits for (wait-for graph), or -1.
+- **Events** (`SimEvent`, all with `tick`): `orderArrived`, `orderPacked`, `orderShipped {arrivedTick}`, `taskAssigned`, `pickDone`, `toteDelivered`, `palletMoved`, `jamStart/End`, `deadlockStart/End`, `manualReset`, `retask`, `safetyStop`, `yield`, `chargeStart/End`, `breakdown/repair`, `personInAisle`.
+- **`Sim.stats()`:** cheap counters for the KPI recorder: `tick, openOrders, shippedOrders, ticksByState, unitsPicked, fleet`.
+- **People are cell agents, not in the robot planner.** The sim core moves them first each tick along the `human` distance gradient, then hands the planner `occ` and `yields`. Shared rules for **both** traffic modes (spike b found each one necessary; none favours one brain):
+  1. Robots treat people's cells (and their move targets) as fixed obstacles.
+  2. **Robots yield to people:** a person blocked by a robot asks it to make way (`yields`); the planner pushes it.
+  3. **Robot cell claim:** a robot that has waited 3+ ticks claims the cell it wants and people let it go first.
+  4. **People's manners:** step to the side (not back) after 4 blocked ticks; two people head-on swap; wait for an agent that is already leaving; don't crowd a busy goal (wait 2 cells back).
+  5. **Local detours for every robot** blocked `waitTicks` by something it can't negotiate with (a person, a parked robot; in many brains also foreign robots).
+  6. PIBT pushes a robot out of a forklift's needed safety cell.
+  7. Tie-break toward fewer turns.
+  8. **The WMS sends each tote to the least-loaded pack station** (always on, both modes).
+- **Work model (Phase 1):** with cart robots, **pickers stay in their pick zones** and meet AMRs at faces (the Locus model); only AMRs and humanoids visit pack stations. Without cart robots (people only), pickers push carts and walk to pack stations themselves.
 - **Shared, lead-owned modules:**
   - `world.ts` (graph, distances)
   - `motion.ts` (speed, turns)
@@ -125,7 +143,18 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
     - **deadlock** = a wait-for cycle lasting ≥ 10 ticks
     - **jam** = ≥ 3 agents stopped ≥ 20 ticks within 5 cells
   - `rng.ts`
-- **`TrafficController`** (between Track A, the core, and Tracks B and G, the planners): the exact shape is frozen from spike b's recommendation (see §12). Input: the world, robots at a cell boundary with their goals and priorities, blocked cells (people, mid-move agents). Output: `{moves, waitFor}`. Until B lands, `traffic/naive.ts` moves along the distance gradient and waits when the next cell is taken.
+- **`TrafficController`** (`src/sim/traffic/types.ts`, frozen from spike b's working shape), between Track A (core) and Tracks B and G (planners). The controller never mutates sim state.
+  - **Input:** `{tick, world, dist, agents (robot views by id), order (sim-owned priority: oldest goal tick, then a seeded tie-break redrawn at each goal, then id), ready, occ, yields}`.
+  - **Each tick, two calls:**
+    1. `recover(input) → {resets, retasks}`: the sim applies them before planning.
+    2. `plan(input, out)` fills `moveTo / safety / dir / want` per agent, plus `events`.
+  - `stateWords()` feeds `hash()`.
+  - **Implementations:**
+    - `traffic/naive.ts`: lead stub (gradient step into a free cell, no recovery), so Track A runs before B lands
+    - `traffic/central/`: Track B, one PIBT over every robot
+    - `traffic/siloed/`: Track G (Phase 2), one PIBT per vendor + physical layer + recovery ladder
+  - **Reference implementation:** `spikes/b-traffic/src/traffic.ts`.
+- **Assignment:** greedy nearest-idle by default (both modes). One brain may use batch optimal assignment capped at 32 robots per batch (Phase 2; 150 × 150 optimal costs 28 s per shift).
 
 ## §6 Runner and KPIs (`src/host/runner/`)
 - **`Runner.evaluate(settings, {saturate?}) → RunResult`** is the single source of numbers: KPI tiles, money panel, compare bar, sweep and golden tests all use it.
@@ -147,7 +176,7 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
   | `backlogEnd` | open orders at the end of the window |
   | `backlogTrendPerHour` | least-squares slope of open orders over the window. **`keepsUp`** = trend ≤ +2% of demand per hour. |
   | `pickerUplift` | units per picker-hour with AMRs ÷ people-only units per picker-hour, both at capacity. **An output, not an input**: it comes from walk speed, `pickSecPerLine` and zones, calibrated so the default lands near 75 → 135 units/h. |
-  | `unitsPerPickerHour`, `resetsPerHour` | |
+  | `unitsPerPickerHour`, `resetsPerHour`, `retasksPerHour`, `deadlocksOver2MinPerShift` | |
 
 - **`fp-sweep v1`** = `{ axes, base, results: RunResult[] }`.
 - **The fake runner** (`createFakeRunner`) returns toy numbers for UI work; the UI shows **"demo data"** whenever `host.demoData` is true.
@@ -173,7 +202,7 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
 - **Not modeled** (listed in every money hover): taxes, depreciation, discounting, interest, residual value, building changes.
 
 ## §8 Seeds and determinism
-- A master `seed` (uint32) feeds SplitMix32, which derives named sfc32 streams (`stream(seed, name)`): `arrivals`, `humans`, `faults`, `battery`, `physical`, `tiebreak:<vendor>`.
+- A master `seed` (uint32) feeds SplitMix32, which derives named sfc32 streams (`stream(seed, name)`): `arrivals`, `humans`, `faults`, `battery`, `physical`, `spawn`, `tiebreak:<vendor>`, `ladder:<vendor>`.
 - **Arrivals:** exactly **4 draws per tick** from `arrivals`. Each draw `int(28800) < perHour` adds one order, which supports up to 28,800 orders/h. Rate changes never shift later draws.
 - **Order contents** come from the counter-based `hash32(seed, n, …)`, so order #n is identical at every rate and every fleet. These are **common random numbers**: both sides of the split screen and every sweep point see the same orders.
 - Same scenario + seed + command log ⇒ the same `hash()` in Node, Chromium, Firefox and WebKit. `tests/e2e/determinism.spec.ts` checks this in CI.
@@ -239,4 +268,26 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
 - `fixtures/`: snapshots, events, RunResult, Explained and sweep samples (written by `scripts/make-fixtures.ts`).
 
 ## §12 Decisions from the Phase 0 spikes
-_Filled in when the spikes report:_ traffic algorithm and `TrafficController` shape, many-brains knob defaults, render budgets and people rendering, asset list and the worker/humanoid choice.
+Full numbers: `spikes/b-traffic/RESULTS.md`, `spikes/c-assets-RESULTS.md`, `spikes/a-render/RESULTS.md`.
+
+**Spike b (traffic):**
+- Keep 0.5 s ticks and 1.5 m cells.
+- PIBT works in both modes. Planner cost is 0.04 to 0.09 ms/tick at 150 robots; whole tick about 0.14 ms (detection included); 8 h shift ≤ 8 s.
+- The many-brains gap is 11.6% at the default fleet with typical vendors, and grows with crowding.
+- Identical hashes in Node, Chromium, Firefox and WebKit.
+- Budget change: whole tick ≤ 0.2 ms at 150 robots + people in both modes (the planner alone ≤ 0.1). The jam detector is now bucketed, O(n).
+
+**Spike c (assets):**
+- Sizes, gzipped: first tier 1.33 MB (budget 4), everything 2.01 MB (15), phone 0.43 MB (2).
+- SimReady pallets, cartons, totes, conveyor, pack table, dock gate, guard rail, light panel, column, counterbalance forklift and walk-behind stacker, all CC BY 4.0 from a pinned revision.
+- In-rack loads are composed from a pallet plus 50-triangle cartons (decimated SimReady assemblies crumpled).
+- **Built in code:** AMR, humanoid and the autonomous forklift dressing (`src/render/models/`).
+- **Worker:** Quaternius CC0 with a hi-vis vest (12.6k triangles, walk/idle/push clips, 139 KB).
+- **Model keys:** `code:amr`, `code:autonomous_forklift`, `code:humanoid`, `worker`, `forklift`.
+- **Visual weak spots (Phase 1, Tracks D and E):**
+  - The humanoid looks toy-like (box head, capsule limbs): make it sleeker.
+  - The worker looks game-like up close (OK at aisle distance).
+  - The vertex-colored forklift looks flat.
+  - **The building shell and lighting matter most:** the references have bright walls, trusses and skylights; our scene is a dark void.
+
+**Spike a (render):** _pending._
