@@ -64,23 +64,79 @@ test('world alone stays inside its budget: overview and an aisle (near SimReady 
   await expectNoErrors(errors);
 });
 
-test('a rack face can be emptied and refilled (Phase 2 stock hook)', async ({ page }) => {
+test('a rack face can be emptied and refilled (Phase 2 stock hook), loose top cartons included', async ({ page }) => {
   const errors = await openApp(page, '?tier=medium');
   const r = await page.evaluate(() => {
     const w = window.__fp!.render.layers.world as unknown as {
       setFaceFill(cell: number, fill: number): number;
+      faceBlocksDrawn(cell: number): { blocks: number; drawn: number };
       debug(): { racks: { stocked: number }; sampleFace: number };
     };
     const before = w.debug().racks.stocked;
-    const cell = w.debug().sampleFace;
-    const emptied = w.setFaceFill(cell, 0);
+    // Empty every stocked face once: no block (pallet or loose top layer) of an emptied face may stay drawn.
+    const faces = [w.debug().sampleFace];
+    const drawnBefore = w.faceBlocksDrawn(faces[0]);
+    const emptied = w.setFaceFill(faces[0], 0);
+    const drawnEmpty = w.faceBlocksDrawn(faces[0]);
     const mid = w.debug().racks.stocked;
-    w.setFaceFill(cell, 1);
+    w.setFaceFill(faces[0], 1);
+    const drawnFull = w.faceBlocksDrawn(faces[0]);
     const after = w.debug().racks.stocked;
-    return { before, mid, after, emptied };
+    return { before, mid, after, emptied, drawnBefore, drawnEmpty, drawnFull };
   });
   expect(r.emptied).toBe(0);
   expect(r.mid).toBeLessThan(r.before);
   expect(r.after).toBeGreaterThanOrEqual(r.before);
+  expect(r.drawnBefore.blocks).toBeGreaterThan(0);
+  expect(r.drawnEmpty.drawn).toBe(0);
+  expect(r.drawnFull.drawn).toBe(r.drawnFull.blocks);
+  // Every face of the hall: emptying leaves nothing floating.
+  const all = await page.evaluate(() => {
+    const w = window.__fp!.render.layers.world as unknown as {
+      setFaceFill(cell: number, fill: number): number;
+      faceBlocksDrawn(cell: number): { blocks: number; drawn: number };
+      debug(): { grid: [number, number] };
+    };
+    const [W, H] = w.debug().grid;
+    let left = 0;
+    let faces = 0;
+    for (let c = 0; c < W * H; c++) {
+      const d = w.faceBlocksDrawn(c);
+      if (!d.blocks) continue;
+      faces++;
+      w.setFaceFill(c, 0);
+      left += w.faceBlocksDrawn(c).drawn;
+    }
+    return { faces, left };
+  });
+  expect(all.faces).toBeGreaterThan(100);
+  expect(all.left).toBe(0);
+  await expectNoErrors(errors);
+});
+
+test('switching layouts twice frees the old world (GPU geometries and textures come back to the same counts)', async ({ page }) => {
+  const errors = await openApp(page, '?tier=medium');
+  type Dbg = { fullLookDone: boolean; gpu: { geometries: number; textures: number }; size: number[] };
+  const settle = async (id: string) => {
+    await page.evaluate((id) => window.__fp!.host.setScenario(id), id);
+    await page.waitForFunction(
+      (id) => {
+        const d = window.__fp!.render.layers.world.debug?.() as Dbg;
+        return d.fullLookDone && window.__fp!.host.settings.value.layout === id;
+      },
+      id,
+      { timeout: 30_000 },
+    );
+    await page.waitForTimeout(800);
+    return (await page.evaluate(() => window.__fp!.render.layers.world.debug?.() as Dbg)).gpu;
+  };
+  await page.waitForFunction(() => (window.__fp!.render.layers.world.debug?.() as Dbg).fullLookDone, null, { timeout: 30_000 });
+  await settle('small');
+  const first = await settle('default');
+  await settle('small');
+  const second = await settle('default');
+  console.log(`GPU objects after default → small → default: ${JSON.stringify(first)}, again: ${JSON.stringify(second)}`);
+  expect(second.geometries).toBe(first.geometries);
+  expect(second.textures).toBe(first.textures);
   await expectNoErrors(errors);
 });

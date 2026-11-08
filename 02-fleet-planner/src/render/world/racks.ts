@@ -70,8 +70,11 @@ export class Racks {
   private atlas: Texture;
   readonly blockMat: MeshStandardMaterial;
   private frameMat: MeshStandardMaterial;
-  /** Per slot: block instance index (or -1) and the slot's pallet matrix. */
+  /** Per slot: block instance index (or -1), its loose top-layer block (or -1) and the slot's pallet matrix. */
   private slotBlock: Int32Array;
+  private slotTop: Int32Array;
+  /** Slots that may use the SimReady composites (full or wrapped stacks). */
+  private eligible: Int32Array;
   private slotMatrix: Float32Array;
   private blockMatrix: Float32Array;
   private near = new Set<number>();
@@ -145,6 +148,8 @@ export class Racks {
     // ── Far-field blocks: one per stocked slot + one per partial top layer ──
     const slots = p.slots;
     this.slotBlock = new Int32Array(slots.length).fill(-1);
+    this.slotTop = new Int32Array(slots.length).fill(-1);
+    this.eligible = Int32Array.from(slots.filter((s) => s.kind === 'full' || s.kind === 'wrap').map((s) => s.i));
     this.slotMatrix = new Float32Array(slots.length * 16);
     const blocks: { m: Matrix4; load: [number, number, number, number] }[] = [];
     const q = new Quaternion();
@@ -181,7 +186,7 @@ export class Racks {
         const back = rnd(s.i, 5) < 0.5 ? 1 : -1;
         const ox = back * (PALLET_D - sx) * 0.5;
         const oz = (rnd(s.i, 6) < 0.5 ? -1 : 1) * (PALLET_W - sz) * 0.5;
-        pushBlock(m.compose(v(s.x + ox, s.y + h, s.z + oz), q, v(sx, CARTON_LAYER, sz)), [2, rnd(s.i, 2) * 97, CARTON_LAYER, 0]);
+        this.slotTop[s.i] = pushBlock(m.compose(v(s.x + ox, s.y + h, s.z + oz), q, v(sx, CARTON_LAYER, sz)), [2, rnd(s.i, 2) * 97, CARTON_LAYER, 0]);
       }
     }
     extra.forEach((x, i) => {
@@ -247,67 +252,123 @@ export class Racks {
       if (b < 0) continue; // slot was empty when built; only built pallets can come and go
       if (on) n++;
       this.setBlockVisible(b, on && !this.near.has(i));
+      // The loose cartons on top go with their pallet.
+      if (this.slotTop[i] >= 0) this.setBlockVisible(this.slotTop[i], on);
       if (!on && this.near.has(i)) this.near.delete(i);
       (s as Slot & { hidden?: boolean }).hidden = !on;
     }
-    this.blocks.instanceMatrix.needsUpdate = true;
+    this.flushBlocks();
     this.dirty = true;
     return n;
   }
+
+  /** Test/debug: the block instance indices of a face's pallets and loose top layers. */
+  faceBlocks(cell: number): number[] {
+    const out: number[] = [];
+    for (const i of this.plan.faceSlots.get(cell) ?? []) {
+      if (this.slotBlock[i] >= 0) out.push(this.slotBlock[i]);
+      if (this.slotTop[i] >= 0) out.push(this.slotTop[i]);
+    }
+    return out;
+  }
+
+  /** Changed block instances since the last upload (only those ranges go to the GPU). */
+  private changed: number[] = [];
 
   private setBlockVisible(b: number, on: boolean) {
     const arr = this.blocks.instanceMatrix.array as Float32Array;
     if (on) arr.set(this.blockMatrix.subarray(b * 16, b * 16 + 16), b * 16);
     else arr.fill(0, b * 16, b * 16 + 16);
+    this.changed.push(b);
+  }
+
+  private flushBlocks() {
+    if (!this.changed.length) return;
+    const im = this.blocks.instanceMatrix;
+    // Coalesce neighbouring instances into one range each.
+    this.changed.sort((a, b) => a - b);
+    let a = this.changed[0];
+    let prev = a;
+    for (let k = 1; k <= this.changed.length; k++) {
+      const c = this.changed[k];
+      if (c === prev || c === prev + 1) {
+        prev = c;
+        continue;
+      }
+      im.addUpdateRange(a * 16, (prev - a + 1) * 16);
+      a = prev = c;
+    }
+    this.changed.length = 0;
+    im.needsUpdate = true;
   }
 
   private pm = new Matrix4();
   private sphere = new Sphere(new Vector3(), 0.95);
+  private dirs: Vector3[] = [];
+  private frs: Frustum[] = [];
+  private cand: { i: number; d: number }[] = [];
+  private next = new Set<number>();
 
-  /** Re-pick the near pallets when a camera has moved (throttled). */
-  update(cams: Camera[], now: number) {
+  /** Re-pick the near pallets when a camera has moved (throttled). Uploads only the instances that changed. */
+  update(cams: readonly Camera[], now: number) {
     if (!this.glbReady) return;
+    while (this.dirs.length < cams.length) this.dirs.push(new Vector3());
+    for (let k = 0; k < cams.length; k++) cams[k].getWorldDirection(this.dirs[k]);
     let moved = this.dirty || cams.length !== this.lastCams.length;
-    const dirs = cams.map((c) => c.getWorldDirection(new Vector3()));
     if (!moved)
-      cams.forEach((c, i) => {
-        const l = this.lastCams[i];
-        if (l.p.distanceToSquared(c.position) > 0.6 || l.d.dot(dirs[i]) < 0.996) moved = true;
-      });
+      for (let k = 0; k < cams.length; k++) {
+        const l = this.lastCams[k];
+        if (l.p.distanceToSquared(cams[k].position) > 0.6 || l.d.dot(this.dirs[k]) < 0.996) moved = true;
+      }
     if (!moved || now - this.lastRebuild < 110) return;
     this.lastRebuild = now;
     this.dirty = false;
-    this.lastCams = cams.map((c, i) => ({ p: c.position.clone(), d: dirs[i] }));
+    while (this.lastCams.length < cams.length) this.lastCams.push({ p: new Vector3(), d: new Vector3() });
+    this.lastCams.length = cams.length;
+    for (let k = 0; k < cams.length; k++) {
+      this.lastCams[k].p.copy(cams[k].position);
+      this.lastCams[k].d.copy(this.dirs[k]);
+    }
 
     const caps = this.caps;
     const slots = this.plan.slots;
-    const cand: { i: number; d: number }[] = [];
+    const cand = this.cand;
+    cand.length = 0;
     if (caps.pallets > 0) {
-      const frs = cams.map((c) => {
-        c.updateMatrixWorld();
-        return new Frustum().setFromProjectionMatrix(this.pm.multiplyMatrices(c.projectionMatrix, c.matrixWorldInverse));
-      });
+      while (this.frs.length < cams.length) this.frs.push(new Frustum());
+      for (let k = 0; k < cams.length; k++) {
+        cams[k].updateMatrixWorld();
+        this.frs[k].setFromProjectionMatrix(this.pm.multiplyMatrices(cams[k].projectionMatrix, cams[k].matrixWorldInverse));
+      }
       const r2 = caps.radius * caps.radius;
-      for (const s of slots) {
-        if ((s.kind !== 'full' && s.kind !== 'wrap') || (s as Slot & { hidden?: boolean }).hidden) continue;
+      for (const i of this.eligible) {
+        const s = slots[i];
+        if ((s as Slot & { hidden?: boolean }).hidden) continue;
         this.sphere.center.set(s.x, s.y + 0.6, s.z);
         let best = Infinity;
         for (let k = 0; k < cams.length; k++) {
           const d2 = cams[k].position.distanceToSquared(this.sphere.center);
           if (d2 > r2 || d2 >= best) continue;
-          if (!frs[k].intersectsSphere(this.sphere)) continue;
+          if (!this.frs[k].intersectsSphere(this.sphere)) continue;
           best = d2;
         }
-        if (best < Infinity) cand.push({ i: s.i, d: best });
+        if (best < Infinity) cand.push({ i, d: best });
       }
       cand.sort((a, b) => a.d - b.d);
       if (cand.length > caps.pallets) cand.length = caps.pallets;
     }
-    const next = new Set(cand.map((c) => c.i));
+    const next = this.next;
+    next.clear();
+    for (const c of cand) next.add(c.i);
+    // Same pallets as before: nothing to upload.
+    let same = next.size === this.near.size;
+    if (same) for (const i of next) if (!this.near.has(i)) same = false;
+    if (same) return;
     for (const i of this.near) if (!next.has(i)) this.setBlockVisible(this.slotBlock[i], true);
     for (const i of next) if (!this.near.has(i)) this.setBlockVisible(this.slotBlock[i], false);
+    this.flushBlocks();
+    this.next = this.near;
     this.near = next;
-    this.blocks.instanceMatrix.needsUpdate = true;
     let nf = 0;
     let nw = 0;
     for (const i of next) {

@@ -39,9 +39,13 @@ test('About & credits opens and lists every model credit and the NVIDIA line', a
   }
   await expect(page.getByTestId('about-quaternius')).toContainText('CC0 1.0');
   await expect(card.locator('a[href="https://creativecommons.org/licenses/by/4.0/"]').first()).toBeVisible();
-  // Escape closes it; the canvas still takes clicks around the button.
+  // The worker (Quaternius) credit is listed once.
+  expect(((await card.textContent()) ?? '').split('Universal Base Characters').length - 1).toBe(1);
+  // Focus moves into the dialog, and Escape closes it and returns focus to the button.
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('data-testid'))).toBe('about-card');
   await page.keyboard.press('Escape');
   await expect(card).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute('data-testid'))).toBe('about-button');
   await expectNoErrors(errors);
 });
 

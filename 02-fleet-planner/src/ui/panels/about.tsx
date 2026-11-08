@@ -2,7 +2,7 @@
 // the NVIDIA SimReady line (exact text from CREDITS.md), each shipped model's credit from the asset manifest, and the
 // Quaternius line. CC BY 4.0 requires this wherever the assets ship. Slot `overlay`: the panel places its own button
 // and card (position: absolute); the section never blocks clicks.
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { Host } from '../../host/index.ts';
 import type { Manifest } from '../../render/core/assets.ts';
 import { definePanel } from '../panel.ts';
@@ -43,6 +43,7 @@ const CSS = `
 .fp-about li { margin: 0 0 6px; }
 .fp-about .k { color: var(--accent); font-family: var(--mono); font-size: 11px; }
 .fp-about .muted { color: var(--muted); }
+.fp-about:focus { outline: none; }
 .fp-about .close { position: sticky; top: 0; float: right; margin: -6px -8px 0 0; padding: 2px 9px; }
 @media (max-width: 760px), (pointer: coarse) and (max-height: 520px) {
   .fp-about-btn { left: auto; right: 10px; bottom: auto; top: 132px; width: 28px; height: 28px; line-height: 26px; }
@@ -85,7 +86,14 @@ function About({ host }: { host: Host }) {
       .then((m) => m.assetLoader(import.meta.env.BASE_URL).manifest())
       .then(setManifest, () => setError(true));
   }, [open, manifest]);
-  useEffect(() => {
+  const btn = useRef<HTMLButtonElement>(null);
+  const card = useRef<HTMLDivElement>(null);
+  const wasOpen = useRef(false);
+  useLayoutEffect(() => {
+    // Focus moves into the dialog on open and back to the "i" button on close (keyboard and screen-reader users).
+    if (open) card.current?.focus();
+    else if (wasOpen.current) btn.current?.focus();
+    wasOpen.current = open;
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
     addEventListener('keydown', onKey);
@@ -98,6 +106,7 @@ function About({ host }: { host: Host }) {
     <>
       <style>{CSS}</style>
       <button
+        ref={btn}
         class="fp-about-btn"
         data-testid="about-button"
         aria-label="About and credits"
@@ -108,7 +117,7 @@ function About({ host }: { host: Host }) {
         i
       </button>
       {open && (
-        <div class="card fp-about" role="dialog" aria-label="About and credits" data-testid="about-card">
+        <div ref={card} tabIndex={-1} class="card fp-about" role="dialog" aria-label="About and credits" data-testid="about-card">
           <button class="close" aria-label="Close" onClick={() => setOpen(false)}>
             ×
           </button>
@@ -137,7 +146,7 @@ function About({ host }: { host: Host }) {
           )}
           <h3>Characters</h3>
           {other.length > 0 && (
-            <ul>
+            <ul data-testid="about-quaternius">
               {other.map(([key, m]) => (
                 <li key={key} data-testid={`about-credit-${key}`}>
                   <b>{m.label}</b> <span class="k">{key}</span>
@@ -149,6 +158,7 @@ function About({ host }: { host: Host }) {
               ))}
             </ul>
           )}
+          {other.length === 0 && (
           <p data-testid="about-quaternius">
             "Universal Base Characters" and "Universal Animation Library" by <b>Quaternius</b> (
             <a href="https://quaternius.com" target="_blank" rel="noopener noreferrer">
@@ -160,6 +170,7 @@ function About({ host }: { host: Host }) {
             </a>
             ). Modified: work clothes painted on, animations retargeted, re-compressed.
           </p>
+          )}
           <h3>Built in code</h3>
           <p>
             The building, racks, floor markings, cart robots, the humanoid robot and the autonomous-forklift sensor kit

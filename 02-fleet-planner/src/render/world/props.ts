@@ -181,7 +181,18 @@ export class Props {
     standMat.name = 'stand-ins';
     this.mats.push(boxMat, glowMat, standMat);
     this.boxes = instancedBoxes(unit, boxMat, box, 'props');
-    this.glow = instancedBoxes(unit.clone(), glowMat, glow, 'glow');
+    // The LED stand-ins hang under the roof: they get the same roof cut-away as the real panels (mode 3).
+    const glowGeo = unit.clone();
+    const gCut = new Float32Array(Math.max(1, glow.length) * 4);
+    const gGrp = new Float32Array(Math.max(1, glow.length) * 3);
+    for (let i = lightGlow0; i < lightGlow0 + P.light_panel.length; i++) {
+      gCut[i * 4 + 3] = 3;
+      gGrp.set([glow[i].x, glow[i].y, glow[i].z], i * 3);
+    }
+    glowGeo.setAttribute('aCut', new InstancedBufferAttribute(gCut, 4));
+    glowGeo.setAttribute('aGroup', new InstancedBufferAttribute(gGrp, 3));
+    patchCutaway(glowMat, cut, { instanced: true });
+    this.glow = instancedBoxes(glowGeo, glowMat, glow, 'glow');
     this.standIns = instancedBoxes(unit.clone(), standMat, stand, 'stand-ins');
     this.lightStandIn = [lightGlow0, P.light_panel.length];
     stand.forEach((it, i) => {

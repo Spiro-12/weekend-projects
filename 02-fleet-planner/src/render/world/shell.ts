@@ -103,9 +103,9 @@ export function buildShell(p: WorldPlan, envMap: Texture | null): Shell {
   const part = (c: Cut): Cut => [c[0], c[1], c[2], 2];
 
   const PLINTH = '#a9aeb5';
-  const PANEL = '#d6dae0';
+  const PANEL = '#dadcdf';
   const SEAM = '#c2c7ce';
-  const UPPER = '#cfd4da';
+  const UPPER = '#d4d7db';
   const CAP = '#8c929a';
   const winY0 = H - 4.4;
   const winY1 = H - 1.0;
@@ -285,7 +285,7 @@ export function buildShell(p: WorldPlan, envMap: Texture | null): Shell {
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvEmit = aEmit;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying float vEmit;')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vColor.rgb * (vEmit * 1.15 + 0.2);')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vColor.rgb * (vEmit * 1.15 + 0.3);')
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.12, vEmit);');
   };
   patchCutaway(wallsMat, u, { instanced: false });

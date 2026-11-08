@@ -28,7 +28,8 @@ const APRON = 60;
 const isOpen = (c: string) => c === '=' || c === '.' || c === 'S' || c === '<' || c === '>' || c === '^' || c === 'v';
 
 export function floorPxPerM(tier: Tier, p: WorldPlan): number {
-  const cap = tier === 'high' || tier === 'medium' ? 4096 : 2048;
+  // Canvas caps (memory: an RGBA canvas plus its GPU copy with mips): high 4096 px, medium 3072, low and lite 2048.
+  const cap = tier === 'high' ? 4096 : tier === 'medium' ? 3072 : 2048;
   const want = tier === 'high' ? 32 : tier === 'medium' ? 28 : tier === 'low' ? 16 : 12;
   return Math.min(want, cap / p.sizeX, cap / p.sizeZ);
 }
@@ -233,10 +234,10 @@ export function paintFloor(p: WorldPlan, layout: LayoutFile, pxPerM: number): HT
   // Pools of light under the LED panels (drawn first: rack footprints cover them).
   a.globalCompositeOperation = 'lighter';
   for (const l of p.lights) {
-    const r = 3.6 * k;
+    const r = 4.4 * k;
     const grad = a.createRadialGradient(X(l.x), Z(l.z), 0, X(l.x), Z(l.z), r);
-    grad.addColorStop(0, 'rgba(0,0,80,1)');
-    grad.addColorStop(0.45, 'rgba(0,0,40,1)');
+    grad.addColorStop(0, 'rgba(0,0,95,1)');
+    grad.addColorStop(0.45, 'rgba(0,0,50,1)');
     grad.addColorStop(1, 'rgba(0,0,0,1)');
     a.fillStyle = grad;
     a.save();
@@ -320,6 +321,8 @@ export function paintFloor(p: WorldPlan, layout: LayoutFile, pxPerM: number): HT
   o.globalCompositeOperation = 'multiply';
   o.drawImage(blurred, 0, 0);
   o.globalCompositeOperation = 'source-over';
+  // Free the three full-size scratch canvases now (browsers keep their backing stores until the size drops).
+  for (const c of [paint, ao, blurred]) c.width = c.height = 0;
   return out;
 }
 
@@ -373,6 +376,8 @@ function bolt(g: CanvasRenderingContext2D, cx: number, cy: number, s: number, co
 }
 
 export interface Floor {
+  /** Floor canvas size in px (the canvas itself is released after upload). */
+  size: [number, number];
   mesh: Mesh;
   texture: Texture;
   dispose(): void;
@@ -381,7 +386,14 @@ export interface Floor {
 /** The hall floor (UV 0..1) plus the yard apron around it at dock height below. */
 export function buildFloor(p: WorldPlan, layout: LayoutFile, tier: Tier, envMap: Texture | null): Floor {
   const k = floorPxPerM(tier, p);
-  const tex = new CanvasTexture(paintFloor(p, layout, k));
+  const painted = paintFloor(p, layout, k);
+  const size: [number, number] = [painted.width, painted.height];
+  const tex = new CanvasTexture(painted);
+  // Once the GPU has its copy, drop the canvas too (no re-upload is ever needed: a lost context reloads the page).
+  tex.onUpdate = () => {
+    painted.width = painted.height = 0;
+    tex.onUpdate = null;
+  };
   tex.colorSpace = NoColorSpace;
   tex.anisotropy = 16; // three clamps to the GPU max; stops lane lines smearing at low camera angles
   tex.minFilter = LinearMipmapLinearFilter;
@@ -425,7 +437,7 @@ export function buildFloor(p: WorldPlan, layout: LayoutFile, tier: Tier, envMap:
   const lin = (hex: string) => new Color(hex);
   const uniforms = {
     uPaint: { value: tex },
-    uConcrete: { value: lin('#262a2f') },
+    uConcrete: { value: lin('#2d2d2f') },
     uYard: { value: lin('#16181b') },
     uYellow: { value: lin('#f2c230') },
     uWhite: { value: lin('#e4e7ea') },
@@ -444,8 +456,11 @@ export function buildFloor(p: WorldPlan, layout: LayoutFile, tier: Tier, envMap:
 varying vec2 vFloorUv;
 uniform sampler2D uPaint;
 uniform vec3 uConcrete, uYard, uYellow, uWhite, uGreen;
+#define PAINT_GLOW 0.6
 float paintEdge(float v) { float w = clamp(fwidth(v) * 0.75, 0.02, 0.5); return smoothstep(0.5 - w, 0.5 + w, v); }
 float fpPaint = 0.0;
+vec3 fpPaintGlow = vec3(0.0);
+float fpYellow = 0.0;
 float fpYard = 0.0;`,
       )
       .replace(
@@ -462,6 +477,10 @@ float fpYard = 0.0;`,
     c = mix(c, uWhite * 0.92, w);
     c = mix(c, uGreen, gr);
     fpPaint = clamp(y + w + gr, 0.0, 1.0);
+    // Paint is lit by the hall, not just the key light: a little self-glow keeps it reading as safety yellow (and
+    // clean white) on screen after AgX tone mapping, instead of mustard and grey.
+    fpPaintGlow = (uYellow * y + uWhite * 0.5 * w + uGreen * gr) * PAINT_GLOW;
+    fpYellow = y;
     c *= t.b * 1.6;
     diffuseColor.rgb *= c;
   } else {
@@ -475,8 +494,20 @@ float fpYard = 0.0;`,
         `#include <roughnessmap_fragment>
 roughnessFactor = mix(roughnessFactor, 0.62, max(fpPaint, fpYard));`,
       )
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += fpPaintGlow;')
+      // AgX desaturates the safety yellow to a pale mustard. After tone mapping, keep the brightness it produced but
+      // restore the paint's own hue, so lanes read as #F2C230 on screen (shadows and distance still darken them).
+      .replace(
+        '#include <tonemapping_fragment>',
+        `#include <tonemapping_fragment>
+if (fpYellow > 0.0) {
+  const vec3 LW = vec3(0.2126, 0.7152, 0.0722);
+  vec3 tgt = uYellow * clamp(dot(gl_FragColor.rgb, LW) / dot(uYellow, LW), 0.0, 1.0);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, tgt, fpYellow);
+}`,
+      )
       // Indoors: no sun glare on the polished floor (the scene's key light is a sun); keep the hall reflections.
-      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular *= 0.12;');
+      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular *= 0.12;\nreflectedLight.indirectSpecular *= 1.0 - 0.75 * fpPaint;');
   };
   const mesh = new Mesh(geo, mat);
   mesh.name = 'floor';
@@ -484,6 +515,7 @@ roughnessFactor = mix(roughnessFactor, 0.62, max(fpPaint, fpYard));`,
   return {
     mesh,
     texture: tex,
+    size,
     dispose() {
       geo.dispose();
       mat.dispose();
