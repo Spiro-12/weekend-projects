@@ -14,9 +14,15 @@ export function runScenario(s: Scenario, data: SimData, recorder: KpiRecorderFac
   const warmupTick = s.run.warmupMin * TICKS_PER_MIN;
   const endTick = warmupTick + s.run.measureMin * TICKS_PER_MIN;
   sim.step(warmupTick);
-  sim.drainEvents();
+  // Deadlocks that began during warm-up and are still open: the recorder gets their start events right after
+  // start() (tick < warmupTick), so a gridlock that never clears still counts as a long deadlock (PROTOCOL §6).
+  const ended = new Set<number>();
+  const warm = sim.drainEvents();
+  for (const e of warm) if (e.t === 'deadlockEnd') ended.add(e.deadlock);
+  const openDeadlocks = warm.filter((e) => e.t === 'deadlockStart' && !ended.has(e.deadlock));
   const rec = recorder(scenario, { warmupTick, endTick });
   rec.start(sim.stats());
+  if (openDeadlocks.length) rec.events(openDeadlocks);
   while (sim.tick < endTick) {
     sim.step(Math.min(SAMPLE_EVERY, endTick - sim.tick));
     rec.events(sim.drainEvents());
