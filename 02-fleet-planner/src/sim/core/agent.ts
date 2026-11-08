@@ -39,6 +39,7 @@ export const PK_TO_STOP = 0;
 export const PK_AT_STOP = 1; // cart robot: waiting for a picker or stock, or being picked into; cart: picking or waiting
 export const PK_TO_PACK = 2;
 export const PK_HANDOFF = 3;
+export const PK_SETUP = 4; // manual cart: induct (label totes, set up the cart) before the first stop
 /** Stages of J_SERVE. */
 export const SV_TO_AMR = 0;
 export const SV_WAIT_STOCK = 1;

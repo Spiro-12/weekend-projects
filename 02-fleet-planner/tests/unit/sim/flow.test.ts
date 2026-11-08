@@ -2,6 +2,7 @@
 // fleet can handle. People only: orders still flow on manual carts and robots never appear.
 import { describe, expect, it } from 'vitest';
 import type { SimEvent } from '../../../src/contracts/types.ts';
+import { TOTES_PER_AMR } from '../../../src/sim/core/index.ts';
 import { count, makeSim, run, scenario } from './helpers/data.ts';
 
 describe('order flow (test PIBT controller, 250 orders/h)', () => {
@@ -111,7 +112,7 @@ describe('cart-robot model (the Locus model)', () => {
     const tasks = sim.snapshot().tasks.filter((t) => t.kind === 'pick');
     const seen = new Set<number>();
     for (const t of tasks) {
-      expect(t.orderIds.length).toBeLessThanOrEqual(3);
+      expect(t.orderIds.length).toBeLessThanOrEqual(TOTES_PER_AMR);
       for (const o of t.orderIds) {
         expect(seen.has(o)).toBe(false);
         seen.add(o);

@@ -55,20 +55,22 @@ describe('breakdown from a scenario event', () => {
 });
 
 describe('breakdown by inject', () => {
-  it('a zone picker breaks: its zone is re-split among the others, and it comes back', () => {
+  it('a zone picker breaks: its zone stays put and its robots are served by the other pickers (zone bleed)', () => {
     const sim = makeSim(scenario({ orders: { mode: 'saturate' } }), { pibt: true });
     run(sim, 1200);
     const id = sim.agentRef('picker', 1);
-    const members = () => sim.debug().zones!.members.flat();
-    expect(members()).toContain(id);
-    sim.command({ t: 'inject', event: { type: 'breakdown', atMin: 0, agent: 'picker:1', forMin: 2 } });
-    const ev = run(sim, 2, [], 1);
-    run(sim, 10);
-    expect(ev.some((e) => e.t === 'breakdown' && e.agent === id) || sim.snapshot().agents.find((a) => a.id === id)!.state === 'broken').toBe(true);
-    expect(members()).not.toContain(id);
-    const rest = run(sim, 2 * 120 + 20);
-    expect(rest.some((e) => e.t === 'repair' && e.agent === id)).toBe(true);
-    expect(members()).toContain(id);
+    const zonesBefore = JSON.stringify(sim.debug().zones);
+    sim.command({ t: 'inject', event: { type: 'breakdown', atMin: 0, agent: 'picker:1', forMin: 4 } });
+    const ev = run(sim, 4 * 120 + 20, [], 60);
+    expect(ev.some((e) => e.t === 'breakdown' && e.agent === id)).toBe(true);
+    expect(ev.some((e) => e.t === 'repair' && e.agent === id)).toBe(true);
+    expect(JSON.stringify(sim.debug().zones)).toBe(zonesBefore); // no rezone for a breakdown
+    // its zone's faces kept being picked while it was broken
+    const zones = sim.debug().zones!;
+    const myZone = zones.members.findIndex((m) => m.includes(id));
+    const brokenFrom = ev.find((e) => e.t === 'breakdown' && e.agent === id)!.tick;
+    const pickedInZone = ev.filter((e) => e.t === 'pickDone' && e.tick > brokenFrom && e.tick < brokenFrom + 480 && e.agent !== id && zones.members[myZone].length >= 1);
+    expect(pickedInZone.length).toBeGreaterThan(0);
   });
 
   it('bad references and Phase 2 events are ignored', () => {

@@ -3,9 +3,10 @@
 /**
  * Order totes one cart robot (AMR) carries per trip. Orders are never split, so this is also the orders per AMR batch.
  * Estimate: Locus-style cart robots carry a small tote rack; 2 to 4 order totes per trip is typical in e-commerce
- * each-picking. 3 is the middle of that range.
+ * each-picking. We use 4, the top of that range: with 3 the robots spent too much of each trip driving to packing
+ * (calibration with the one-brain planner: 4 totes lifted picker uplift by about 0.1× at every fleet size).
  */
-export const TOTES_PER_AMR = 3;
+export const TOTES_PER_AMR = 4;
 
 /**
  * Orders a person (or a humanoid) picks per manual cart trip when there are no cart robots.
@@ -71,8 +72,42 @@ export const PRESEND_CELLS = 12;
 export const BATCH_WINDOW = 20;
 
 /**
- * Zone workers per pick zone. Estimate: two people sharing a zone pool their work (a robot waits for the nearer free
- * one), which cuts robot waiting a lot versus one picker per zone, while walks stay short. One per zone left robots
- * waiting for a busy picker while the neighbour stood idle (seen in testing).
+ * Zone workers per pick zone. One: zones are then small runs of an aisle (a few rows of both lanes near packing),
+ * so a picker walks a few metres between robots, as in cart-robot sites. Robots never wait for a busy picker while a
+ * neighbour stands idle: that is zone bleed (below).
  */
 export const ZONE_PICKERS = 2;
+
+/**
+ * Zone bleed: a free picker also serves a cart robot that has waited BLEED_WAIT_TICKS (5 s) at a face in a neighbouring
+ * zone, counted BLEED_PENALTY_CELLS further away than it is, so its own zone comes first. It also covers a zone whose
+ * picker is on a break, charging (humanoids) or broken. Estimate: cart-robot sites let associates help the next zone
+ * ("dynamic zones") rather than leave robots waiting.
+ */
+export const BLEED_WAIT_TICKS = 10;
+export const BLEED_PENALTY_CELLS = 4;
+
+// ───────── manual cart picking (the people-only baseline) ─────────
+// What a cart picker does that a cart robot takes over. In the Locus model the robot is inducted with its totes by the
+// system, its screen tells the picker which tote each unit goes in, and the packer unloads it; with a manual cart the
+// picker does all three. Together with the walking, these are the real gain of cart robots.
+
+/**
+ * Cart induct at the start of every manual trip: fetch an empty cart, label or scan its order totes, start the batch.
+ * Estimate: 60 to 120 s per trip in multi-order cart operations; we use 60 s, the low end, so the manual baseline is not
+ * flattered against the robots (with the two below it lands people-only near the 75 units/picker-hour of case studies).
+ */
+export const CART_SETUP_SEC = 60;
+
+/**
+ * Put-to-cart on a multi-order cart: after each pick the picker scans the unit and the right tote and drops it in
+ * (sort while picking). Estimate: 3 to 5 s per line; we use 3 s, the low end. A single-order cart has nothing to sort.
+ */
+export const PUT_TO_CART_SEC = 3;
+
+/**
+ * Hand-off at the pack station per tote from a manual cart (lift the tote off, scan it in). Estimate: 8 to 12 s per
+ * tote; we use 10 s, the same as the cart robot's whole hand-off (data/agents.json amr.handoffSec), which the packer
+ * does from the robot.
+ */
+export const TOTE_HANDOFF_SEC = 10;
