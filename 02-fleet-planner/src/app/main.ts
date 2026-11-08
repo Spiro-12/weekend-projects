@@ -5,8 +5,7 @@ import agents from '../../data/agents.json';
 import sources from '../../data/sources.json';
 import type { AgentsFile, LayoutFile, Scenario, SourcesFile } from '../contracts/types.ts';
 import { createHost, type AppData } from '../host/index.ts';
-import { econ } from '../econ/index.ts';
-import { createSim, DEFAULT_IMPL } from '../sim/index.ts';
+import { createSim } from '../sim/index.ts';
 import { createFakeRunner } from '../host/runner/fake.ts';
 import { createWorkerRunner } from '../host/runner/pool.ts';
 import { createAgentLayer } from '../render/agents/index.ts';
@@ -41,9 +40,9 @@ window.__fpSim = {
     return sim.hash();
   },
 };
-const runner = params.runner === 'worker' ? createWorkerRunner() : createFakeRunner(120);
-// Numbers are "demo data" until the real sim core and KPI code are plugged in (Phase 1 integration).
-const host = createHost(data, runner, { scenario: params.scenario, seed: params.seed, econ, demo: runner.kind === 'fake' || DEFAULT_IMPL === 'fake' });
+// Real numbers come from the worker pool on the real sim; ?runner=fake keeps the instant toy runner ("demo data").
+const runner = params.runner === 'fake' ? createFakeRunner(120) : createWorkerRunner();
+const host = createHost(data, runner, { scenario: params.scenario, seed: params.seed, econ: () => import('../econ/index.ts').then((m) => m.econ), demo: runner.kind === 'fake' });
 if (params.agents) host.setFleet('amr', params.agents);
 
 const stage = document.getElementById('stage')!;

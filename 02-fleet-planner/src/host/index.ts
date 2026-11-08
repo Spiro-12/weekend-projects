@@ -57,8 +57,10 @@ export interface Host {
   select(side: 0 | 1, agentId: number | null): void;
 }
 
-export function createHost(data: AppData, runner: Runner, opts: { scenario?: string; seed?: number; impl?: SimImpl; econ?: EconPort; demo?: boolean } = {}): Host {
-  const econ = opts.econ ?? fakeEcon;
+export function createHost(data: AppData, runner: Runner, opts: { scenario?: string; seed?: number; impl?: SimImpl; econ?: EconPort | (() => Promise<EconPort>); demo?: boolean } = {}): Host {
+  // The economics may be loaded lazily (the app does, to keep it out of the first-view JS): money waits for it.
+  let econP: Promise<EconPort> | undefined;
+  const loadEcon = () => (econP ??= typeof opts.econ === 'function' ? opts.econ() : Promise.resolve(opts.econ ?? fakeEcon));
   const first = data.scenarios[opts.scenario ?? 'default'] ?? data.scenarios.default;
   const start: Scenario = opts.seed !== undefined ? { ...first, seed: opts.seed } : first;
   const bus = new Bus<HostEvents>();
@@ -84,11 +86,12 @@ export function createHost(data: AppData, runner: Runner, opts: { scenario?: str
     const key = baselineKey(s);
     let p = baselineCache.get(key);
     if (!p) {
-      p = econ.findBaseline(s, runner);
+      p = loadEcon().then((e) => e.findBaseline(s, runner));
       baselineCache.set(key, p);
     }
     try {
       const b = await p;
+      const econ = await loadEcon();
       if (token !== runToken) return;
       baseline.value = b;
       money.value = econ.computeMoney({ scenario: s, agents: data.agents, candidate: r, baseline: b.result, baselineCrew: b.crew });

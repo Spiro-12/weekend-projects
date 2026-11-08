@@ -11,7 +11,7 @@ export interface Params {
   freeze: boolean;
   /** Set the cart-robot count to this (perf checks, Spiro's phone test). Capped at 300. */
   agents?: number;
-  /** Which runner computes the numbers: the worker pool (default once the real sim lands) or the toy model. */
+  /** Which runner computes the numbers: the worker pool (default) or the toy model (`?runner=fake`). */
   runner?: 'worker' | 'fake';
 }
 
