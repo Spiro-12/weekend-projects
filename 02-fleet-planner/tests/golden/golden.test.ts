@@ -29,12 +29,22 @@ describe.skipIf(files.length === 0)('golden scenarios', () => {
       const s = JSON.parse(readFileSync(new URL(f, dir), 'utf8')) as Scenario;
       expect(validateScenario(s, Object.keys(layouts))).toEqual([]);
       const e = s.expect ?? {};
+      const supported = ['oph', 'capacityOph', 'deadlocks', 'keepsUp', 'backlogGrows', 'pickerUplift'];
+      const unsupported = Object.keys(e).filter((k) => !supported.includes(k));
+      // robotCostUsd needs the economics (Phase 1, Track C); fail loudly instead of silently ignoring it.
+      expect(unsupported, `expect keys not checked yet: ${unsupported}`).toEqual([]);
       const r = await runner.evaluate(s);
       if (e.oph) inRange(r.kpis.oph, e.oph, 'oph');
       if (e.deadlocks) inRange(r.kpis.deadlocksPerShift, e.deadlocks, 'deadlocks per shift');
       if (e.keepsUp !== undefined) expect(r.kpis.keepsUp, 'keepsUp').toBe(e.keepsUp);
       if (e.backlogGrows !== undefined) expect(r.kpis.backlogTrendPerHour > 0.02 * s.orders.perHour, 'backlog grows').toBe(e.backlogGrows);
       if (e.capacityOph) inRange((await runner.evaluate(s, { saturate: true })).kpis.capacityOph, e.capacityOph, 'capacity');
+      if (e.pickerUplift) {
+        // Units per picker-hour with this fleet vs people only, both at capacity (PROTOCOL §6).
+        const withRobots = await runner.evaluate(s, { saturate: true });
+        const peopleOnly = await runner.evaluate({ ...s, fleet: { ...s.fleet, amr: 0, humanoid: 0 } }, { saturate: true });
+        inRange(withRobots.kpis.unitsPerPickerHour / Math.max(1e-9, peopleOnly.kpis.unitsPerPickerHour), e.pickerUplift, 'picker uplift');
+      }
     });
   }
 });

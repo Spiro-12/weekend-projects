@@ -139,6 +139,8 @@ export function validateScenario(s: Scenario, layouts?: string[]): string[] {
     if (e.type === 'breakdown' || e.type === 'personInAisle' || e.type === 'orderSurge') int(e.forMin, `events[${k}].forMin`, 1);
     if (e.type === 'orderSurge') int(e.factorPct, `events[${k}].factorPct`, 1);
     if (e.type === 'chargers') int(e.count, `events[${k}].count`);
+    if (e.type === 'breakdown' && !/^(amr|forklift|humanoid|picker|driver):\d+$/.test(e.agent))
+      errs.push(`scenario.events[${k}].agent: '<type>:<n>' (the n-th agent of that type in spawn order, 0-based)`);
   }
   return errs;
 }

@@ -2,8 +2,8 @@
 // skeleton work before the real sim and KPI code exist. Everything it returns is "demo data" and the UI says so.
 // The toy model has the right shape for sanity checks (0 robots → no robot cost elsewhere; past saturation more
 // robots don't help; overload → backlog grows), but none of its numbers are evidence.
-import { AGENT_TYPES, type AgentState, type AgentTypeId, type Kpis, type RunResult, type Scenario, type StateShare } from '../../contracts/types.ts';
-import { settingsHash } from '../settings.ts';
+import type { AgentTypeId, Kpis, RunResult, Scenario, StateShare } from '../../contracts/types.ts';
+import { runKey } from '../settings.ts';
 import type { EvaluateOptions, Runner } from './types.ts';
 
 function meanLines(w: number[]): number {
@@ -55,7 +55,8 @@ export function fakeEvaluate(s: Scenario, opts: EvaluateOptions = {}): RunResult
   const avgOrderSec = Math.round(240 + 600 * Math.pow(load, 4) + (siloed ? 120 : 0));
   const kpis: Kpis = {
     oph: Math.round(oph * 10) / 10,
-    capacityOph: Math.round(capacity * 10) / 10,
+    // Like the real runner: capacity only on saturate runs; picker uplift is computed from two capacity runs elsewhere.
+    capacityOph: opts.saturate || s.orders.mode === 'saturate' ? Math.round(capacity * 10) / 10 : undefined,
     robotUtilizationPct: robotUtil,
     jamsPerHour: Math.round(vehicles * vehicles * (siloed ? 0.004 : 0.0008) * 10) / 10,
     deadlocksPerShift: siloed ? Math.round(robots * 0.3) : 0,
@@ -64,7 +65,7 @@ export function fakeEvaluate(s: Scenario, opts: EvaluateOptions = {}): RunResult
     backlogEnd: keepsUp ? Math.round(demand * 0.15) : Math.round((demand - capacity) * (s.run.measureMin / 60) + demand * 0.15),
     backlogTrendPerHour: keepsUp ? 0 : Math.round(demand - capacity),
     keepsUp,
-    pickerUplift: f.amr > 0 && f.picker > 0 ? Math.round(uplift * 100) / 100 : undefined,
+    pickerUplift: undefined,
     resetsPerHour: siloed ? Math.round(robots * 0.02 * 10) / 10 : 0,
     retasksPerHour: siloed ? Math.round(robots * 0.4) : 0,
     deadlocksOver2MinPerShift: 0,
@@ -73,7 +74,7 @@ export function fakeEvaluate(s: Scenario, opts: EvaluateOptions = {}): RunResult
   };
   return {
     scenarioId: s.id,
-    settingsHash: settingsHash(s) + (opts.saturate ? '-sat' : ''),
+    settingsHash: runKey(s) + (opts.saturate ? '-sat' : ''),
     kpis,
     fleet: { ...s.fleet },
     traffic: s.traffic.mode,
@@ -85,7 +86,7 @@ export function fakeEvaluate(s: Scenario, opts: EvaluateOptions = {}): RunResult
 
 export function createFakeRunner(delayMs = 0): Runner {
   const cache = new Map<string, RunResult>();
-  const key = (s: Scenario, o?: EvaluateOptions) => settingsHash(s) + (o?.saturate ? '-sat' : '');
+  const key = (s: Scenario, o?: EvaluateOptions) => runKey(s) + (o?.saturate ? '-sat' : '');
   return {
     kind: 'fake',
     async evaluate(s, opts) {
@@ -102,6 +103,3 @@ export function createFakeRunner(delayMs = 0): Runner {
   };
 }
 
-/** All agent states, for code that needs to iterate them. */
-export const STATES: readonly AgentState[] = ['idle', 'travel', 'work', 'wait', 'blocked', 'charge', 'broken'];
-export const TYPES = AGENT_TYPES;

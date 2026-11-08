@@ -70,6 +70,7 @@ The default traffic factory returns `NaiveController`; the lead switches it to B
 10. **Commands:**
     - `setFleet`: new agents spawn at free parking or charger pockets, else at free cells from the `spawn` stream. Removed agents finish their task, then leave.
     - `setOrderRate`, and `setTraffic` (swap the controller via the factory).
+    - `inject {event}`: Phase 1 supports `breakdown` (agent `'<type>:<n>'` = the n-th agent of that type in spawn order, 0-based); others are ignored with a console-free no-op until Phase 2.
     - All logged with their tick.
 11. **Outputs:**
     - `snapshot()` (every `AgentView` field including `route` from `DistanceCache.route`, `waitOn`, `tasks`, `stats`, `deadlocks`, `heat`)

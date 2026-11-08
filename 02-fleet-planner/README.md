@@ -4,7 +4,9 @@
 
 **Live demo:** https://spiro-12.github.io/weekend-projects/02-fleet-planner/
 
-_Work in progress. The full write up, demo GIF and the "many brains vs one brain" clip land in Phase 3._
+![Fleet Planner preview: a 14-aisle warehouse with racks, lanes, robots and KPI tiles](media/preview.jpg)
+
+_Work in progress (Phase 0 skeleton with demo data). The full write up, demo GIF and the "many brains vs one brain" clip land in Phase 3._
 
 - [RESEARCH.md](RESEARCH.md): robot specs and prices with sources, the SimReady asset survey, the tech choices, the market and why now
 - [PLAN.md](PLAN.md): the phased build plan

@@ -13,7 +13,7 @@ The contracts every track follows. **Frozen at the end of Phase 0.** Only the le
   - positions: cell indices `y * width + x`
   - money: cents (economics) or whole dollars (inputs)
   - battery: `batteryTicksLeft` (percent only in snapshots)
-  - **speed:** millimetres per tick, `round(speedMps × 500)`. Each agent carries its leftover distance (`src/sim/motion.ts → moveTicks`) **only while moving continuously**; a stop or a turn resets it to 0. Move durations alternate and the average speed is exact (AMR 3 ticks/cell, humanoid 4,4,4,3, driver 3,2,2,2,3…).
+  - **speed:** millimetres per tick, `round(speedMps × 500)`. Each agent carries its leftover distance (`src/sim/motion.ts → moveTicks`) **only while moving continuously in a straight line**; a stop or any turn resets it to 0 (even for agents with `turnTicks` 0). Move durations alternate and the average speed is exact (AMR 3 ticks/cell, humanoid 4,4,4,3, driver 3,2,2,2,3…).
 - **Turns:** `AgentSpec.turnTicks` extra ticks per 90° (AMR 1, forklift and driver 2, others 0).
 - `hash()` throws if any state number is not an integer.
 - **Conversions** to m/s, $, % happen in UI code only.
@@ -100,7 +100,7 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
     The gap grows with crowding (spike b, large layout: 6.7% at 30 robots, 64.5% at 60 while one brain still gains). The 10 to 40% band is our judgment; no public field data exists.
 - **`economics {financing: buy|raas, baseline: 'auto' | {picker, driver}}`:** `auto` = the smallest all-human crew that keeps up, on the same orders.
 - **`events`:**
-  - Phase 1: `breakdown {atMin, agent, forMin}`
+  - Phase 1: `breakdown {atMin, agent, forMin}`, where `agent` is `'<type>:<n>'` (the n-th agent of that type in spawn order, 0-based; validated)
   - Phase 2: `personInAisle`, `chargers`, `orderSurge {factorPct}`
   - The default scenario has **no events**.
 - **`expect`** (golden files only): ranges for `oph`, `capacityOph`, `deadlocks`, `pickerUplift`, plus `keepsUp`, `backlogGrows`, `robotCostUsd`.
@@ -126,7 +126,7 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
 - **Agent states:** `idle`, `travel`, `work`, `wait` (e.g. an AMR waiting for a picker), `blocked` (wants to move, can't), `charge`, `broken`. `AgentView.waitOn` = the agent it waits for (wait-for graph), or -1.
 - **Events** (`SimEvent`, all with `tick`): `orderArrived`, `orderPacked`, `orderShipped {arrivedTick}`, `taskAssigned`, `pickDone`, `toteDelivered`, `palletMoved`, `jamStart/End`, `deadlockStart/End`, `manualReset`, `retask`, `safetyStop`, `yield`, `chargeStart/End`, `breakdown/repair`, `personInAisle`.
 - **`Sim.stats()`:** cheap counters for the KPI recorder: `tick, openOrders, shippedOrders, ticksByState, unitsPicked, fleet`.
-- **People are cell agents, not in the robot planner.** The sim core moves them first each tick along the `human` distance gradient, then hands the planner `occ` and `yields`. Shared rules for **both** traffic modes (spike b found each one necessary; none favours one brain):
+- **People are cell agents, not in the robot planner.** The sim core moves them first each tick along the `human` distance gradient, then hands the planner `occ` and `yields`. **Drivers** (people on manual forklifts) are moved the same way but use the `forklift` pass class and keep a safety cell; robots treat them like people. Shared rules for **both** traffic modes (spike b found each one necessary; none favours one brain):
   1. Robots treat people's cells (and their move targets) as fixed obstacles.
   2. **Robots yield to people:** a person blocked by a robot asks it to make way (`yields`); the planner pushes it.
   3. **Robot cell claim:** a robot that has waited 3+ ticks claims the cell it wants and people let it go first.
@@ -139,7 +139,7 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
 - **Shared, lead-owned modules:**
   - `world.ts` (graph, distances)
   - `motion.ts` (speed, turns)
-  - `detect.ts`:
+  - `detect.ts` (inputs indexed by position; pass `ids` to get agent ids back):
     - **deadlock** = a wait-for cycle lasting ≥ 10 ticks
     - **jam** = ≥ 3 agents stopped ≥ 20 ticks within 5 cells
   - `rng.ts`
@@ -149,6 +149,7 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
     1. `recover(input) → {resets, retasks}`: the sim applies them before planning.
     2. `plan(input, out)` fills `moveTo / safety / dir / want` per agent, plus `events`.
   - `stateWords()` feeds `hash()`.
+  - **`TrafficEvent` mapping:** `safetyStop` → `SimEvent safetyStop`; `yield` (cell = the person's cell) → `SimEvent yield` with that person's id; `detour` and `stepAside` are internal (counted, not `SimEvent`s).
   - **Implementations:**
     - `traffic/naive.ts`: lead stub (gradient step into a free cell, no recovery), so Track A runs before B lands
     - `traffic/central/`: Track B, one PIBT over every robot
@@ -158,7 +159,7 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
 
 ## §6 Runner and KPIs (`src/host/runner/`)
 - **`Runner.evaluate(settings, {saturate?}) → RunResult`** is the single source of numbers: KPI tiles, money panel, compare bar, sweep and golden tests all use it.
-  - Results are cached by `settingsHash` (FNV over canonical JSON, ignoring `name` and `expect`).
+  - Results are cached by **`runKey`** = `settingsHash` of the settings without `economics` (FNV over canonical JSON, ignoring `name` and `expect`), so a buy/rent toggle recomputes only the money, never the run.
   - Runs happen in Web Workers (browser) or inline (Node).
   - **Run window:** `warmupMin` (30) + `measureMin` (120). Battery levels start spread between `chargeAtPct` and full (seeded `battery` stream), so charging shows up within the window.
 - **`RunResult`:** `scenarioId, settingsHash, kpis, fleet, traffic, hash, ticks, simMs`.
@@ -179,17 +180,18 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
   | `unitsPerPickerHour`, `resetsPerHour`, `retasksPerHour`, `deadlocksOver2MinPerShift` | |
 
 - **`fp-sweep v1`** = `{ axes, base, results: RunResult[] }`.
-- **The fake runner** (`createFakeRunner`) returns toy numbers for UI work; the UI shows **"demo data"** whenever `host.demoData` is true.
+- **The fake runner** (`createFakeRunner`) returns toy numbers for UI work; the UI shows **"demo data"** whenever `host.demoData` is true. Like the real runner, it fills `capacityOph` only on saturate runs and never `pickerUplift` (computed from two capacity runs).
+- **Host signals:** `result` + `pending` (the run), `baseline` + `money` + **`moneyPending`** (true until the baseline search and money report finish).
 
 ## §7 Economics (`src/econ/`, Track C)
-Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{label, value, unit, from: 'source:<id>' | 'estimate' | 'sim' | 'user', note?}], note?, flag? }`. Hovers render the formula, the inputs and the source links.
+Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{label, value, unit, from: 'source:<id>' | 'estimate' | 'sim' | 'user', note?}], note?, flag? }`. **`value` is `null` exactly when `flag` is set** (no NaN or Infinity, so it survives JSON). Hovers render the formula, the inputs and the source links.
 - `H` = hoursPerShift × shiftsPerDay × daysPerYear.
 - **Labor per year** = Σ people count × H × wage × (1 + laborLoad), plus resets (resetsPerHour × H × minPerReset ÷ 60 × supervisor wage). Packers are listed but identical in every option.
 - **Buy:**
   - capex = Σ robots × (buyUsd + integrationUsd), plus drivers' equipment
   - robot opex/yr = Σ robots × (buyUsd × maintPct + softwareUsdPerYear)
 - **Rent (RaaS):**
-  - capex = Σ robots × (integrationUsd or raasSetupUsd)
+  - capex = Σ robots × (`raasSetupUsd` if the spec has one, else `integrationUsd`)
   - opex/yr = Σ robots × raasUsdPerMonth × 12
 - **Annual cost** = labor + robot opex. **Savings/yr** S = annual cost(baseline) − annual cost(candidate).
 - **Payback (months)** = capex ÷ (S ÷ 12).
@@ -239,12 +241,16 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
   - **Promote** only when GPU timing exists and CPU p95 + GPU p50 × (next tier's cost ratio: high/medium 2.7, medium/low 1.3) < 14 ms for 5 s. Never without timer queries (iOS Safari). Not for 60 s after a demotion.
   - `?tier=` freezes it.
   - A lost WebGL context shows a reload card that reopens in lite. No WebGL shows a friendly message.
+- **`LiveSim.reset(scenario, data)`** restarts in place: the same object, listeners, speed and pause survive a scenario or layout change; the selection is cleared.
 - **People are rendered as instanced rigid parts** with a procedural walk (40 people: 23 draw calls, 1.4 ms CPU), not skinned clones (779 draw calls, 12.4 ms). At most one skinned "hero" worker, for the followed person.
 - **Panels:** every file in `src/ui/panels/*.tsx` default-exports `definePanel({ id, slot, order, title, Component, when? })`.
   - Slots: `kpi`, `left`, `right`, `bottom`, `overlay`.
   - On phones, `left`/`right`/`bottom` become bottom-sheet tabs.
   - Panels get `host` (signals: `settings`, `result`, `pending`, `selected`, `speed`, `paused`; methods: `setFleet`, `peopleOnly`, `setOrderRate`, `setTraffic`, `setFinancing`, `setScenario`, `setSpeed`, `setPaused`, `select`).
-- **Asset manifest** `public/assets/manifest.json`: key → `{url, urlLo?, scale, offset, tris, bytes, gzBytes, license, credit, source, firstTier}`. In-app credits read it.
+- **Asset manifest** `public/assets/manifest.json`: `{format, v, source (pinned revisions), decoder, models: {key → {url, urlLo?, scale, offset, size, tris, trisLo?, drawCalls, bytes, gzBytes, gzBytesLo?, parts[], clips?, license, credit, source, firstTier, label}}}`. In-app credits read it.
+- **Shared asset loader** `src/render/core/assets.ts`: `assetLoader(baseUrl)` → typed manifest (one fetch), one GLTFLoader with the meshopt decoder, a cache per URL, `urlFor(key, tier)` (low/lite use `urlLo`). Tracks D and E load only through it.
+- **Layers** (`src/render/core/layers.ts`): `WorldLayer` (`createWorldLayer` in `render/world/index.ts`, Track D) and `AgentLayer` (`createAgentLayer` in `render/agents/index.ts`, Track E), each with optional `debug()`; the agent layer also has `inject(snapshot | null)` for tests. `followTarget()` may return `distance`/`height` to change the chase framing.
+- **Overlay slot:** panels in `overlay` position their own content (`position: absolute`); the section itself never blocks clicks.
 
 ## §10 Test hooks and URL parameters
 - **`window.__fp`** (`src/app/hooks.ts`; the perf harness contract is `tests/perf/hook.ts`):
@@ -252,6 +258,7 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
   - `ready` (true after the first useful view), `whenReady`
   - `render {info() → {calls, triangles, views[], agents, labels}, project(id), pick(x, y), cameraPose, following}`
   - `perf`: PerfMonitor with `cpuMs()`, `gpuMs()`, `drain()` (paired per-frame CPU/GPU samples), `sync(on)` (1-pixel readback per frame → `work` ms), `tier`, `summary()`, `firstUsefulViewMs`
+  - `render.roots` (scene roots) and `render.layers` (`{world, agents}` with their `debug()` / `inject()`)
   - `tour(name, seconds)` and `tours` (`default`, `overview`, `aisle`, `static`; `src/render/core/tours.ts`)
   - `freeze(on)`
 - **`window.__fpSim.runHash(scenarioId, ticks)`:** set before WebGL, for the determinism test.
@@ -268,7 +275,8 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
   | `?tier=high\|medium\|low\|lite` | force a tier |
   | `?freeze=1` | freeze the live sim |
   | `?capture=1` | clip capture (Phase 2a) |
-  | `?agents=<n>` | set the AMR count (stress) |
+  | `?agents=<n>` | set the AMR count (stress; capped at 300) |
+  | `?runner=worker\|fake` | which runner computes the numbers (default: fake in Phase 0; the worker pool from Phase 1) |
 
 ## §11 Fixtures and fakes
 - `src/sim/fake.ts` (FakeSim): same interface; agents wander between faces, stations, docks and chargers, never sharing a cell; plausible events. Not a model; labeled demo data.

@@ -20,7 +20,7 @@ jobs:
           cache-dependency-path: 02-fleet-planner/package-lock.json
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test --project=chromium --grep @visual --update-snapshots
+      - run: npx playwright test --project=chromium --grep @visual --update-snapshots --pass-with-no-tests
       - uses: actions/upload-artifact@v4
         with:
           name: fleet-visual-baselines

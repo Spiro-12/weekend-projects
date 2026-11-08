@@ -4,7 +4,7 @@ Each file here is a self-contained brief for one agent: "Do the track in `02-fle
 
 ## Rules for every track
 1. **Read first:** `02-fleet-planner/PLAN.md` (sections 4 to 9), `PROTOCOL.md` (from Phase 1 on) and `src/contracts/types.ts`.
-   - **Do not change contracts or lead-owned files:** `src/contracts/*`, `data/*`, `fixtures/*`, `src/sim/{rng,world,detect,fake,index,layout-gen}.ts`, `src/host/*` (except `sweep/`), `src/render/core/*`, the `src/ui/` shell, `src/app/main.ts`, `package.json`, the lockfile and the config files.
+   - **Do not change contracts or lead-owned files:** `src/contracts/*`, `data/*`, `fixtures/*`, `src/sim/{rng,world,detect,fake,index,layout-gen,motion}.ts`, `src/sim/traffic/{types,naive}.ts`, `src/host/*` (except `sweep/`), `src/render/core/*` (renderer, camera, layers, assets, tiers, tours, perf), the `src/ui/` shell (`shell.tsx`, `panel.ts`, `params.ts`, `styles.css`, `perf-overlay.tsx`), `src/app/*`, `package.json`, the lockfile and the config files.
    - Need a change there? Stop and put it in your final report as a "contract change request".
 2. **Touch only the files your brief says you own.** New files inside your area are fine.
 3. **Work in your own git worktree.** Branch `p<phase>-<letter>-<name>` off the phase branch: `git checkout -b <your-branch> p<phase>`.

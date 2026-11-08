@@ -215,6 +215,10 @@ const hooks: FpHooks = {
     pick: (x, y) => pickAt(x, y),
     cameraPose: () => rig.pose(),
     following: () => rig.following,
+    roots: core.roots,
+    get layers() {
+      return { world, agents: agentLayer };
+    },
   },
   perf: core.perf,
   tours: [...TOURS],

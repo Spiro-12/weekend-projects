@@ -36,3 +36,43 @@ describe('host', () => {
     expect(host.live.snapshot.agents.filter((a) => a.type === 'amr').length).toBe(30);
   });
 });
+
+describe('host scenario switching', () => {
+  it('switches layout in place: the same LiveSim object, listeners kept, selection cleared', async () => {
+    const small = (await import('../../data/scenarios/small.json')).default as Scenario;
+    const smallLayout = (await import('../../data/layouts/small.json')).default as LayoutFile;
+    const host = createHost(
+      { ...data, layouts: { ...data.layouts, small: smallLayout }, scenarios: { ...data.scenarios, small } },
+      createFakeRunner(),
+    );
+    const live = host.live;
+    let updates = 0;
+    live.onUpdate(() => updates++);
+    host.select(0, 3);
+    host.setScenario('small');
+    expect(host.live).toBe(live);
+    expect(host.selected.value).toBeNull();
+    expect(host.live.snapshot.width).toBe(smallLayout.grid[0].length);
+    host.live.stepTicks(1);
+    expect(updates).toBeGreaterThan(0);
+  });
+});
+
+describe('host money', () => {
+  it('buy/rent toggles reuse the cached run (no new sim) and cite sources', async () => {
+    let calls = 0;
+    const base = createFakeRunner();
+    const runner = { ...base, evaluate: (s: Scenario, o?: { saturate?: boolean }) => (calls++, base.evaluate(s, o)) };
+    const host = createHost(data, runner);
+    await settle();
+    const before = calls;
+    host.setFinancing('raas');
+    await settle();
+    expect(calls).toBe(before); // peek hit: no evaluate
+    expect(host.money.value?.financing).toBe('raas');
+    expect(host.moneyPending.value).toBe(false);
+    const froms = host.money.value!.lines[0].capex.inputs.map((i) => i.from);
+    expect(froms.some((f) => f.startsWith('source:') || f === 'estimate')).toBe(true);
+    expect(host.money.value!.laborYear.inputs.some((i) => i.from === 'source:bls-hand-laborers')).toBe(true);
+  });
+});

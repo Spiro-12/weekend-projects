@@ -11,11 +11,11 @@ export function mmPerTick(spec: Pick<AgentSpec, 'speedMps'>): number {
 /**
  * Start a one-cell move with `carryMm` banked from the previous move. Returns how many ticks it takes and the carry
  * left after arriving. Over continuous movement the average speed equals mmPerTick exactly.
- * PROTOCOL §1: the remainder carries only while moving continuously. A turn (turnTicks > 0) or a stop (pass
- * carryMm = 0) resets it; turn ticks add time but no distance.
+ * PROTOCOL §1: the remainder carries only while moving continuously in a straight line. Any turn (`turned`, even for
+ * agents with turnTicks 0) or a stop (pass carryMm = 0) resets it; turn ticks add time but no distance.
  */
-export function moveTicks(carryMm: number, speedMmPerTick: number, turnTicks = 0): { ticks: number; carryMm: number } {
-  const banked = turnTicks > 0 ? 0 : carryMm;
+export function moveTicks(carryMm: number, speedMmPerTick: number, turnTicks = 0, turned = turnTicks > 0): { ticks: number; carryMm: number } {
+  const banked = turned ? 0 : carryMm;
   const need = CELL_MM - banked;
   const ticks = need <= 0 ? 1 : Math.ceil(need / speedMmPerTick);
   const carry = banked + ticks * speedMmPerTick - CELL_MM;

@@ -1,7 +1,7 @@
 // Web Worker pool runner (browser). min(cores − 1, 8) workers; results cached by settings hash; the same scenario
 // is never run twice at once.
 import type { RunResult, Scenario } from '../../contracts/types.ts';
-import { settingsHash } from '../settings.ts';
+import { runKey } from '../settings.ts';
 import type { EvaluateOptions, Runner } from './types.ts';
 import type { RunReply, RunRequest } from './worker.ts';
 
@@ -13,7 +13,7 @@ export function createWorkerRunner(size = Math.max(1, Math.min(8, (navigator.har
   const cache = new Map<string, RunResult>();
   const running = new Map<string, Promise<RunResult>>();
   let nextId = 1;
-  const key = (s: Scenario, o?: EvaluateOptions) => settingsHash(s) + (o?.saturate ? '-sat' : '');
+  const key = (s: Scenario, o?: EvaluateOptions) => runKey(s) + (o?.saturate ? '-sat' : '');
 
   const spawn = () => {
     const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
@@ -27,7 +27,21 @@ export function createWorkerRunner(size = Math.max(1, Math.min(8, (navigator.har
       }
       pump();
     };
-    w.onerror = (e) => console.error('[runner worker]', e.message);
+    // A crashed worker: fail its job (so the UI doesn't wait forever), replace the worker, keep going.
+    w.onerror = (e) => {
+      console.error('[runner worker]', e.message);
+      e.preventDefault();
+      for (const [id, job] of [...inflight]) {
+        if (job.worker !== w) continue;
+        inflight.delete(id);
+        job.reject(new Error(`runner worker crashed: ${e.message}`));
+      }
+      w.terminate();
+      workers.splice(workers.indexOf(w), 1);
+      const i = idle.indexOf(w);
+      if (i >= 0) idle.splice(i, 1);
+      pump();
+    };
     workers.push(w);
     idle.push(w);
   };
@@ -52,11 +66,12 @@ export function createWorkerRunner(size = Math.max(1, Math.min(8, (navigator.har
       const p = new Promise<RunResult>((resolve, reject) => {
         queue.push({ req: { id: nextId++, scenario: s, saturate: opts?.saturate }, resolve, reject });
         pump();
-      }).then((r) => {
-        cache.set(k, r);
-        running.delete(k);
-        return r;
-      });
+      })
+        .then((r) => {
+          cache.set(k, r);
+          return r;
+        })
+        .finally(() => running.delete(k)); // a failed run can be retried
       running.set(k, p);
       return p;
     },

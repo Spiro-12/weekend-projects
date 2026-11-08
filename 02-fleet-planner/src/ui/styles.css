@@ -29,8 +29,10 @@ body { -webkit-font-smoothing: antialiased; }
 .slot-right { position: absolute; top: 14px; right: 14px; width: 352px; display: flex; flex-direction: column; gap: 10px; max-height: calc(100% - 100px); overflow: auto; }
 .slot-bottom { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 10px; }
 .slot-overlay { position: absolute; inset: 0; }
-.slot-kpi > *, .slot-left > *, .slot-right > *, .slot-bottom > *, .slot-overlay > * { pointer-events: auto; }
-.slot-overlay > .pass { pointer-events: none; }
+.slot-kpi > *, .slot-left > *, .slot-right > *, .slot-bottom > * { pointer-events: auto; }
+/* Overlay panels position their own content (position: absolute); the full-size section never blocks clicks. */
+.slot-overlay > section { position: absolute; inset: 0; pointer-events: none; }
+.slot-overlay > section > * { pointer-events: auto; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 8px 14px; width: max-content; }
 .brand h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
 .brand .sub { color: var(--muted); font-size: 12px; }

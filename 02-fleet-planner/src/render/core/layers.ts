@@ -15,6 +15,8 @@ export interface WorldLayer {
   setTier(t: Tier): void;
   /** Per-frame hook (animated conveyors, lights). */
   update?(dtMs: number, nowMs: number): void;
+  /** Test/debug info (loaded models, instance counts…), exposed as __fp.render.layers. */
+  debug?(): Record<string, unknown>;
   dispose(): void;
 }
 
@@ -31,14 +33,19 @@ export interface AgentLayer {
   /** Interpolate every agent to `renderTick` and update instances, effects and labels. */
   update(snap: Snapshot, renderTick: number, selectedId: number | null, dtMs: number): void;
   positionOf(id: number): Vector3 | null;
-  /** Position and smoothed yaw, for the follow camera. */
-  followTarget(id: number): { pos: Vector3; yaw: number } | null;
+  /** Position and smoothed yaw for the follow camera; optional distance/height override the default chase framing
+   *  (e.g. pull out during a long dwell). */
+  followTarget(id: number): { pos: Vector3; yaw: number; distance?: number; height?: number } | null;
   /** Agent id under the ray, or null. */
   pick(ray: Raycaster): number | null;
   /** Screen position (CSS px in the canvas) of an agent, or null. */
   project(id: number, camera: Camera, w: number, h: number): { x: number; y: number } | null;
   count(): number;
   setTier(t: Tier): void;
+  /** Test/debug info (instance counts per type, ribbon count, deadlock markers…), exposed as __fp.render.layers. */
+  debug?(): Record<string, unknown>;
+  /** Test hook: render this snapshot instead of the live one until called with null (deadlock marker tests). */
+  inject?(snap: Snapshot | null): void;
   dispose(): void;
 }
 

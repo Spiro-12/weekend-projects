@@ -16,6 +16,13 @@ export function canonicalJson(v: unknown): string {
   return JSON.stringify(v);
 }
 
+/** Cache key for runs: everything that changes the simulation (economics only changes the money, not the run). */
+export function runKey(s: Scenario): string {
+  const rest: Partial<Scenario> = { ...s };
+  delete rest.economics;
+  return settingsHash(rest as Scenario);
+}
+
 export function settingsHash(s: Scenario): string {
   const j = canonicalJson(s);
   return fnv1a32(j).toString(16).padStart(8, '0') + fnv1a32(j.split('').reverse().join('')).toString(16).padStart(8, '0');

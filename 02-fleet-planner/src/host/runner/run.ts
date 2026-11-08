@@ -2,7 +2,7 @@
 // (golden tests, CLI sweeps) and inside the Web Worker pool in the browser.
 import { TICKS_PER_MIN, type KpiRecorderFactory, type RunResult, type Scenario } from '../../contracts/types.ts';
 import { createSim, type SimData, type SimImpl } from '../../sim/index.ts';
-import { settingsHash } from '../settings.ts';
+import { runKey } from '../settings.ts';
 import type { EvaluateOptions } from './types.ts';
 
 export const SAMPLE_EVERY = 60;
@@ -26,7 +26,7 @@ export function runScenario(s: Scenario, data: SimData, recorder: KpiRecorderFac
   if (opts.saturate) kpis.capacityOph = kpis.oph;
   return {
     scenarioId: s.id,
-    settingsHash: settingsHash(s) + (opts.saturate ? '-sat' : ''),
+    settingsHash: runKey(s) + (opts.saturate ? '-sat' : ''),
     kpis,
     fleet: { ...s.fleet },
     traffic: s.traffic.mode,

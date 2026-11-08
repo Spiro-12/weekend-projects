@@ -18,7 +18,7 @@ The orchestrator. One planner moves every robot from every vendor so that nothin
 2. **Per pass class:** forklifts use forklift cells only and reserve `safetyCells` ahead (`out.safety`). A robot standing in a forklift's needed safety cell is pushed out.
 3. **Pockets** (chargers, parking) are entered only by the robot whose goal they are.
 4. **Robots yield to people:** for each pair in `yields`, push that robot out of the person's way.
-5. **Local detour:** a robot blocked `waitTicks` (5) by something it can't push (a person, a parked or broken robot) plans a bounded detour (radius 6) and follows it. Report `detour` events.
+5. **Local detour:** a robot blocked `waitTicks` (5) by something it can't push (a person, a parked or broken robot) plans a bounded detour (radius 6) and follows it. Report it as a `detour` `TrafficEvent` (internal; the core counts it but it is not a `SimEvent`). The core maps `safetyStop` → `SimEvent safetyStop` and `yield` (cell = the person's cell) → `SimEvent yield` with that person's id.
 6. **Guidance:** tie-break toward fewer turns. Respect one-way hints (`> < ^ v`) as a soft cost if the layout has them.
 7. **`want[id]`** = preferred next cell, even when staying. The sim builds the wait-for graph from it.
 8. **`recover()`:** central mode needs no ladder. Return empty resets and re-tasks unless a robot has made no progress for 5 minutes. Then return a reset (a person helps), the same rule many brains will use, so one brain isn't given a free pass.

@@ -342,6 +342,7 @@ export interface Kpis {
 
 export interface RunResult {
   scenarioId: string;
+  /** Run cache key: hash of the settings that change the simulation (economics excluded), plus '-sat' for capacity. */
   settingsHash: string;
   kpis: Kpis;
   fleet: Record<AgentTypeId, number>;
@@ -417,7 +418,8 @@ export interface ExplainInput {
   note?: string;
 }
 export interface Explained {
-  value: number;
+  /** null when `flag` is set (no meaningful number: "never pays back", "doesn't keep up"). */
+  value: number | null;
   unit: string;
   formula: string;
   inputs: ExplainInput[];

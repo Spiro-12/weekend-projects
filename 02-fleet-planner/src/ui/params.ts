@@ -9,7 +9,7 @@ export interface Params {
   capture: boolean;
   /** Test hook: freeze the live sim (screenshots). */
   freeze: boolean;
-  /** Stress the renderer with this many extra fake robots (perf checks, Spiro's phone test). */
+  /** Set the cart-robot count to this (perf checks, Spiro's phone test). Capped at 300. */
   agents?: number;
   /** Which runner computes the numbers: the worker pool (default once the real sim lands) or the toy model. */
   runner?: 'worker' | 'fake';
@@ -28,7 +28,7 @@ export function readParams(search = typeof location !== 'undefined' ? location.s
     tier: tier === 'high' || tier === 'medium' || tier === 'low' || tier === 'lite' ? tier : undefined,
     capture: q.get('capture') === '1',
     freeze: q.get('freeze') === '1',
-    agents: num('agents'),
+    agents: num('agents') === undefined ? undefined : Math.min(300, num('agents')!),
     runner: q.get('runner') === 'worker' ? 'worker' : q.get('runner') === 'fake' ? 'fake' : undefined,
   };
 }

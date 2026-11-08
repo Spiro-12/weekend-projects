@@ -22,7 +22,7 @@ Plus glowing route lines on the floor, visible jams and deadlocks, click-to-foll
 `src/render/agents/**`, `src/render/models/**`, `src/render/camera/**` (new, for camera behaviours built on the rig), `src/render/fx/**`, `tests/e2e/agents-*.spec.ts`. Don't edit `render/core/*`, `main.ts`, the world (Track D) or the panels (Track F).
 
 ## Build
-1. **`createAgentLayer(opts): AgentLayer`** in `src/render/agents/index.ts` (replaces the basic layer).
+1. **`createAgentLayer(opts): AgentLayer`** in `src/render/agents/index.ts` (replaces the basic layer). Load GLBs only through the shared loader `src/render/core/assets.ts`. Implement `debug()` (instance counts per type, ribbon count, deadlock markers) and `inject(snapshot | null)` (render a crafted snapshot in tests). Both are reachable as `__fp.render.layers.agents`.
    - Interpolate from `cell`, `to`, `moveStart`, `moveEnd` at `renderTick`, with smooth yaw.
    - Must work for any snapshot: FakeSim now, the real core later.
 2. **Models** (instanced rigid parts everywhere; spike a measured why):
@@ -46,7 +46,7 @@ Plus glowing route lines on the floor, visible jams and deadlocks, click-to-foll
    - **Selection:** a yellow ring, and a "waiting for" arrow from the selected agent to its `waitOn`.
    - **Hover:** a small label (name · type · state) on the agent under the pointer (desktop only).
    - **Bloom:** only on the high tier, and only on emissive things (use a layer or threshold so the floor doesn't bloom). Fix the seam bleed spike a saw in split screen.
-4. **Camera** (`src/render/camera/`): build on the rig. When following, the camera eases behind the agent (exists). Add a gentle "pull out" when the followed agent stops for a long dwell, so it doesn't stare at a rack. Keep Escape / click-empty-floor → `overview()`.
+4. **Camera** (`src/render/camera/`): build on the rig. When following, the camera eases behind the agent (exists). Add a gentle "pull out" when the followed agent stops for a long dwell, so it doesn't stare at a rack: return a larger `distance` / `height` from your `followTarget()` (the rig reads them). Keep Escape / click-empty-floor → `overview()`.
 5. **Picking:** reliable click and tap on instanced parts (raycast `instanceId` → agent), plus a generous screen-space fallback for small far agents.
 6. **Tiers:** low drops ribbons to every other robot and uses simple people. Lite drops ribbons.
 
@@ -57,13 +57,13 @@ Plus glowing route lines on the floor, visible jams and deadlocks, click-to-foll
 
 ## Tests (`tests/e2e/agents-*.spec.ts`, `E2E_WEB_PORT=5202 npm run gate`)
 - Clicking an agent (via `__fp.render.project`) follows it; Escape returns to the overview.
-- **Every agent type renders:** count instances via a test hook you add on your layer.
+- **Every agent type renders:** count instances via `__fp.render.layers.agents.debug()`.
 - **Ribbons:** the count equals the robots with routes.
-- **Deadlock markers:** feed a crafted snapshot with a 2-agent deadlock (freeze the sim and inject through a test hook on your layer) → rings, arrows and the label exist.
+- **Deadlock markers:** `__fp.freeze(true)`, then `__fp.render.layers.agents.inject(snapshotWithA2AgentDeadlock)` → rings, arrows and the label exist (`debug()`).
 - Draw calls for agents ≤ 20 at the overview with 150 robots.
 - No console errors.
 
-**Visual check (required):** screenshots of a followed AMR in an aisle, a forklift at a face, people and a humanoid near the pack area, and a deadlock. Compare them with the reference frames in `/private/tmp/claude-501/-Users-spirokhoury-weekend-projects/3fe59ab2-4325-4547-9aab-1108c13934b6/scratchpad/refs/` (read-only). Iterate until they look in league.
+**Visual check (required):** screenshots of a followed AMR in an aisle, a forklift at a face, people and a humanoid near the pack area, and a deadlock. Compare them with the reference frames in `.refs/` in the main checkout (`git worktree list` shows it first; gitignored, never commit) (read-only). Iterate until they look in league.
 
 ## Done when
 `E2E_WEB_PORT=5202 npm run gate` is green, the budgets are met (report the numbers), the screenshots are reviewed, and the work is committed on your branch.

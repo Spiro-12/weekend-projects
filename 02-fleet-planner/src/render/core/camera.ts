@@ -11,6 +11,10 @@ export interface FollowTarget {
   pos: Vector3;
   /** Yaw of the agent (radians about +Y; 0 = facing +X). The chase camera sits behind it. */
   yaw: number;
+  /** Chase distance behind (m), default 3.2. The agent layer can raise it (e.g. pull out during a long dwell). */
+  distance?: number;
+  /** Camera height (m), default 2.0. */
+  height?: number;
 }
 
 export class CameraRig {
@@ -88,8 +92,10 @@ export class CameraRig {
   private chase(t: FollowTarget): Pose {
     const dx = Math.cos(this.chaseYaw);
     const dz = -Math.sin(this.chaseYaw);
+    const back = t.distance ?? 3.2;
+    const up = t.height ?? 2.0;
     return {
-      position: [t.pos.x - dx * 3.2, 2.0, t.pos.z - dz * 3.2],
+      position: [t.pos.x - dx * back, up, t.pos.z - dz * back],
       target: [t.pos.x + dx * 2, 0.6, t.pos.z + dz * 2],
     };
   }

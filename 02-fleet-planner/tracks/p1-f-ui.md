@@ -35,19 +35,21 @@ The lead swaps in the real sim, runner and economics at integration. Your code m
      - a table of inputs, each with its origin badge: `source` (title + publisher as a link to the URL from `host.data.sources`), `estimate` (with the note), `simulated`, `your input`
      - the "not modeled" note
    - Keyboard accessible (focusable, Esc closes).
-3. **Fleet controls** (slot `right`, below money):
+   - While `host.moneyPending` is true, show the money numbers as recalculating (the baseline search can finish after the KPI result).
+   - A flagged `Explained` has `value: null`: show the flag words, never a number.
+3. **Fleet controls** (slot `left`):
    - **Steppers + sliders** per type: cart robots, autonomous forklifts, humanoids, pickers, forklift drivers. Each shows the "based on" products on hover.
    - **Order volume** slider (orders/hour).
    - A **"People only"** button (`host.peopleOnly()`).
    - Changes apply live (`host.setFleet`, `host.setOrderRate`); the runner recalculates (already debounced in the host).
    - Show estimates with a small "estimate" badge where the spec is an estimate (from `host.data.agents`).
-4. **Follow card** (slot `left`, only while `host.selected` is set):
+4. **Follow card** (slot `overlay`, positioned bottom-right on desktop by your `panels.css`; only while `host.selected` is set):
    - Content: name, type, vendor, state, battery bar, current task (kind, stage, lines, how long), and a short task timeline of the last few state changes (keep your own small history per selected agent from snapshots).
    - **Updates** by subscribing to `host.live.onUpdate` at ≤ 4 Hz.
    - Close button = `host.select(0, null)`.
 5. **Time controls** (slot `bottom`): pause/play, 1x / 10x / 60x (`host.setSpeed`, `host.setPaused`), sim clock (hh:mm from `snapshot.tick`).
 6. **Live strip** (slot `bottom`): live counters from the snapshot (shipped, open orders, active jams, deadlocks), labeled "live view". This shows the 3D view and the tiles agree.
-7. **Scenario picker:** small/default/large building (`host.setScenario`) in the brand bar area, or slot `left` when nothing is selected.
+7. **Scenario picker:** small/default/large building (`host.setScenario`), at the top of slot `left`. It works: `data/scenarios/` has all three.
 8. **Phone:** the shell turns `left`/`right`/`bottom` into bottom-sheet tabs. Make every panel readable at 390 px wide; tiles scroll sideways; the popover becomes a bottom sheet.
 9. **`data-testid`** on every tile, control and number:
    - `kpi-*`, `money-payback`, `money-3yr`, `money-capex`, `fleet-<type>`, `fleet-people-only`, `order-rate`
@@ -81,4 +83,4 @@ Also take desktop and phone screenshots (`npx tsx scripts/shots.ts --url http://
   - a single-row chip strip that scrolls sideways, about 60% of today's height, with short labels that never wrap ("Orders/h", "Utilization", "Jams/h", "Order time"; the lead added short labels to the Phase 0 tiles)
   - no box-shadow band behind the strip
   - money panel and follow card as bottom sheets
-- **Follow card:** bottom-right on desktop (ID, task, speed, battery, next stop), like An Xuan's "Forklift FL-1" card. Fleet controls bottom-left on desktop, or wherever reads cleanest; justify your layout in the report.
+- **Follow card:** bottom-right on desktop (ID, task, speed, battery, next stop), like An Xuan's "Forklift FL-1" card (slot `overlay`, absolutely positioned; overlay sections never block clicks). Fleet controls: slot `left`. Money: slot `right`.

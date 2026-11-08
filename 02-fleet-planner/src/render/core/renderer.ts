@@ -1,7 +1,6 @@
 // Renderer core (lead-owned, PROTOCOL §9): one WebGL2 renderer, scene roots, one or two scissor views, tiers,
 // perf timing, context-lost handling. World and agent layers add themselves under roots.world / roots.agents.
 import {
-  ACESFilmicToneMapping,
   AgXToneMapping,
   Color,
   DirectionalLight,
@@ -54,7 +53,7 @@ export function createRenderer(container: HTMLElement, opts: { tier?: Tier; onTi
   const renderer = new WebGLRenderer({ antialias: ts.antialias, powerPreference: 'high-performance', preserveDrawingBuffer: false });
   renderer.setPixelRatio(ts.dpr);
   renderer.outputColorSpace = SRGBColorSpace;
-  renderer.toneMapping = typeof AgXToneMapping === 'number' ? AgXToneMapping : ACESFilmicToneMapping;
+  renderer.toneMapping = AgXToneMapping;
   renderer.toneMappingExposure = 1.05;
   renderer.autoClear = false;
   renderer.info.autoReset = false;

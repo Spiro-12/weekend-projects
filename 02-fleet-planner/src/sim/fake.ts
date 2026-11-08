@@ -59,7 +59,8 @@ interface FAgent {
   stops: number;
   battery: number;
   batteryMax: number;
-  charging: number; // charger index or -1
+  /** Charger pocket reserved for (or in use by) this robot, or -1. Charging itself = state 'charge'. */
+  charger: number;
   blockedTicks: number;
   waitOn: number;
   removing: boolean;
@@ -171,7 +172,7 @@ export class FakeSim implements Sim {
         stops: 0,
         battery: level,
         batteryMax: max,
-        charging: -1,
+        charger: -1,
         blockedTicks: 0,
         waitOn: -1,
         removing: false,
@@ -224,14 +225,15 @@ export class FakeSim implements Sim {
     // Remove agents marked for removal once they stand still.
     for (const a of this.agents.filter((x) => x.removing && x.to < 0)) {
       this.occ[a.cell] = -1;
-      if (a.charging >= 0) this.chargerUse[a.charging] = -1;
+      if (a.charger >= 0) this.chargerUse[a.charger] = -1;
     }
     this.agents = this.agents.filter((x) => !(x.removing && x.to < 0));
 
+    const ids = this.agents.map((a) => a.id);
     const cells = this.agents.map((a) => a.cell);
     const blocked = this.agents.map((a) => a.blockedTicks);
-    const j = this.jams.update(tick, cells, blocked);
-    for (const s of j.started) this.events.push({ t: 'jamStart', tick, jam: s.id, agents: s.agents.map((k) => this.agents[k].id), cell: s.cell });
+    const j = this.jams.update(tick, cells, blocked, ids);
+    for (const s of j.started) this.events.push({ t: 'jamStart', tick, jam: s.id, agents: s.agents, cell: s.cell });
     for (const e of j.ended) this.events.push({ t: 'jamEnd', tick, jam: e.id });
     const indexOf = new Map(this.agents.map((a, k) => [a.id, k]));
     const wf = new Int32Array(this.agents.length).fill(-1);
@@ -239,8 +241,8 @@ export class FakeSim implements Sim {
       const target = a.id < waitFor.length ? waitFor[a.id] : -1;
       if (target >= 0) wf[k] = indexOf.get(target) ?? -1;
     });
-    const d = this.deadlocks.update(tick, wf);
-    for (const s of d.started) this.events.push({ t: 'deadlockStart', tick, deadlock: s.id, agents: s.ids.map((k) => this.agents[k].id) });
+    const d = this.deadlocks.update(tick, wf, ids);
+    for (const s of d.started) this.events.push({ t: 'deadlockStart', tick, deadlock: s.id, agents: s.ids });
     for (const e of d.ended) this.events.push({ t: 'deadlockEnd', tick, deadlock: e.id });
 
     this.tick++;
@@ -248,7 +250,7 @@ export class FakeSim implements Sim {
 
   private stepAgent(a: FAgent, tick: number, waitFor: Int32Array): void {
     const robot = a.spec.kind === 'robot';
-    if (robot && a.charging < 0) a.battery = Math.max(0, a.battery - 1);
+    if (robot && a.state !== 'charge') a.battery = Math.max(0, a.battery - 1);
 
     // Finishing a move.
     if (a.to >= 0) {
@@ -262,11 +264,13 @@ export class FakeSim implements Sim {
     }
     // Dwelling (work, wait or charge).
     if (tick < a.dwellUntil) return;
-    if (a.charging >= 0) {
+    if (a.state === 'charge') {
       this.events.push({ t: 'chargeEnd', tick, agent: a.id });
-      this.chargerUse[a.charging] = -1;
-      a.charging = -1;
+      if (a.charger >= 0) this.chargerUse[a.charger] = -1;
+      a.charger = -1;
+      a.battery = a.batteryMax;
       a.goal = -1;
+      a.state = 'idle';
     }
     if (a.removing) {
       a.state = 'idle';
@@ -297,15 +301,32 @@ export class FakeSim implements Sim {
       a.state = 'blocked';
       waitFor[a.id] = occupant;
       this.heat[a.cell]++;
-      if (a.blockedTicks > 30 + (a.id % 7)) {
-        a.goal = -1; // give up and pick another goal (fake recovery)
+      if (a.blockedTicks > 4 + (a.id % 4)) {
+        // Fake recovery: step aside into any free neighbour (breaks head-on standoffs), else pick another goal.
+        const pass = this.world.passable[a.cls === 'small' ? 0 : a.cls === 'forklift' ? 1 : 2];
+        for (let k = 0; k < 4; k++) {
+          const d = (k + a.id + tick) % 4;
+          const side = this.world.nbr[a.cell * 4 + d];
+          if (side < 0 || side === next || !pass[side] || this.world.isPocket[side] || this.occ[side] >= 0) continue;
+          this.startMove(a, side, tick);
+          return;
+        }
+        if (a.goalKind === 'charger' && a.charger >= 0) {
+          this.chargerUse[a.charger] = -1;
+          a.charger = -1;
+        }
+        a.goal = -1;
         a.blockedTicks = 0;
       }
       return;
     }
+    this.startMove(a, next, tick);
+  }
+
+  private startMove(a: FAgent, next: number, tick: number): void {
     const h = headingOf(a.cell, next, this.world.width);
-    const extra = turns(a.heading, h) * a.spec.turnTicks;
-    const m = moveTicks(a.blockedTicks > 0 ? 0 : a.carry, a.speed, extra);
+    const turned = turns(a.heading, h);
+    const m = moveTicks(a.blockedTicks > 0 || a.state !== 'travel' ? 0 : a.carry, a.speed, turned * a.spec.turnTicks, turned > 0);
     a.carry = m.carryMm;
     a.heading = h;
     a.to = next;
@@ -354,9 +375,8 @@ export class FakeSim implements Sim {
         break;
       case 'charger':
         a.state = 'charge';
-        a.dwellUntil = tick + Math.ceil(((a.batteryMax - a.battery) * (s.battery?.chargeH.value ?? 1)) / (s.battery?.runtimeH.value ?? 1));
-        a.battery = a.batteryMax;
-        this.events.push({ t: 'chargeStart', tick, agent: a.id, charger: a.charging });
+        a.dwellUntil = tick + Math.max(1, Math.ceil(((a.batteryMax - a.battery) * (s.battery?.chargeH.value ?? 1)) / (s.battery?.runtimeH.value ?? 1)));
+        this.events.push({ t: 'chargeStart', tick, agent: a.id, charger: a.charger });
         break;
       default:
         a.state = 'idle';
@@ -378,7 +398,7 @@ export class FakeSim implements Sim {
       const free = w.chargers.findIndex((c, i) => c.forClass === a.cls && this.chargerUse[i] < 0);
       if (free >= 0) {
         this.chargerUse[free] = a.id;
-        a.charging = free;
+        a.charger = free;
         this.setGoal(a, w.chargers[free].cell, 'charger', 'charge', tick);
         return;
       }
@@ -452,7 +472,7 @@ export class FakeSim implements Sim {
         vendor: '-',
         agentId: this.chargerUse[i],
       })),
-      deadlocks: this.deadlocks.active().map((d) => ({ ids: d.ids.map((k) => this.agents[k]?.id ?? -1), sinceTick: d.sinceTick })),
+      deadlocks: this.deadlocks.active().map((d) => ({ ids: d.ids, sinceTick: d.sinceTick })),
       heat: Array.from(this.heat),
     };
   }

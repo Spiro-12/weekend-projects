@@ -14,9 +14,6 @@ export function cellX(d: GridDims, cell: number): number {
 export function cellZ(d: GridDims, cell: number): number {
   return (Math.floor(cell / d.width) + 0.5 - d.height / 2) * CELL_M;
 }
-export function xyToWorld(d: GridDims, x: number, y: number): [number, number] {
-  return [(x + 0.5 - d.width / 2) * CELL_M, (y + 0.5 - d.height / 2) * CELL_M];
-}
 /** Heading 0..3 (E, S, W, N) to a Y rotation so the model's +X axis points along the move. */
 export function headingYaw(h: number): number {
   return [0, -Math.PI / 2, Math.PI, Math.PI / 2][h] ?? 0;

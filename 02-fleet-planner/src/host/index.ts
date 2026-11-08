@@ -40,6 +40,8 @@ export interface Host {
   baseline: Signal<{ crew: { picker: number; driver: number }; result: RunResult } | null>;
   /** Money panel numbers for the current settings vs the baseline. */
   money: Signal<MoneyReport | null>;
+  /** True while the money report is being recomputed (it can lag the KPI result: the baseline search runs after). */
+  moneyPending: Signal<boolean>;
   selected: Signal<{ side: 0 | 1; agentId: number } | null>;
   speed: Signal<number>;
   paused: Signal<boolean>;
@@ -65,6 +67,7 @@ export function createHost(data: AppData, runner: Runner, opts: { scenario?: str
   const pending = signal(false);
   const baseline = signal<{ crew: { picker: number; driver: number }; result: RunResult } | null>(null);
   const money = signal<MoneyReport | null>(null);
+  const moneyPending = signal(true);
   const selected = signal<{ side: 0 | 1; agentId: number } | null>(null);
   const speed = signal(1);
   const paused = signal(false);
@@ -77,6 +80,7 @@ export function createHost(data: AppData, runner: Runner, opts: { scenario?: str
   const baselineCache = new Map<string, Promise<{ crew: { picker: number; driver: number }; result: RunResult }>>();
   const baselineKey = (s: Scenario) => settingsHash({ ...s, fleet: { amr: 0, forklift: 0, humanoid: 0, picker: 0, driver: 0 }, traffic: { ...s.traffic, mode: 'central' }, economics: { ...s.economics, financing: 'buy' } });
   const updateMoney = async (s: Scenario, r: RunResult, token: number) => {
+    moneyPending.value = true;
     const key = baselineKey(s);
     let p = baselineCache.get(key);
     if (!p) {
@@ -87,6 +91,7 @@ export function createHost(data: AppData, runner: Runner, opts: { scenario?: str
     if (token !== runToken) return;
     baseline.value = b;
     money.value = econ.computeMoney({ scenario: s, agents: data.agents, candidate: r, baseline: b.result, baselineCrew: b.crew });
+    moneyPending.value = false;
   };
   const recalc = () => {
     const s = settings.value;
@@ -111,12 +116,16 @@ export function createHost(data: AppData, runner: Runner, opts: { scenario?: str
         })
         .catch((e) => {
           console.error('[runner] evaluate failed', e);
-          if (token === runToken) pending.value = false;
+          if (token === runToken) {
+            pending.value = false;
+            moneyPending.value = false;
+          }
         });
     }, 250);
   };
 
   const update = (next: Scenario) => {
+    // Economics-only changes (buy/rent) hit the run cache, so only the money is recomputed.
     if (settingsHash(next) === settingsHash(settings.value)) return;
     settings.value = next;
     recalc();
@@ -132,6 +141,7 @@ export function createHost(data: AppData, runner: Runner, opts: { scenario?: str
     pending,
     baseline,
     money,
+    moneyPending,
     selected,
     speed,
     paused,
@@ -162,12 +172,10 @@ export function createHost(data: AppData, runner: Runner, opts: { scenario?: str
       const s = data.scenarios[id];
       if (!s) return;
       const layoutChanged = s.layout !== settings.value.layout;
+      host.select(0, null);
       settings.value = s;
-      if (layoutChanged) {
-        const next = new LiveSim(s, simData(s), opts.impl);
-        host.live = next;
-        bus.emit('layoutChanged', { layout: data.layouts[s.layout] });
-      } else host.live.reset(s);
+      host.live.reset(s, simData(s));
+      if (layoutChanged) bus.emit('layoutChanged', { layout: data.layouts[s.layout] });
       recalc();
     },
     setSpeed(x) {

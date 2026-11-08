@@ -3,6 +3,8 @@
 import type { Host } from '../host/index.ts';
 import type { LiveSim } from '../host/live.ts';
 import type { Runner } from '../host/runner/types.ts';
+import type { Group } from 'three';
+import type { AgentLayer, WorldLayer } from '../render/core/layers.ts';
 import type { PerfMonitor } from '../render/core/perf.ts';
 
 export interface FpHooks {
@@ -27,6 +29,10 @@ export interface FpHooks {
     pick(x: number, y: number): number | null;
     cameraPose(): { position: number[]; target: number[] };
     following(): boolean;
+    /** Scene roots (tests may hide e.g. agents to measure the world alone). */
+    roots: { world: Group; agents: Group; fx: Group };
+    /** The live layers, with their optional debug() info and the agent layer's inject() test hook. */
+    layers: { world: WorldLayer; agents: AgentLayer };
   };
   perf: PerfMonitor;
   /** Drive the camera along a named path for `seconds` of real time; resolves at the end. */

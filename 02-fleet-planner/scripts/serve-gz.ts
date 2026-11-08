@@ -3,7 +3,7 @@
 // Usage: tsx scripts/serve-gz.ts dist [port]   (port also from E2E_WEB_PORT; default 5180)
 import { createServer } from 'node:http';
 import { readFileSync, statSync } from 'node:fs';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
 export const BASE_PATH = '/weekend-projects/02-fleet-planner/';
@@ -32,7 +32,7 @@ createServer((req, res) => {
   let rel = decodeURIComponent(url.pathname.slice(BASE_PATH.length)) || 'index.html';
   if (rel.endsWith('/')) rel += 'index.html';
   const file = normalize(join(root, rel));
-  if (!file.startsWith(root)) {
+  if (file !== root && !file.startsWith(root + sep)) {
     res.writeHead(403);
     return res.end();
   }

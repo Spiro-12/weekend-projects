@@ -18,7 +18,7 @@ export class LiveSim {
 
   constructor(
     public scenario: Scenario,
-    readonly data: SimData,
+    public data: SimData,
     readonly impl?: SimImpl,
   ) {
     this.sim = createSim(scenario, data, impl);
@@ -59,9 +59,10 @@ export class LiveSim {
     this.sim.command(c);
   }
 
-  /** Restart from a new scenario (layout or seed changes). */
-  reset(scenario: Scenario): void {
+  /** Restart from a new scenario (and layout). The same LiveSim object is kept, so listeners, speed and pause stay. */
+  reset(scenario: Scenario, data: SimData = this.data): void {
     this.scenario = scenario;
+    this.data = data;
     this.sim = createSim(scenario, this.data, this.impl);
     this.accMs = 0;
     this.snapshot = this.sim.snapshot();

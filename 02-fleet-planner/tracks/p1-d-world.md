@@ -4,14 +4,14 @@
 Make the building look like the reference demos: a bright industrial hall with a dark glossy floor, yellow lane lines, tall blue racks full of cartons on pallets, docks, conveyors and pack stations, chargers. It must stay inside the draw-call and triangle budgets with **two copies in split screen**, show a useful picture before any model downloads, and swap in the real SimReady models after.
 
 ## Read first
-- PLAN.md §3b, §4 and §9 (budgets).
+- PLAN.md §3 (part b, assets), §4 and §9 (budgets).
 - PROTOCOL.md §3, §9 and §12 (spike a + c decisions).
 - `src/render/core/layers.ts` (**the `WorldLayer` interface you implement**), `renderer.ts`, `tiers.ts`, `geom.ts`.
 - `src/render/world/procedural.ts` (the lead's Phase 0 world: yours to rework).
 - `public/assets/manifest.json`, `scripts/assets/**`, `CREDITS.md`, `spikes/c-assets-RESULTS.md`.
 - `spikes/a-render/src/static-world.ts`, `textures.ts` and `RESULTS.md` (instancing patterns and measured costs).
 
-**Reference frames (look at them):** `/private/tmp/claude-501/-Users-spirokhoury-weekend-projects/3fe59ab2-4325-4547-9aab-1108c13934b6/scratchpad/refs/*.png`. Read-only; never commit them.
+**Reference frames (look at them):** `.refs/` in the main checkout (`git worktree list` shows it first; gitignored, never commit). Read-only; never commit them.
 
 ## You own
 - `src/render/world/**`
@@ -24,7 +24,7 @@ Make the building look like the reference demos: a bright industrial hall with a
 Don't edit `render/core/*`, `main.ts`, the layouts or the agents (Track E).
 
 ## Build
-1. **`createWorldLayer(opts): WorldLayer`** in `src/render/world/index.ts`:
+1. **`createWorldLayer(opts): WorldLayer`** in `src/render/world/index.ts`. **Load models only through the shared loader `src/render/core/assets.ts`** (`assetLoader(baseUrl)`: typed manifest, one meshopt GLTFLoader, a cache, `urlLo` on low and lite):
    - **First view:** procedural only, a few KB, no downloads.
    - **Then:** load the first-tier GLBs from the manifest (GLTFLoader + MeshoptDecoder from `three/addons`; `urlLo` on the low tier), swap them in, and resolve `fullLook`.
    - `setTier`: switch LODs, far boxes and detail without a rebuild where possible.
@@ -66,7 +66,7 @@ Use `npx tsx scripts/perf.ts --url http://localhost:5201/weekend-projects/02-fle
 ## Tests (`tests/e2e/world-*.spec.ts`, `E2E_WEB_PORT=5201 npm run gate`)
 - The world loads with no errors.
 - `fullLook` resolves, and the manifest models are in the scene (check `render.info().triangles` grows after `fullLook`).
-- Draw calls ≤ 35 for the world alone at the overview (hide `roots.agents` in the test).
+- Draw calls ≤ 35 for the world alone at the overview (hide `__fp.render.roots.agents` in the test).
 - **The About panel opens and lists every manifest asset's credit, plus the NVIDIA line.**
 - Low tier loads only `urlLo` models (check network requests).
 

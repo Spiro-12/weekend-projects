@@ -1,0 +1,89 @@
+{
+ "format": "fp-scenario",
+ "v": 1,
+ "id": "large",
+ "name": "Large fulfilment center (22 aisles)",
+ "layout": "large",
+ "seed": 42,
+ "run": {
+  "warmupMin": 30,
+  "measureMin": 120,
+  "batterySpread": true
+ },
+ "shift": {
+  "hoursPerShift": 8,
+  "shiftsPerDay": 2,
+  "daysPerYear": 260
+ },
+ "orders": {
+  "mode": "demand",
+  "perHour": 1200,
+  "linesWeights": [
+   45,
+   25,
+   12,
+   8,
+   5,
+   3,
+   1,
+   1
+  ],
+  "sku": {
+   "aPct": 20,
+   "aPicksPct": 80
+  }
+ },
+ "pallets": {
+  "linesPerReplenish": 40,
+  "inboundPerHour": 24
+ },
+ "pack": {
+  "stations": 10,
+  "secPerOrder": 30
+ },
+ "fleet": {
+  "amr": 48,
+  "forklift": 8,
+  "humanoid": 4,
+  "picker": 26,
+  "driver": 3
+ },
+ "vendors": {
+  "amr": [
+   {
+    "id": "A",
+    "pct": 50
+   },
+   {
+    "id": "D",
+    "pct": 50
+   }
+  ],
+  "forklift": [
+   {
+    "id": "B",
+    "pct": 100
+   }
+  ],
+  "humanoid": [
+   {
+    "id": "C",
+    "pct": 100
+   }
+  ]
+ },
+ "traffic": {
+  "mode": "central",
+  "silo": {
+   "sensorCells": 3,
+   "waitTicks": 5,
+   "resetMin": 5,
+   "retaskSec": 90
+  }
+ },
+ "economics": {
+  "financing": "buy",
+  "baseline": "auto"
+ },
+ "events": []
+}

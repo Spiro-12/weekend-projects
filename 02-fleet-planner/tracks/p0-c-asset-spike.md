@@ -44,7 +44,7 @@ Read PLAN.md §3b and §9 (budgets) and RESEARCH.md Part B (the full asset surve
    - Write `CREDITS.md` with the exact credit text from RESEARCH.md Part B: NVIDIA SimReady via codepawl, the license link, "modified" notes, and the worker's credit.
 6. **Preview and contact sheet:** a small Vite page `spikes/c-assets/index.html` (port 5192) that shows every asset on a dark glossy floor under RoomEnvironment lighting.
    - Take screenshots: each model, plus a small scene with a rack bay of pallets and cartons, a forklift, the AMR, the humanoid and the worker together.
-   - Build `spikes/c-assets/out/contact-sheet.png`, placing your scene shots next to the reference frames in `/private/tmp/claude-501/-Users-spirokhoury-weekend-projects/3fe59ab2-4325-4547-9aab-1108c13934b6/scratchpad/refs/` (read-only, never commit them).
+   - Build `spikes/c-assets/out/contact-sheet.png`, placing your scene shots next to the reference frames in `.refs/` in the main checkout (`git worktree list` shows it first; gitignored, never commit) (read-only, never commit them).
    - Commit a small (≤ 500 KB) `spikes/c-assets/scene.png` of your own render only.
 
 ## Measure (`spikes/c-assets/RESULTS.md`)

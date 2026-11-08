@@ -43,16 +43,21 @@ export interface DeadlockInfo {
   started: boolean;
 }
 
-/** Tracks cycles across ticks; reports a deadlock once a cycle has lasted DEADLOCK_MIN_TICKS. */
+/**
+ * Tracks cycles across ticks; reports a deadlock once a cycle has lasted DEADLOCK_MIN_TICKS.
+ * `waitFor` is indexed by POSITION (0..n-1). Pass `ids` (position → agent id) so the reported members are stable
+ * agent ids even when agents are added or removed between ticks; without it, positions are reported.
+ */
 export class DeadlockTracker {
   private live = new Map<string, DeadlockInfo>();
   private nextId = 1;
   total = 0;
 
-  update(tick: number, waitFor: ArrayLike<number>): { started: DeadlockInfo[]; ended: DeadlockInfo[] } {
+  update(tick: number, waitFor: ArrayLike<number>, idOf?: ArrayLike<number>): { started: DeadlockInfo[]; ended: DeadlockInfo[] } {
     const seen = new Set<string>();
     const started: DeadlockInfo[] = [];
-    for (const ids of findCycles(waitFor)) {
+    for (const cycle of findCycles(waitFor)) {
+      const ids = idOf ? cycle.map((k) => idOf[k]).sort((a, b) => a - b) : cycle;
       const key = ids.join(',');
       seen.add(key);
       let d = this.live.get(key);
@@ -92,8 +97,9 @@ export interface JamInfo {
 }
 
 /**
- * Tracks jams. Input per tick: for each agent its cell index and how many ticks it has been stopped while wanting
- * to move (blockedTicks). A jam keeps its id while it shares at least one agent with the jam of the previous tick.
+ * Tracks jams. Input per tick, indexed by POSITION: each agent's cell and how many ticks it has been stopped while
+ * wanting to move (blockedTicks). Pass `ids` (position → agent id) to get agent ids in `agents`. A jam keeps its id
+ * while it shares at least one agent with the jam of the previous tick.
  */
 export class JamTracker {
   private live: JamInfo[] = [];
@@ -102,7 +108,7 @@ export class JamTracker {
 
   constructor(private width: number) {}
 
-  update(tick: number, cells: ArrayLike<number>, blockedTicks: ArrayLike<number>): { started: JamInfo[]; ended: JamInfo[] } {
+  update(tick: number, cells: ArrayLike<number>, blockedTicks: ArrayLike<number>, idOf?: ArrayLike<number>): { started: JamInfo[]; ended: JamInfo[] } {
     const stopped: number[] = [];
     for (let i = 0; i < cells.length; i++) if (blockedTicks[i] >= JAM_MIN_TICKS && cells[i] >= 0) stopped.push(i);
     // Union-find over stopped agents within JAM_RADIUS (Manhattan). Bucket cells into JAM_RADIUS-sized squares so
@@ -145,19 +151,21 @@ export class JamTracker {
       if (!groups.has(r)) groups.set(r, []);
       groups.get(r)!.push(stopped[k]);
     }
-    const clusters = [...groups.values()].filter((g) => g.length >= JAM_MIN_AGENTS).map((g) => g.sort((a, b) => a - b));
-    clusters.sort((a, b) => a[0] - b[0]);
+    const clusters = [...groups.values()]
+      .filter((g) => g.length >= JAM_MIN_AGENTS)
+      .map((g) => ({ cell: cells[Math.min(...g)], members: g.map((k) => (idOf ? idOf[k] : k)).sort((a, b) => a - b) }));
+    clusters.sort((a, b) => a.members[0] - b.members[0]);
 
     const next: JamInfo[] = [];
     const started: JamInfo[] = [];
     const kept = new Set<number>();
-    for (const agents of clusters) {
+    for (const { members: agents, cell } of clusters) {
       const prev = this.live.find((j) => !kept.has(j.id) && j.agents.some((a) => agents.includes(a)));
       if (prev) {
         kept.add(prev.id);
-        next.push({ ...prev, agents, cell: cells[agents[0]] });
+        next.push({ ...prev, agents, cell });
       } else {
-        const j: JamInfo = { id: this.nextId++, agents, cell: cells[agents[0]], sinceTick: tick };
+        const j: JamInfo = { id: this.nextId++, agents, cell, sinceTick: tick };
         this.total++;
         started.push(j);
         next.push(j);
