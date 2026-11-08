@@ -27,6 +27,11 @@ export const CLAIM_AFTER_TICKS = 3;
 /** PROTOCOL §5 rule 4 (people's manners): a person blocked this many ticks steps to the side. */
 export const STEP_ASIDE_AFTER = 4;
 
+/** A person blocked this many ticks (30 s) stops giving way to robot cell claims (rule 3), so no claim can hold a
+ *  person for ever. Robots have the 5-minute reset; people need their own way out (seen in testing: a driver stuck
+ *  for an hour on a cell a gridlocked robot kept claiming). */
+export const PEOPLE_PATIENCE_TICKS = 60;
+
 /** Below this battery percent a robot drops its task at the next safe point and goes to charge (the brief: "immediately
  *  below 10%"). Above it and below the spec's chargeAtPct it charges after its current task. */
 export const CRITICAL_BATTERY_PCT = 10;

@@ -7,7 +7,7 @@ import { ScriptedController } from './helpers/test-controller.ts';
 type Ev<T extends SimEvent['t']> = Extract<SimEvent, { t: T }>;
 const of = <T extends SimEvent['t']>(ev: SimEvent[], t: T) => ev.filter((e): e is Ev<T> => e.t === t);
 
-describe('work events (default scenario, 2 h, test PIBT controller)', () => {
+describe('work events (default scenario, 2 h, one-brain planner)', () => {
   const sim = makeSim(scenario(), { pibt: true });
   const ev = run(sim, 2 * 7200);
   const snap = sim.snapshot();
@@ -74,8 +74,8 @@ describe('work events (default scenario, 2 h, test PIBT controller)', () => {
   });
 });
 
-describe('traffic detection events (48 cart robots at capacity, test PIBT controller: knots form and clear)', () => {
-  const sim = makeSim(scenario({ fleet: { amr: 48 }, orders: { mode: 'saturate' } }), { pibt: true });
+describe('traffic detection events (80 cart robots at capacity, test PIBT controller: knots form and clear)', () => {
+  const sim = makeSim(scenario({ fleet: { amr: 80 }, orders: { mode: 'saturate' } }), { testPibt: true });
   const ev = run(sim, 2 * 7200);
   it('deadlockStart / deadlockEnd with stable ids and member lists', () => {
     const s = of(ev, 'deadlockStart');

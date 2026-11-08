@@ -5,7 +5,7 @@ import type { SimEvent } from '../../../src/contracts/types.ts';
 import { TOTES_PER_AMR } from '../../../src/sim/core/index.ts';
 import { count, makeSim, run, scenario } from './helpers/data.ts';
 
-describe('order flow (test PIBT controller, 250 orders/h)', () => {
+describe('order flow (one-brain planner, 250 orders/h)', () => {
   const sim = makeSim(scenario({ orders: { mode: 'demand', perHour: 250 } }), { pibt: true });
   const events: SimEvent[] = [];
   // Little's law window: 30 min warm-up, then 2 h sampled every tick

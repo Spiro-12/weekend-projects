@@ -8,7 +8,7 @@ import { makeSim, scenario } from './helpers/data.ts';
 const TICKS = 2 * 7200;
 
 for (const pibt of [false, true]) {
-  describe(`invariants every tick for 2 h (${pibt ? 'test PIBT controller' : 'NaiveController'})`, () => {
+  describe(`invariants every tick for 2 h (${pibt ? 'one-brain CentralController' : 'NaiveController'})`, () => {
     const sim = makeSim(scenario(), { pibt, checks: true });
     const w = sim.world;
     const found = { overlap: 0, occ: 0, forkOnNarrow: 0, pocketNotGoal: 0, robotIntoPerson: 0, negativeBattery: 0, moves: 0, robotMoves: 0 };

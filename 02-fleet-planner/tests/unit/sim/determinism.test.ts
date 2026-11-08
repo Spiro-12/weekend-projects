@@ -24,7 +24,7 @@ function hourRun(seed: number, pibt: boolean): { sim: CoreSim; hash: string } {
 
 describe('determinism', () => {
   for (const pibt of [false, true]) {
-    const label = pibt ? 'test PIBT controller' : 'NaiveController';
+    const label = pibt ? 'one-brain CentralController' : 'NaiveController';
     it(`same scenario, seed and commands give the same hash after 1 h (${label})`, () => {
       const a = hourRun(42, pibt);
       const b = hourRun(42, pibt);

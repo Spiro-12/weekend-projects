@@ -10,7 +10,7 @@
 // never swap. Deterministic: id order, fixed E, S, W, N tie-break, side-step ties drawn from the `humans` stream.
 import { Cell, UNREACHABLE } from '../world.ts';
 import { J_NONE, J_PICK, J_REST, J_SERVE, PK_AT_STOP, SV_WAIT_AMR, SV_WAIT_STOCK, T_PICKER, type CoreAgent } from './agent.ts';
-import { STEP_ASIDE_AFTER } from './constants.ts';
+import { PEOPLE_PATIENCE_TICKS, STEP_ASIDE_AFTER } from './constants.ts';
 import type { CoreSim } from './sim.ts';
 
 export function movePeople(s: CoreSim, t: number): void {
@@ -57,7 +57,7 @@ export function movePeople(s: CoreSim, t: number): void {
         first = j;
         firstKey = key;
       }
-      if (occ[j] < 0 && claim[j] !== t && key < freeKey) {
+      if (occ[j] < 0 && (claim[j] !== t || patient(p)) && key < freeKey) {
         const sc = safetyCell(s, p, j, d, t);
         if (sc === -2) continue;
         free = j;
@@ -92,7 +92,7 @@ function safetyCell(s: CoreSim, p: CoreAgent, j: number, d: number, t: number): 
   if (p.safetyCells === 0 || s.stopsAt(p, j)) return -1; // no safety field needed for the final stop
   const c = s.world.nbr[j * 4 + d];
   if (c < 0 || !s.open[c]) return -1;
-  return s.occ[c] < 0 && s.claim[c] !== t ? c : -2;
+  return s.occ[c] < 0 && (s.claim[c] !== t || patient(p)) ? c : -2;
 }
 
 /** Who holds the safety cell beyond `first` (for the wait-for graph and robot yields), or -1. */
@@ -125,6 +125,12 @@ function trySwap(s: CoreSim, p: CoreAgent, q: CoreAgent, v: number, first: numbe
   return true;
 }
 
+/** A person blocked this long no longer gives way to robot claims (a claim is a courtesy, not a wall): without this a
+ *  driver could wait for ever on a cell a stuck robot keeps claiming. */
+function patient(p: CoreAgent): boolean {
+  return p.blockedTicks >= PEOPLE_PATIENCE_TICKS;
+}
+
 /** Blocked STEP_ASIDE_AFTER ticks: step to a free neighbour, to the side of the route first (not back), then closest to
  *  the goal; equal choices are drawn from the `humans` stream. */
 function stepAside(s: CoreSim, p: CoreAgent, D: Uint16Array, t: number): void {
@@ -137,7 +143,7 @@ function stepAside(s: CoreSim, p: CoreAgent, D: Uint16Array, t: number): void {
   let n = 0;
   for (let d = 0; d < 4; d++) {
     const j = w.nbr[v * 4 + d];
-    if (j < 0 || !p.pass[j] || w.isPocket[j] || s.occ[j] >= 0 || s.claim[j] === t || D[j] === UNREACHABLE) continue;
+    if (j < 0 || !p.pass[j] || w.isPocket[j] || s.occ[j] >= 0 || (s.claim[j] === t && !patient(p)) || D[j] === UNREACHABLE) continue;
     const sc = safetyCell(s, p, j, d, t);
     if (sc === -2) continue;
     const side = ((d - p.prefHeading + 4) & 1) === 1 ? 0 : 0x10000;

@@ -6,6 +6,7 @@ import smallLayout from '../../../../data/layouts/small.json';
 import defaultScenario from '../../../../data/scenarios/default.json';
 import type { AgentsFile, LayoutFile, Scenario, SimEvent } from '../../../../src/contracts/types.ts';
 import { createCoreSim, type CoreSim, type CoreSimOptions } from '../../../../src/sim/core/index.ts';
+import { CentralController } from '../../../../src/sim/traffic/central/index.ts';
 import { TestPibtController } from './test-controller.ts';
 
 export const AGENTS = agents as AgentsFile;
@@ -33,9 +34,10 @@ export function scenario(patch: ScenarioPatch = {}): Scenario {
   };
 }
 
-/** A core sim on the default layout. `pibt: true` uses the test PIBT controller (work flows); default is naive. */
-export function makeSim(s: Scenario, opts: CoreSimOptions & { pibt?: boolean; layout?: string } = {}): CoreSim {
-  const traffic = opts.traffic ?? (opts.pibt ? (m) => new TestPibtController(m) : undefined);
+/** A core sim. `pibt: true` uses Track B's one-brain CentralController (the real planner), `testPibt: true` Track A's
+ *  small test PIBT; the default is the lead's NaiveController. */
+export function makeSim(s: Scenario, opts: CoreSimOptions & { pibt?: boolean; testPibt?: boolean; layout?: string } = {}): CoreSim {
+  const traffic = opts.traffic ?? (opts.pibt ? () => new CentralController() : opts.testPibt ? (m) => new TestPibtController(m) : undefined);
   return createCoreSim(s, { agents: AGENTS, layout: LAYOUTS[opts.layout ?? s.layout] }, { checks: opts.checks, traffic });
 }
 
