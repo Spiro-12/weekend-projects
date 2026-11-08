@@ -60,7 +60,7 @@ describe('speed', () => {
 export const RECOMMENDED_FLEET = { amr: 42, forklift: 4, humanoid: 2, picker: 14, driver: 2 };
 
 describe('picker uplift (calibration regression floor)', () => {
-  it('at the recommended default fleet with the one-brain planner: ≥ 1.2× and the fleet keeps up with 600 orders/h', () => {
+  it('at the recommended default fleet with the one-brain planner: uplift ≥ 1.5×, ≥ 10% capacity margin over 600 orders/h', () => {
     const s = scenario({ fleet: RECOMMENDED_FLEET });
     const withRobots = capacity(s, true);
     const without = capacity({ ...s, fleet: { ...s.fleet, amr: 0, humanoid: 0 } }, true);
@@ -69,12 +69,30 @@ describe('picker uplift (calibration regression floor)', () => {
       `[track A] recommended fleet (42 AMR, 14 pickers), one-brain planner: capacity ${withRobots.oph} oph with robots, ${without.oph} people only; ` +
         `units/picker-h ${withRobots.unitsPerPickerHour.toFixed(1)} vs ${without.unitsPerPickerHour.toFixed(1)} ⇒ uplift ${uplift.toFixed(2)}×`,
     );
-    // measured 1.29–1.43× over seeds 42, 7, 99 (seed 42: 1.29×); the floor catches a real regression, not noise
-    expect(uplift).toBeGreaterThanOrEqual(1.2);
-    expect(withRobots.oph).toBeGreaterThanOrEqual(600);
-    // the manual baseline stays near the case-study 75 units/picker-hour
-    expect(without.unitsPerPickerHour).toBeGreaterThan(62);
-    expect(without.unitsPerPickerHour).toBeLessThan(82);
+    // measured 1.60–1.69× over seeds 42, 7, 99 (seed 42: see the report); the floor catches a real regression, not noise
+    expect(uplift).toBeGreaterThanOrEqual(1.5);
+    expect(withRobots.unitsPerPickerHour).toBeGreaterThanOrEqual(110);
+    expect(withRobots.oph).toBeGreaterThanOrEqual(660);
+    // the manual baseline stays in the 65–85 units/picker-hour of case-study "before" numbers
+    expect(without.unitsPerPickerHour).toBeGreaterThan(65);
+    expect(without.unitsPerPickerHour).toBeLessThan(85);
+  });
+
+  it('the recommended fleet keeps up with 600 orders/h in demand mode (shipped ≈ demand, backlog flat)', () => {
+    const sim = makeSim(scenario({ fleet: RECOMMENDED_FLEET, orders: { mode: 'demand', perHour: 600 } }), { pibt: true });
+    sim.step(30 * 120);
+    const a = sim.stats();
+    const open: number[] = [];
+    for (let k = 0; k < 8; k++) {
+      sim.step(1800);
+      open.push(sim.stats().openOrders);
+    }
+    const b = sim.stats();
+    const oph = (b.shippedOrders - a.shippedOrders) / 2;
+    console.log(`[track A] recommended fleet, demand 600/h: shipped ${oph} orders/h, open orders every 15 min ${open.join(' ')}`);
+    expect(oph).toBeGreaterThan(570);
+    expect(oph).toBeLessThan(630);
+    expect(Math.max(...open) - Math.min(...open)).toBeLessThan(60); // no growing backlog
   });
 
   it('at the current default scenario (report only): naive and one-brain', () => {

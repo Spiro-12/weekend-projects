@@ -89,6 +89,8 @@ export class CoreAgent {
   readonly turnTicks: number;
   readonly safetyCells: number;
   readonly pickTicks: number;
+  /** Ticks per line when picking into a cart robot's tote (the robot's screen does the search; see ASSISTED_PICK_PCT). */
+  readonly assistTicks: number;
   readonly palletTicks: number;
   readonly handoffTicks: number;
   /** Battery in ticks of run time; charging adds chargeQ per tick plus a Bresenham remainder chargeR / chargeC. */
@@ -196,6 +198,7 @@ export class CoreAgent {
     pass: Uint8Array;
     speed: number;
     pickTicks: number;
+    assistTicks: number;
     palletTicks: number;
     handoffTicks: number;
     batteryMax: number;
@@ -219,6 +222,7 @@ export class CoreAgent {
     this.turnTicks = init.spec.turnTicks;
     this.safetyCells = init.spec.safetyCells;
     this.pickTicks = init.pickTicks;
+    this.assistTicks = init.assistTicks;
     this.palletTicks = init.palletTicks;
     this.handoffTicks = init.handoffTicks;
     this.batteryMax = init.batteryMax;
