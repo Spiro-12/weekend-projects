@@ -288,18 +288,22 @@ export class Props {
     this.standIns.visible = true;
   }
 
+  private um = new Matrix4();
+  private up = new Vector3();
+  private us = new Vector3();
+
   update(nowMs: number) {
     if (!this.conv || !this.cartons.count) return;
     const c = this.conv;
     const L = c.x1 - c.x0;
-    const m = new Matrix4();
     const t = nowMs / 1000;
     for (let i = 0; i < this.cartons.count; i++) {
       const x = c.x0 + ((((this.cartonX[i] - c.x0 + t * 0.6) % L) + L) % L);
       const s = 0.38 + rnd(i, 4) * 0.2;
       q.setFromAxisAngle(UP, (rnd(i, 5) - 0.5) * 0.3);
-      m.compose(new Vector3(x, c.y, c.z + (rnd(i, 6) - 0.5) * 0.25), q, new Vector3(s, this.cartonLoad.getZ(i), s * 0.85));
-      this.cartons.setMatrixAt(i, m);
+      this.up.set(x, c.y, c.z + (rnd(i, 6) - 0.5) * 0.25);
+      this.us.set(s, this.cartonLoad.getZ(i), s * 0.85);
+      this.cartons.setMatrixAt(i, this.um.compose(this.up, q, this.us));
     }
     this.cartons.instanceMatrix.needsUpdate = true;
   }
