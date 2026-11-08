@@ -1,161 +1,104 @@
-// Generic warehouse humanoid robot: clean industrial look (light shell panels, graphite joints, a head with a
-// dark sensor visor and a cyan sensor strip), about 1.75 m, no branding. Pure geometry + materials.
-// Named limb groups pivot at their joints for a procedural walk (see `poseHumanoid`):
-//   humanoid > pelvis > { torso > { head, armL > forearmL, armR > forearmR }, legL > shinL, legR > shinR }
-// Forward is +z. Origin on the floor between the feet. About 6k triangles.
+// Generic industrial humanoid (think Apptronik Apollo / Agility Digit silhouettes, no branding), about 1.72 m.
+// Two-tone: white shell panels, light-grey secondary panels, graphite joints and actuators; a rounded helmet head
+// with a dark glossy face visor and a thin light line (ACCENT, vendor colour), a matching chest light line.
+// One merged geometry with moving parts (PART.LEG_*, SHIN_*, ARM_*, FORE_*) that the rig shader swings about the
+// pivots below, and a tote (PART.TOTE) carried in front with both arms when the robot carries one.
+// Authored facing +Z, origin on the floor between the feet; baked to face +X. About 6k triangles.
 import * as THREE from 'three';
-import { mergedMesh, place, roundedBox } from './util.ts';
+import { bakeParts, EMIT, faceX, G, PART, triCount, xf, type BakedModel, type PartSpec, type RigPivots } from './parts.ts';
+import { TOTE_COLOR, toteGeometry } from './amr.ts';
+import { roundedBox } from './util.ts';
 
-export interface HumanoidOptions {
-  /** Accent colour (shoulder panels, sensor strip tint) for vendor differences. */
-  accent?: THREE.ColorRepresentation;
-}
+export const HUMANOID_HEIGHT = 1.72;
 
-const mats = new Map<string, THREE.Material>();
-function mat(key: string, make: () => THREE.Material): THREE.Material {
-  let m = mats.get(key);
-  if (!m) mats.set(key, (m = make()));
-  return m;
-}
+const WHITE = 0xe9ecef;
+const GREY = 0xb8bfc7;
+const JOINT = 0x2a2e35;
+const DARK = 0x3a3f47;
+const VISOR = 0x05070a;
 
-export const HUMANOID_HEIGHT = 1.75;
+export function buildHumanoid(): BakedModel {
+  const specs: PartSpec[] = [];
+  const add = (geo: THREE.BufferGeometry, color: number, part: number = PART.BODY, rough = 0.34, metal = 0, emit: number = EMIT.NONE) =>
+    specs.push({ geo, color, part, rough, metal, emit });
+  const shell = (geo: THREE.BufferGeometry, part: number = PART.BODY) => add(geo, WHITE, part, 0.32, 0);
+  const grey = (geo: THREE.BufferGeometry, part: number = PART.BODY) => add(geo, GREY, part, 0.38, 0.05);
+  const joint = (geo: THREE.BufferGeometry, part: number = PART.BODY) => add(geo, JOINT, part, 0.42, 0.55);
 
-// Joint heights (metres).
-const HIP_Y = 0.92;
-const KNEE_DROP = 0.44;
-const SHIN = 0.42;
-const SHOULDER_Y = 1.44; // world
-const UPPER_ARM = 0.3;
-const FOREARM = 0.28;
+  const HIP_Y = 0.87;
+  const KNEE_Y = 0.48;
+  const SHOULDER_Y = 1.4;
+  const ELBOW_Y = 1.13;
+  const pivots: RigPivots = {};
 
-export function buildHumanoid(opts: HumanoidOptions = {}): THREE.Group {
-  const accent = new THREE.Color(opts.accent ?? 0xf2a33a);
-  const shell = mat('shell', () => new THREE.MeshStandardMaterial({ name: 'hum_shell', color: 0xdfe3e7, roughness: 0.3, metalness: 0.05 }));
-  const joint = mat('joint', () => new THREE.MeshStandardMaterial({ name: 'hum_joint', color: 0x2a2e34, roughness: 0.5, metalness: 0.4 }));
-  const visor = mat('visor', () => new THREE.MeshStandardMaterial({ name: 'hum_visor', color: 0x07090c, roughness: 0.08, metalness: 0.6 }));
-  const sensor = mat('sensor', () => new THREE.MeshStandardMaterial({ name: 'hum_sensor', color: 0x6fe8ff, emissive: 0x39d4ff, emissiveIntensity: 2.4, roughness: 0.3 }));
-  const acc = mat(`acc_${accent.getHexString()}`, () => new THREE.MeshStandardMaterial({ name: 'hum_accent', color: accent, roughness: 0.4, metalness: 0.1 }));
-
-  const capsule = (r: number, len: number, seg = 10) => new THREE.CapsuleGeometry(r, len, 3, seg);
-  const sphere = (r: number) => new THREE.SphereGeometry(r, 12, 8);
-
-  const root = new THREE.Group();
-  root.name = 'humanoid';
-
-  const pelvis = new THREE.Group();
-  pelvis.name = 'pelvis';
-  pelvis.position.y = HIP_Y;
-  root.add(pelvis);
-  pelvis.add(
-    mergedMesh('pelvis_shell', [place(roundedBox(0.3, 0.14, 0.2, 0.06, 3, 0.01), 0, -0.06, 0)], shell),
-    mergedMesh('pelvis_joint', [place(capsule(0.05, 0.22, 8), 0, -0.03, 0, 0, 0, Math.PI / 2)], joint),
-  );
-
-  // ── torso (pivot at the waist) ──
-  const torso = new THREE.Group();
-  torso.name = 'torso';
-  torso.position.y = 0.06;
-  pelvis.add(torso);
-  const chestH = SHOULDER_Y - HIP_Y - 0.06 + 0.04;
-  torso.add(
-    mergedMesh('torso_shell', [
-      place(roundedBox(0.36, chestH * 0.62, 0.22, 0.07, 3, 0.015), 0, chestH * 0.36, 0.005),
-      place(roundedBox(0.26, chestH * 0.34, 0.18, 0.06, 3, 0.01), 0, 0.03, 0),
-    ], shell),
-    mergedMesh('torso_joint', [
-      place(capsule(0.07, 0.04, 8), 0, 0.02, 0),
-      place(roundedBox(0.24, chestH * 0.55, 0.08, 0.03, 2), 0, chestH * 0.3, -0.13), // battery pack
-      place(capsule(0.045, 0.06, 8), 0, chestH + 0.03, 0), // neck
-    ], joint),
-    mergedMesh('torso_accent', [
-      place(new THREE.BoxGeometry(0.2, 0.025, 0.012), 0, chestH * 0.8, 0.12),
-    ], acc),
-  );
-
-  // ── head (pivot at the neck) ──
-  const head = new THREE.Group();
-  head.name = 'head';
-  head.position.y = chestH + 0.07;
-  torso.add(head);
-  head.add(
-    mergedMesh('head_shell', [place(roundedBox(0.2, 0.22, 0.22, 0.08, 4, 0.02), 0, 0, -0.005)], shell),
-    mergedMesh('visor', [place(roundedBox(0.19, 0.085, 0.07, 0.03, 3), 0, 0.09, 0.08)], visor),
-  );
-  const strip = mergedMesh('sensor', [place(new THREE.BoxGeometry(0.15, 0.012, 0.01), 0, 0.135, 0.116)], sensor);
-  strip.castShadow = false;
-  head.add(strip);
-
-  // ── arms (pivot at the shoulder, forearm pivot at the elbow) ──
-  const shoulderLocalY = SHOULDER_Y - HIP_Y - 0.06;
   for (const side of [1, -1] as const) {
-    const s = side === 1 ? 'L' : 'R';
-    const arm = new THREE.Group();
-    arm.name = `arm${s}`;
-    arm.position.set(side * 0.235, shoulderLocalY, 0);
-    torso.add(arm);
-    arm.add(
-      mergedMesh(`arm${s}_joint`, [place(sphere(0.06), 0, 0, 0)], joint),
-      mergedMesh(`arm${s}_shell`, [place(capsule(0.045, UPPER_ARM - 0.09), side * 0.012, -UPPER_ARM / 2, 0)], shell),
-      mergedMesh(`arm${s}_accent`, [place(roundedBox(0.1, 0.06, 0.13, 0.03, 2), side * 0.02, 0.0, 0)], acc),
-    );
-    const fore = new THREE.Group();
-    fore.name = `forearm${s}`;
-    fore.position.set(side * 0.012, -UPPER_ARM, 0);
-    arm.add(fore);
-    fore.add(
-      mergedMesh(`forearm${s}_joint`, [place(sphere(0.042), 0, 0, 0), place(roundedBox(0.07, 0.07, 0.09, 0.02, 2), 0, -FOREARM - 0.06, 0.01)], joint),
-      mergedMesh(`forearm${s}_shell`, [place(capsule(0.04, FOREARM - 0.08), 0, -FOREARM / 2, 0)], shell),
-    );
+    const L = side === 1;
+    const x = side * 0.1;
+    const leg = L ? PART.LEG_L : PART.LEG_R;
+    const shin = L ? PART.SHIN_L : PART.SHIN_R;
+    // Hip actuator and thigh.
+    joint(xf(G.axleX(0.062, 0.11, 14), x + side * 0.01, HIP_Y, 0), leg);
+    shell(xf(G.limb(0.092, 0.07, 0.34, 14, 0.92), x, HIP_Y - 0.03, 0.005), leg);
+    grey(xf(G.limb(0.05, 0.04, 0.22, 10, 0.8), x, HIP_Y - 0.08, -0.055), leg); // rear thigh actuator
+    // Knee actuator with a front cap, shin with a calf actuator, ankle, foot.
+    joint(xf(G.axleX(0.056, 0.13, 14), x, KNEE_Y, 0), shin);
+    shell(xf(G.sphere(0.05, 12, 8), x, KNEE_Y + 0.005, 0.035, 0, 0, 0, 1, 1.15, 0.7), shin);
+    shell(xf(G.limb(0.066, 0.048, 0.34, 14, 0.9), x, KNEE_Y - 0.04, 0.008), shin);
+    joint(xf(G.limb(0.034, 0.028, 0.26, 8), x, KNEE_Y - 0.06, -0.05), shin);
+    joint(xf(G.axleX(0.04, 0.09, 12), x, 0.1, 0), shin);
+    joint(xf(roundedBox(0.11, 0.065, 0.25, 0.045, 3), x, 0.0, 0.045), shin);
+    grey(xf(roundedBox(0.095, 0.02, 0.15, 0.04, 3), x, 0.062, 0.07), shin);
+    pivots[L ? 'hipL' : 'hipR'] = new THREE.Vector3(x, HIP_Y, 0);
+    pivots[L ? 'kneeL' : 'kneeR'] = new THREE.Vector3(x, KNEE_Y, 0);
   }
 
-  // ── legs (pivot at the hip, shin pivot at the knee) ──
+  // Pelvis, waist, hip covers.
+  add(xf(roundedBox(0.3, 0.14, 0.19, 0.07, 4, 0.015), 0, HIP_Y - 0.06, 0), DARK, PART.BODY, 0.45, 0.3);
+  for (const side of [1, -1]) shell(xf(G.sphere(0.075, 14, 10), side * 0.135, HIP_Y + 0.01, 0, 0, 0, 0, 0.6, 1, 1.1));
+  joint(xf(new THREE.CylinderGeometry(0.1, 0.11, 0.12, 16), 0, HIP_Y + 0.1, 0));
+  grey(xf(new THREE.CylinderGeometry(0.112, 0.112, 0.02, 16), 0, HIP_Y + 0.08, 0));
+
+  // Torso: rounded chest shell, light-grey chest plate, light line, dark battery pack on the back.
+  shell(xf(roundedBox(0.4, 0.44, 0.24, 0.1, 5, 0.04), 0, 1.02, 0));
+  shell(xf(roundedBox(0.3, 0.12, 0.2, 0.08, 4, 0.03), 0, 0.96, 0.005));
+  grey(xf(roundedBox(0.29, 0.19, 0.03, 0.012, 2, 0.008), 0, 1.22, 0.112));
+  add(xf(new THREE.BoxGeometry(0.17, 0.012, 0.012), 0, 1.4, 0.128), 0xffffff, PART.BODY, 0.4, 0, EMIT.ACCENT);
+  add(xf(roundedBox(0.26, 0.28, 0.06, 0.025, 3, 0.01), 0, 1.07, -0.135), DARK, PART.BODY, 0.45, 0.3);
+  grey(xf(new THREE.BoxGeometry(0.15, 0.012, 0.012), 0, 1.3, -0.167));
+
+  // Neck and helmet head with a dark glossy visor and a thin light line.
+  joint(xf(new THREE.CylinderGeometry(0.045, 0.05, 0.1, 12), 0, 1.5, 0));
+  const HEAD_Y = 1.615;
+  const hs = (g: THREE.BufferGeometry) => xf(g, 0, HEAD_Y, 0, 0, 0, 0, 0.92, 1.06, 1.02);
+  shell(hs(G.sphere(0.112, 20, 14)));
+  const visor = new THREE.SphereGeometry(0.1165, 20, 8, Math.PI / 2 - 1.05, 2.1, 1.05, 0.78);
+  add(hs(visor), VISOR, PART.BODY, 0.06, 0.6);
+  const arc = 1.5;
+  const line = new THREE.TorusGeometry(0.118, 0.0045, 4, 18, arc).rotateX(Math.PI / 2).rotateY(arc / 2 - Math.PI / 2);
+  add(hs(line).translate(0, 0.005, 0), 0xffffff, PART.BODY, 0.4, 0, EMIT.ACCENT);
+  joint(xf(G.axleX(0.04, 0.235, 14), 0, HEAD_Y - 0.005, -0.01));
+  grey(xf(G.axleX(0.03, 0.245, 12), 0, HEAD_Y - 0.005, -0.01));
+
+  // Arms: shoulder actuator + cap, upper arm, elbow, forearm, hand.
   for (const side of [1, -1] as const) {
-    const s = side === 1 ? 'L' : 'R';
-    const leg = new THREE.Group();
-    leg.name = `leg${s}`;
-    leg.position.set(side * 0.11, -0.03, 0);
-    pelvis.add(leg);
-    leg.add(
-      mergedMesh(`leg${s}_joint`, [place(sphere(0.065), 0, 0, 0)], joint),
-      mergedMesh(`leg${s}_shell`, [place(capsule(0.065, KNEE_DROP - 0.12), 0, -KNEE_DROP / 2, 0.005)], shell),
-    );
-    const shin = new THREE.Group();
-    shin.name = `shin${s}`;
-    shin.position.y = -KNEE_DROP;
-    leg.add(shin);
-    shin.add(
-      mergedMesh(`shin${s}_joint`, [place(sphere(0.055), 0, 0, 0), place(roundedBox(0.11, 0.06, 0.24, 0.04, 3), 0, -SHIN - 0.03, 0.045)], joint),
-      mergedMesh(`shin${s}_shell`, [place(capsule(0.055, SHIN - 0.12), 0, -SHIN / 2, 0.01)], shell),
-    );
+    const L = side === 1;
+    const x = side * 0.245;
+    const arm = L ? PART.ARM_L : PART.ARM_R;
+    const fore = L ? PART.FORE_L : PART.FORE_R;
+    shell(xf(new THREE.SphereGeometry(0.088, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), x + side * 0.005, SHOULDER_Y + 0.005, 0, 0, 0, 0, 1, 0.75, 1.1));
+    joint(xf(G.sphere(0.066, 12, 10), x, SHOULDER_Y, 0), arm);
+    shell(xf(G.limb(0.056, 0.047, 0.21, 12, 0.95), x, SHOULDER_Y - 0.04, 0), arm);
+    joint(xf(G.axleX(0.046, 0.1, 12), x, ELBOW_Y, 0), fore);
+    grey(xf(G.limb(0.046, 0.04, 0.2, 12, 0.95), x, ELBOW_Y - 0.03, 0), fore);
+    joint(xf(roundedBox(0.045, 0.1, 0.085, 0.02, 2), x, ELBOW_Y - 0.33, 0.005), fore);
+    pivots[L ? 'shoulderL' : 'shoulderR'] = new THREE.Vector3(x, SHOULDER_Y, 0);
+    pivots[L ? 'elbowL' : 'elbowR'] = new THREE.Vector3(x, ELBOW_Y, 0);
   }
 
-  root.traverse((o) => {
-    if ((o as THREE.Mesh).isMesh) o.castShadow = o.name !== 'sensor';
-  });
-  return root;
-}
+  // Tote held in front at the hands (shown with FLAG.TOTE; arms go to the HOLD pose).
+  for (const g of toteGeometry(0.4, 0.24, 0.36)) add(xf(g, 0, 0.98, 0.36), TOTE_COLOR, PART.TOTE, 0.55, 0);
 
-/**
- * Procedural walk. `phase` in cycles (0..1 repeats), `amount` 0 = standing, 1 = full stride.
- * Writes rotations on the named groups only, so it also works on clones.
- */
-export function poseHumanoid(h: THREE.Object3D, phase: number, amount = 1): void {
-  const a = phase * Math.PI * 2;
-  const get = (n: string) => h.getObjectByName(n);
-  const swing = 0.42 * amount;
-  for (const [s, sign] of [['L', 1], ['R', -1]] as const) {
-    const leg = get(`leg${s}`);
-    const shin = get(`shin${s}`);
-    const arm = get(`arm${s}`);
-    const fore = get(`forearm${s}`);
-    const t = a + (sign === 1 ? 0 : Math.PI);
-    if (leg) leg.rotation.x = -Math.sin(t) * swing;
-    if (shin) shin.rotation.x = Math.max(0, Math.sin(t + Math.PI / 2)) * 0.7 * amount;
-    if (arm) arm.rotation.x = Math.sin(t) * swing * 0.7;
-    if (fore) fore.rotation.x = -0.25 - Math.max(0, Math.sin(t)) * 0.3 * amount;
-  }
-  const pelvis = get('pelvis');
-  if (pelvis) pelvis.position.y = HIP_Y - Math.abs(Math.cos(a)) * 0.02 * amount;
-  const torso = get('torso');
-  if (torso) torso.rotation.y = Math.sin(a) * 0.06 * amount;
+  const geometry = bakeParts(specs);
+  faceX(geometry, pivots);
+  return { geometry, pivots, size: { length: 0.42, width: 0.5, height: HUMANOID_HEIGHT }, stride: 1.15, tris: triCount(geometry) };
 }
