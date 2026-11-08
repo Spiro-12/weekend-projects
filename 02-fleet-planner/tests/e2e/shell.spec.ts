@@ -16,22 +16,29 @@ test('loads the warehouse with KPI tiles and moving agents, no errors', async ({
 test('click an agent to follow it, Escape to pull back out', async ({ page }) => {
   const errors = await openApp(page, '?tier=medium');
   await page.evaluate(() => window.__fp!.freeze(true));
-  // Fly closer so agents are big enough to click reliably.
-  const target = await page.evaluate(() => {
-    const a = window.__fp!.host.live.snapshot.agents.find((x) => x.type === 'amr')!;
-    return a.id;
-  });
-  await page.evaluate((id) => window.__fp!.host.select(0, id), target);
+  const first = await page.evaluate(() => window.__fp!.host.live.snapshot.agents.find((x) => x.type === 'amr')!.id);
+  await page.evaluate((id) => window.__fp!.host.select(0, id), first);
   await page.waitForTimeout(1500);
+  expect(await page.evaluate(() => window.__fp!.render.following())).toBe(true);
   await page.keyboard.press('Escape');
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(1600); // fly back to the overview
   expect(await page.evaluate(() => window.__fp!.host.selected.value)).toBeNull();
-  // Now a real click at the agent's screen position.
-  const pos = await page.evaluate((id) => window.__fp!.render.project(id), target);
-  expect(pos).not.toBeNull();
-  const picked = await page.evaluate(([x, y]) => window.__fp!.render.pick(x, y), [pos!.x, pos!.y]);
+  expect(await page.evaluate(() => window.__fp!.render.following())).toBe(false);
+  // A real click on the agent nearest the middle of the screen (away from the panels).
+  const target = await page.evaluate(() => {
+    const fp = window.__fp!;
+    let best: { id: number; x: number; y: number; d: number } | null = null;
+    for (const a of fp.host.live.snapshot.agents) {
+      const p = fp.render.project(a.id);
+      if (!p) continue;
+      const d = Math.hypot(p.x - innerWidth / 2, p.y - innerHeight * 0.55);
+      if (!best || d < best.d) best = { id: a.id, x: p.x, y: p.y, d };
+    }
+    return best!;
+  });
+  const picked = await page.evaluate(([x, y]) => window.__fp!.render.pick(x, y), [target.x, target.y]);
   expect(picked).not.toBeNull();
-  await page.mouse.click(pos!.x, pos!.y);
+  await page.mouse.click(target.x, target.y);
   await page.waitForTimeout(1200);
   const sel = await page.evaluate(() => window.__fp!.host.selected.value);
   expect(sel?.agentId).toBe(picked);
@@ -47,4 +54,14 @@ test('phone layout loads and fits the building', async ({ browser }) => {
   expect(await page.evaluate(() => window.__fp!.perf.tier)).toBe('low');
   await expectNoErrors(errors);
   await ctx.close();
+});
+
+test('the Web Worker runner computes results off the main thread', async ({ page }) => {
+  const errors = await openApp(page, '?runner=worker');
+  await expect(page.getByTestId('kpi-oph')).toContainText(/\d/);
+  const r = await page.evaluate(() => ({ kind: window.__fp!.runner.kind, oph: window.__fp!.host.result.value?.kpis.oph, ticks: window.__fp!.host.result.value?.ticks }));
+  expect(r.kind).toBe('worker');
+  expect(r.oph).toBeGreaterThan(0);
+  expect(r.ticks).toBe(18000);
+  await expectNoErrors(errors);
 });

@@ -5,8 +5,9 @@ import agents from '../../data/agents.json';
 import sources from '../../data/sources.json';
 import type { AgentsFile, LayoutFile, Scenario, SourcesFile } from '../contracts/types.ts';
 import { createHost, type AppData } from '../host/index.ts';
-import { createSim } from '../sim/index.ts';
+import { createSim, DEFAULT_IMPL } from '../sim/index.ts';
 import { createFakeRunner } from '../host/runner/fake.ts';
+import { createWorkerRunner } from '../host/runner/pool.ts';
 import { BasicAgentLayer } from '../render/agents/basic.ts';
 import { CameraRig } from '../render/core/camera.ts';
 import { createRenderer } from '../render/core/renderer.ts';
@@ -38,8 +39,9 @@ window.__fpSim = {
     return sim.hash();
   },
 };
-const runner = createFakeRunner(120);
-const host = createHost(data, runner, { scenario: params.scenario, seed: params.seed });
+const runner = params.runner === 'worker' ? createWorkerRunner() : createFakeRunner(120);
+// Numbers are "demo data" until the real sim core and KPI code are plugged in (Phase 1 integration).
+const host = createHost(data, runner, { scenario: params.scenario, seed: params.seed, demo: runner.kind === 'fake' || DEFAULT_IMPL === 'fake' });
 if (params.agents) host.setFleet('amr', params.agents);
 
 const stage = document.getElementById('stage')!;

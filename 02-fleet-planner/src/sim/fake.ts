@@ -19,6 +19,7 @@ import {
   type Scenario,
   type Sim,
   type SimEvent,
+  type SimStats,
   type Snapshot,
   type TaskKind,
   type TaskView,
@@ -82,12 +83,13 @@ export class FakeSim implements Sim {
   private shipped = 0;
   private nextTask = 1;
   private nextId = 0;
-  private stats: Record<AgentTypeId, Record<AgentState, number>>;
+  private stateTicks: Record<AgentTypeId, Record<AgentState, number>>;
   private heat: Uint32Array;
   private chargerUse: Int32Array;
   private jams: JamTracker;
   private deadlocks = new DeadlockTracker();
   private specs: Map<AgentTypeId, AgentSpec>;
+  private unitsPicked: Partial<Record<AgentTypeId, number>> = {};
 
   constructor(readonly scenario: Scenario, data: SimData) {
     this.world = buildWorld(data.layout);
@@ -100,7 +102,7 @@ export class FakeSim implements Sim {
     this.orderRate = scenario.orders.perHour;
     this.jams = new JamTracker(this.world.width);
     this.specs = new Map(data.agents.agents.map((a) => [a.id, a]));
-    this.stats = Object.fromEntries(AGENT_TYPES.map((t) => [t, Object.fromEntries(AGENT_STATES.map((s) => [s, 0]))])) as Snapshot['stats']['ticksByState'];
+    this.stateTicks = Object.fromEntries(AGENT_TYPES.map((t) => [t, Object.fromEntries(AGENT_STATES.map((s) => [s, 0]))])) as Snapshot['stats']['ticksByState'];
     const battery = stream(scenario.seed, 'battery');
     for (const t of AGENT_TYPES) this.setCount(t, scenario.fleet[t], battery);
   }
@@ -214,7 +216,7 @@ export class FakeSim implements Sim {
     const waitFor = new Int32Array(this.nextId).fill(-1);
     for (const a of this.agents) {
       this.stepAgent(a, tick, waitFor);
-      this.stats[a.type][a.state]++;
+      this.stateTicks[a.type][a.state]++;
     }
 
     // Remove agents marked for removal once they stand still.
@@ -329,6 +331,7 @@ export class FakeSim implements Sim {
           a.dwellUntil = tick + secToTicks(s.pickSecPerLine?.value ?? 20);
           a.cargo = 'cart';
           this.events.push({ t: 'pickDone', tick, agent: a.id, order: Math.max(0, this.nextOrder - 1), units: 1 });
+          this.unitsPicked[a.type] = (this.unitsPicked[a.type] ?? 0) + 1;
         }
         a.stops++;
         break;
@@ -436,7 +439,7 @@ export class FakeSim implements Sim {
       height: this.world.height,
       agents,
       tasks,
-      stats: { ticksByState: JSON.parse(JSON.stringify(this.stats)) },
+      stats: { ticksByState: JSON.parse(JSON.stringify(this.stateTicks)) },
       openOrders: this.orderQueue.length,
       shippedOrders: this.shipped,
       chargers: this.world.chargers.map((c, i) => ({
@@ -446,6 +449,18 @@ export class FakeSim implements Sim {
       })),
       deadlocks: this.deadlocks.active().map((d) => ({ ids: d.ids.map((k) => this.agents[k]?.id ?? -1), sinceTick: d.sinceTick })),
       heat: Array.from(this.heat),
+    };
+  }
+
+  stats(): SimStats {
+    const fleet = Object.fromEntries(AGENT_TYPES.map((t) => [t, this.agents.filter((a) => a.type === t).length])) as SimStats['fleet'];
+    return {
+      tick: this.tick,
+      openOrders: this.orderQueue.length,
+      shippedOrders: this.shipped,
+      ticksByState: JSON.parse(JSON.stringify(this.stateTicks)),
+      unitsPicked: { ...this.unitsPicked },
+      fleet,
     };
   }
 

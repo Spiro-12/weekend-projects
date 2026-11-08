@@ -11,6 +11,8 @@ export interface Params {
   freeze: boolean;
   /** Stress the renderer with this many extra fake robots (perf checks, Spiro's phone test). */
   agents?: number;
+  /** Which runner computes the numbers: the worker pool (default once the real sim lands) or the toy model. */
+  runner?: 'worker' | 'fake';
 }
 
 export function readParams(search = typeof location !== 'undefined' ? location.search : ''): Params {
@@ -27,5 +29,6 @@ export function readParams(search = typeof location !== 'undefined' ? location.s
     capture: q.get('capture') === '1',
     freeze: q.get('freeze') === '1',
     agents: num('agents'),
+    runner: q.get('runner') === 'worker' ? 'worker' : q.get('runner') === 'fake' ? 'fake' : undefined,
   };
 }

@@ -268,9 +268,22 @@ export type Command =
   | { t: 'setTraffic'; mode: TrafficMode }
   | { t: 'inject'; event: ScenarioEvent };
 
+/** Cheap per-tick counters for the KPI recorder (no routes, no per-agent views). */
+export interface SimStats {
+  tick: number;
+  openOrders: number;
+  shippedOrders: number;
+  ticksByState: Record<AgentTypeId, Record<AgentState, number>>;
+  /** Units (lines) picked so far, per picking agent type. */
+  unitsPicked: Partial<Record<AgentTypeId, number>>;
+  /** Agent counts per type right now. */
+  fleet: Record<AgentTypeId, number>;
+}
+
 export interface Sim {
   readonly tick: number;
   step(n?: number): void;
+  stats(): SimStats;
   /** Applied at the start of the next tick and recorded in the command log with that tick. */
   command(c: Command): void;
   commandLog(): { tick: number; c: Command }[];
@@ -326,6 +339,18 @@ export interface RunResult {
   simMs: number;
 }
 
+/** Turns a run into KPIs (Track C implements it; the runner drives it, PROTOCOL §6). */
+export interface KpiRecorder {
+  /** Once, at the end of warm-up. */
+  start(stats: SimStats): void;
+  /** Every 60 ticks inside the window. */
+  sample(stats: SimStats): void;
+  /** Every event drained inside the window. */
+  events(list: SimEvent[]): void;
+  finish(stats: SimStats): Kpis;
+}
+export type KpiRecorderFactory = (s: Scenario, window: { warmupTick: number; endTick: number }) => KpiRecorder;
+
 export interface SweepFile {
   format: 'fp-sweep';
   v: 1;
@@ -335,6 +360,40 @@ export interface SweepFile {
 }
 
 // ───────────────────────────── §7 Economics ─────────────────────────────
+/** What the money panel needs (Track C computes it, Track F shows it, the host wires them). */
+export interface MoneyInput {
+  scenario: Scenario;
+  agents: AgentsFile;
+  candidate: RunResult;
+  baseline: RunResult;
+  baselineCrew: { picker: number; driver: number };
+}
+
+export interface MoneyLine {
+  type: AgentTypeId;
+  label: string;
+  count: number;
+  capex: Explained;
+  opexYear: Explained;
+}
+
+export interface MoneyReport {
+  financing: 'buy' | 'raas';
+  hoursPerYear: number;
+  lines: MoneyLine[];
+  capex: Explained;
+  robotOpexYear: Explained;
+  laborYear: Explained;
+  annualCost: Explained;
+  baselineAnnualCost: Explained;
+  savingsYear: Explained;
+  paybackMonths: Explained;
+  threeYearNet: Explained;
+  costPerOrder: Explained;
+  baselineCostPerOrder: Explained;
+  baseline: { picker: number; driver: number; keepsUp: boolean };
+}
+
 export type ExplainFrom = `source:${string}` | 'estimate' | 'sim' | 'user';
 export interface ExplainInput {
   label: string;

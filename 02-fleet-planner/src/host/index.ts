@@ -2,7 +2,8 @@
 // Settings (a full Scenario) live in a signal; every change goes to the live sim as a command AND to the runner,
 // whose RunResult feeds the KPI tiles and the money panel.
 import { signal, type Signal } from '@preact/signals';
-import type { AgentTypeId, AgentsFile, LayoutFile, RunResult, Scenario, SourcesFile, TrafficMode } from '../contracts/types.ts';
+import type { AgentTypeId, AgentsFile, LayoutFile, MoneyReport, RunResult, Scenario, SourcesFile, TrafficMode } from '../contracts/types.ts';
+import { fakeEcon, type EconPort } from './econ-port.ts';
 import { Bus } from './bus.ts';
 import { LiveSim } from './live.ts';
 import type { Runner } from './runner/types.ts';
@@ -35,6 +36,10 @@ export interface Host {
   settings: Signal<Scenario>;
   result: Signal<RunResult | null>;
   pending: Signal<boolean>;
+  /** People-only comparison run (auto-sized crew unless the user set one). */
+  baseline: Signal<{ crew: { picker: number; driver: number }; result: RunResult } | null>;
+  /** Money panel numbers for the current settings vs the baseline. */
+  money: Signal<MoneyReport | null>;
   selected: Signal<{ side: 0 | 1; agentId: number } | null>;
   speed: Signal<number>;
   paused: Signal<boolean>;
@@ -50,13 +55,16 @@ export interface Host {
   select(side: 0 | 1, agentId: number | null): void;
 }
 
-export function createHost(data: AppData, runner: Runner, opts: { scenario?: string; seed?: number; impl?: SimImpl } = {}): Host {
+export function createHost(data: AppData, runner: Runner, opts: { scenario?: string; seed?: number; impl?: SimImpl; econ?: EconPort; demo?: boolean } = {}): Host {
+  const econ = opts.econ ?? fakeEcon;
   const first = data.scenarios[opts.scenario ?? 'default'] ?? data.scenarios.default;
   const start: Scenario = opts.seed !== undefined ? { ...first, seed: opts.seed } : first;
   const bus = new Bus<HostEvents>();
   const settings = signal(start);
   const result = signal<RunResult | null>(null);
   const pending = signal(false);
+  const baseline = signal<{ crew: { picker: number; driver: number }; result: RunResult } | null>(null);
+  const money = signal<MoneyReport | null>(null);
   const selected = signal<{ side: 0 | 1; agentId: number } | null>(null);
   const speed = signal(1);
   const paused = signal(false);
@@ -65,17 +73,33 @@ export function createHost(data: AppData, runner: Runner, opts: { scenario?: str
 
   let runToken = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  // The baseline only depends on the settings that aren't the fleet; cache by that key.
+  const baselineCache = new Map<string, Promise<{ crew: { picker: number; driver: number }; result: RunResult }>>();
+  const baselineKey = (s: Scenario) => settingsHash({ ...s, fleet: { amr: 0, forklift: 0, humanoid: 0, picker: 0, driver: 0 }, traffic: { ...s.traffic, mode: 'central' }, economics: { ...s.economics, financing: 'buy' } });
+  const updateMoney = async (s: Scenario, r: RunResult, token: number) => {
+    const key = baselineKey(s);
+    let p = baselineCache.get(key);
+    if (!p) {
+      p = econ.findBaseline(s, runner);
+      baselineCache.set(key, p);
+    }
+    const b = await p;
+    if (token !== runToken) return;
+    baseline.value = b;
+    money.value = econ.computeMoney({ scenario: s, agents: data.agents, candidate: r, baseline: b.result, baselineCrew: b.crew });
+  };
   const recalc = () => {
     const s = settings.value;
+    const token = ++runToken;
     const cached = runner.peek(s);
     if (cached) {
       result.value = cached;
       pending.value = false;
+      void updateMoney(s, cached, token);
       return;
     }
     pending.value = true;
     clearTimeout(timer);
-    const token = ++runToken;
     timer = setTimeout(() => {
       runner
         .evaluate(s)
@@ -83,6 +107,7 @@ export function createHost(data: AppData, runner: Runner, opts: { scenario?: str
           if (token !== runToken) return;
           result.value = r;
           pending.value = false;
+          return updateMoney(s, r, token);
         })
         .catch((e) => {
           console.error('[runner] evaluate failed', e);
@@ -101,10 +126,12 @@ export function createHost(data: AppData, runner: Runner, opts: { scenario?: str
     data,
     bus,
     runner,
-    demoData: runner.kind === 'fake',
+    demoData: opts.demo ?? runner.kind === 'fake',
     settings,
     result,
     pending,
+    baseline,
+    money,
     selected,
     speed,
     paused,
