@@ -107,6 +107,8 @@ export class AgentLayerImpl implements AgentLayer {
   private bloomWanted = false;
   private disposed = false;
   private glbKey = '';
+  /** GLB forklifts load only after the first useful view (they belong to the full look, not the 0.4 MB first view). */
+  private glbAllowed = false;
   private dbg = { ribbons: 0, deadlockRings: 0, deadlockArrows: 0, blockedRings: 0, selectionRings: 0, waitArrows: 0, safetySpots: 0 };
   private labelAnchors: { text: string; x: number; y: number; z: number }[] = [];
   private hover: { x: number; y: number; dirty: boolean; id: number | null; at: number } = { x: 0, y: 0, dirty: false, id: null, at: 0 };
@@ -204,6 +206,7 @@ export class AgentLayerImpl implements AgentLayer {
 
   /** (Re)load the forklift GLBs for the tier (low and lite use the -lo files). */
   private loadForklifts(tier: Tier) {
+    if (!this.glbAllowed) return;
     const key = useLow(tier) ? 'lo' : 'hi';
     if (key === this.glbKey) return;
     this.glbKey = key;
@@ -285,6 +288,12 @@ export class AgentLayerImpl implements AgentLayer {
   // ───────── per frame ─────────
 
   update(live: Snapshot, renderTick: number, selectedId: number | null, dtMs: number): void {
+    if (!this.glbAllowed && this.core.perf.firstUsefulViewMs != null) {
+      this.glbAllowed = true;
+      setTimeout(() => {
+        if (!this.disposed) this.loadForklifts(this.tier);
+      }, 250);
+    }
     const snap = this.injected ?? live;
     this.snap = snap;
     this.frame++;
