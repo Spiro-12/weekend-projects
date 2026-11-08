@@ -1,12 +1,13 @@
 // World layer (Track D): the warehouse building, racks, docks, pack area, chargers and floor paint.
-// First view: procedural only (a few KB of code, no downloads). Then the first-tier SimReady models stream in through
-// the shared loader and replace their stand-ins; `fullLook` resolves when they are all in (or failed: the stand-ins stay).
+// First view: procedural only (a few KB of code, no downloads). Once the first useful view is on screen (or after 2.5 s
+// at the latest), the first-tier SimReady models stream in through the shared loader and replace their stand-ins;
+// `fullLook` resolves when they are all in (or failed: the stand-ins stay).
 //
 // Draw calls per view at the overview (medium): floor 1, walls 1, steel 1, rack frames 1, rack loads 1 (+5 for the
 // near SimReady loads in close views), props 3 + conveyor cartons 1, SimReady props 13. See debug().
 import { Group } from 'three';
 import type { Tier } from '../../host/index.ts';
-import { assetLoader, useLow } from '../core/assets.ts';
+import type { AssetLoader } from '../core/assets.ts';
 import type { WorldLayer, WorldLayerOptions } from '../core/layers.ts';
 import { buildHallEnv } from './env.ts';
 import { buildFloor } from './floor.ts';
@@ -38,11 +39,15 @@ export function createWorldLayer(o: WorldLayerOptions): WorldLayerExt {
 
   let tier = o.tier;
   let disposed = false;
-  const loader = assetLoader(o.baseUrl);
+  // The loader (GLTFLoader + meshopt decoder) is imported lazily, so it stays out of the initial JS.
+  let loaderP: Promise<AssetLoader> | null = null;
+  const getLoader = () => (loaderP ??= import('../core/assets.ts').then((m) => m.assetLoader(o.baseUrl)));
+  const useLow = (t: Tier) => t === 'low' || t === 'lite';
   const loaded = new Map<string, string>();
   const failed: string[] = [];
 
   async function load(key: string, t: Tier) {
+    const loader = await getLoader();
     const g = await loader.gltf(key, t);
     loaded.set(key, await loader.urlFor(key, t));
     return glbParts(g.scene, { envMap: env.texture });
@@ -81,7 +86,11 @@ export function createWorldLayer(o: WorldLayerOptions): WorldLayerExt {
     if (keep && !disposed) props.keepStandIns();
   }
 
-  const fullLook = loadTier(tier);
+  // Downloads wait for the first useful view, so they never compete with it.
+  let loadStarted = false;
+  let firstFrame = -1;
+  let startLoad: () => void = () => {};
+  const fullLook = new Promise<void>((r) => (startLoad = r)).then(() => loadTier(tier));
 
   return {
     group,
@@ -94,9 +103,16 @@ export function createWorldLayer(o: WorldLayerOptions): WorldLayerExt {
       tier = t;
       racks.setTier(t);
       const lodChanged = useLow(prev) !== useLow(t) || nearCaps(prev).pallets === 0 || t === 'high' || prev === 'high';
-      if (lodChanged) void loadTier(t);
+      if (lodChanged && loadStarted) void loadTier(t);
     },
     update(_dt: number, now: number) {
+      if (!loadStarted) {
+        if (firstFrame < 0) firstFrame = now;
+        if (o.core.perf.firstUsefulViewMs != null || now - firstFrame > 2500) {
+          loadStarted = true;
+          startLoad();
+        }
+      }
       racks.update(
         o.core.views.map((v) => v.camera),
         now,

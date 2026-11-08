@@ -4,7 +4,7 @@
 // and card (position: absolute); the section never blocks clicks.
 import { useEffect, useState } from 'preact/hooks';
 import type { Host } from '../../host/index.ts';
-import { assetLoader, type Manifest } from '../../render/core/assets.ts';
+import type { Manifest } from '../../render/core/assets.ts';
 import { definePanel } from '../panel.ts';
 
 /** The NVIDIA line from CREDITS.md, split into text, bold and link pieces (its text content equals the file's). */
@@ -80,8 +80,9 @@ function About({ host }: { host: Host }) {
   const [error, setError] = useState(false);
   useEffect(() => {
     if (!open || manifest) return;
-    assetLoader(import.meta.env.BASE_URL)
-      .manifest()
+    // Lazy: the shared loader (and its GLTFLoader) is not needed for the first view.
+    import('../../render/core/assets.ts')
+      .then((m) => m.assetLoader(import.meta.env.BASE_URL).manifest())
       .then(setManifest, () => setError(true));
   }, [open, manifest]);
   useEffect(() => {
