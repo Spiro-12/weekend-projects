@@ -52,12 +52,13 @@ describe('KPI recorder: a hand-built 2 h window', () => {
     { t: 'jamEnd', tick: 4100, jam: 1 },
     { t: 'jamStart', tick: 9000, jam: 2, agents: [4, 5, 6], cell: 20 },
     { t: 'jamStart', tick: 12000, jam: 3, agents: [7, 8, 9], cell: 30 },
-    { t: 'deadlockEnd', tick: 3700, deadlock: 99 }, // started in warm-up: counts nowhere
+    { t: 'deadlockEnd', tick: 3700, deadlock: 99 }, // start never seen, ends 100 ticks into the window: not 2 min
     { t: 'deadlockStart', tick: 5000, deadlock: 1, agents: [1, 2] },
     { t: 'deadlockEnd', tick: 5240, deadlock: 1 }, // exactly 240 ticks: over 2 min
     { t: 'deadlockStart', tick: 6000, deadlock: 2, agents: [3, 4] },
     { t: 'deadlockEnd', tick: 6239, deadlock: 2 }, // 239 ticks: not over
-    { t: 'deadlockStart', tick: 17_900, deadlock: 3, agents: [5, 6] }, // still open at the end: counted as over
+    { t: 'deadlockStart', tick: 17_700, deadlock: 3, agents: [5, 6] }, // open at the end, stuck 300 ticks: over
+    { t: 'deadlockStart', tick: 17_990, deadlock: 4, agents: [7, 8] }, // open at the end, only 10 ticks: not over
     ...[1, 2, 3, 4].map((i): SimEvent => ({ t: 'manualReset', tick: 6000 + i, agent: i })),
     ...[1, 2, 3, 4, 5, 6].map((i): SimEvent => ({ t: 'retask', tick: 7000 + i, agent: i, goal: 5 })),
     { t: 'pickDone', tick: 7000, agent: 1, order: 1, units: 1 },
@@ -84,8 +85,8 @@ describe('KPI recorder: a hand-built 2 h window', () => {
   });
   it('jams, deadlocks, resets and retasks per hour or per 8 h shift', () => {
     expect(k.jamsPerHour).toBe(1.5);
-    expect(k.deadlocksPerShift).toBe(12); // 3 starts ÷ 2 h × 8
-    expect(k.deadlocksOver2MinPerShift).toBe(8); // #1 (240 ticks) and #3 (still open) ÷ 2 h × 8
+    expect(k.deadlocksPerShift).toBe(16); // 4 starts ÷ 2 h × 8
+    expect(k.deadlocksOver2MinPerShift).toBe(8); // #1 (240 ticks) and #3 (open, 300 ticks) ÷ 2 h × 8
     expect(k.resetsPerHour).toBe(2);
     expect(k.retasksPerHour).toBe(3);
   });
@@ -163,6 +164,46 @@ describe('KPI recorder: boundaries', () => {
     expect(run(scenario).oph).toBe(600);
     expect(run({ ...scenario, orders: { ...scenario.orders, mode: 'saturate' } }).oph).toBe(650);
   });
+  describe('deadlocks over 2 minutes', () => {
+    const over = (events: SimEvent[], before: SimEvent[] = []) => {
+      const rec = createKpiRecorder(scenario, win);
+      rec.start(stats(WARMUP));
+      if (before.length) rec.events(before); // the runner passes warm-up deadlocks that never ended, right after start()
+      rec.events(events);
+      const k = rec.finish(stats(END));
+      return { long: k.deadlocksOver2MinPerShift / 4, starts: k.deadlocksPerShift / 4 }; // per shift = per 2 h × 4
+    };
+    it('ended inside the window: at least 240 ticks after the start', () => {
+      expect(over([{ t: 'deadlockStart', tick: 5000, deadlock: 1, agents: [] }, { t: 'deadlockEnd', tick: 5239, deadlock: 1 }]).long).toBe(0);
+      expect(over([{ t: 'deadlockStart', tick: 5000, deadlock: 1, agents: [] }, { t: 'deadlockEnd', tick: 5240, deadlock: 1 }]).long).toBe(1);
+    });
+    it('still open at the end: only if already stuck for 240 ticks (a 5 s deadlock adds nothing)', () => {
+      expect(over([{ t: 'deadlockStart', tick: END - 10, deadlock: 1, agents: [] }])).toEqual({ long: 0, starts: 1 });
+      expect(over([{ t: 'deadlockStart', tick: END - 239, deadlock: 1, agents: [] }]).long).toBe(0);
+      expect(over([{ t: 'deadlockStart', tick: END - 240, deadlock: 1, agents: [] }]).long).toBe(1);
+    });
+    it('started in warm-up (passed after start()): counted from its real start, never as a start in the window', () => {
+      const ds = (tick: number, deadlock: number): SimEvent => ({ t: 'deadlockStart', tick, deadlock, agents: [] });
+      // #1 lasts 140 ticks in total; #2 lasts 240 although only 40 of them are in the window; #3 never ends.
+      const r = over([{ t: 'deadlockEnd', tick: WARMUP + 40, deadlock: 1 }, { t: 'deadlockEnd', tick: WARMUP + 40, deadlock: 2 }], [ds(WARMUP - 100, 1), ds(WARMUP - 200, 2), ds(WARMUP - 1, 3)]);
+      expect(r).toEqual({ long: 2, starts: 0 });
+    });
+    it('an end whose start was never seen counts if it ends 240 ticks into the window', () => {
+      expect(over([{ t: 'deadlockEnd', tick: WARMUP + 239, deadlock: 7 }]).long).toBe(0);
+      expect(over([{ t: 'deadlockEnd', tick: WARMUP + 240, deadlock: 7 }]).long).toBe(1);
+    });
+    it('other events from before the window are ignored', () => {
+      const rec = createKpiRecorder(scenario, win);
+      rec.start(stats(WARMUP));
+      rec.events([
+        { t: 'jamStart', tick: WARMUP - 5, jam: 1, agents: [1, 2, 3], cell: 0 },
+        { t: 'manualReset', tick: WARMUP - 5, agent: 1 },
+        { t: 'orderShipped', tick: WARMUP - 5, order: 1, arrivedTick: 0 },
+      ]);
+      const k = rec.finish(stats(END));
+      expect([k.jamsPerHour, k.resetsPerHour, k.avgOrderSec]).toEqual([0, 0, 0]);
+    });
+  });
   it('deadlocks per shift use the scenario’s shift length', () => {
     const rec = createKpiRecorder({ ...scenario, shift: { ...scenario.shift, hoursPerShift: 10 } }, win);
     rec.start(stats(WARMUP));
@@ -211,6 +252,7 @@ describe('KPI recorder: boundaries', () => {
   it('misuse fails loudly', () => {
     const rec = createKpiRecorder(scenario, win);
     expect(() => rec.finish(stats(END))).toThrow(/before start/);
+    expect(() => rec.events([])).toThrow(/before start/);
     rec.start(stats(WARMUP));
     expect(() => rec.start(stats(WARMUP))).toThrow(/twice/);
   });

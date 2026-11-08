@@ -12,12 +12,18 @@
 //  - byType = each state's share of that type's agent-ticks in the window (sums to 100)
 //  - jamsPerHour, resetsPerHour, retasksPerHour = event count ÷ window hours
 //  - deadlocksPerShift = deadlock starts ÷ window hours × hours per shift
-//  - deadlocksOver2MinPerShift = deadlocks that started in the window and either ended ≥ 240 ticks (2 min) later
-//    or were still open at the end, per shift. Deadlocks that started during warm-up are in neither count.
+//  - deadlocksOver2MinPerShift = deadlocks that lasted ≥ 240 ticks (2 min) in total and were stuck at some point in
+//    the window, per shift: ended ≥ 240 ticks after they started, or still open at the end and started ≥ 240 ticks
+//    before it. Right after start() the runner passes the deadlockStart events from warm-up that never ended (their
+//    tick is before the window); they count here from their real start tick, but not in deadlocksPerShift. A
+//    deadlockEnd whose start was never seen counts if it ends ≥ 240 ticks into the window.
 //  - avgOrderSec, p90OrderSec = (ship tick − arrival tick) × 0.5 s for every order shipped in the window, any
 //    arrival time; p90 is the nearest-rank 90th percentile (at least 90% of orders took no longer)
 //  - backlogEnd = open orders at the end; backlogTrendPerHour = least-squares slope of the open-order samples
-//    (start, every sample, end); keepsUp = trend ≤ 2% of the order rate per hour
+//    (start, every sample, end); keepsUp = trend ≤ 2% of the order rate per hour. On saturate (capacity) runs the
+//    queue is kept full by design, so keepsUp means nothing there; only demand runs say whether an option keeps up.
+//  - events before the window (tick < start tick) only tell the recorder about deadlocks still open; the rest are
+//    ignored
 //  - unitsPerPickerHour = lines picked by pickers in the window ÷ picker-hours (picker count × time, per interval)
 //  - capacityOph is set by the runner on saturate runs; pickerUplift comes from two capacity runs (./uplift.ts)
 import {
@@ -67,7 +73,8 @@ export function p90(values: readonly number[]): number {
   return sorted[Math.floor((9 * sorted.length + 9) / 10) - 1];
 }
 
-/** Keeps up: backlog trend ≤ 2% of the order rate per hour. */
+/** Keeps up: backlog trend ≤ 2% of the order rate per hour. Only meaningful on demand runs (a saturate run keeps its
+ *  queue full on purpose). */
 export function keepsUpAt(trendPerHour: number, perHour: number): boolean {
   return trendPerHour * 100 <= KEEPS_UP_PCT * perHour;
 }
@@ -118,7 +125,7 @@ export const createKpiRecorder: KpiRecorderFactory = (s: Scenario): KpiRecorder 
   let jams = 0;
   let deadlocks = 0;
   let longDeadlocks = 0;
-  const openDeadlocks = new Map<number, number>(); // deadlock id → start tick (only those that started in the window)
+  const openDeadlocks = new Map<number, number>(); // deadlock id → its real start tick (warm-up starts included)
   let resets = 0;
   let retasks = 0;
 
@@ -147,7 +154,15 @@ export const createKpiRecorder: KpiRecorderFactory = (s: Scenario): KpiRecorder 
       addSample(stats);
     },
     events(list: SimEvent[]) {
+      if (!first) throw new Error('KPI recorder: events() before start()');
+      const from = first.tick;
       for (const e of list) {
+        if (e.tick < from) {
+          // Before the window: only a deadlock still open matters (it may last past 2 minutes inside the window).
+          if (e.t === 'deadlockStart') openDeadlocks.set(e.deadlock, e.tick);
+          else if (e.t === 'deadlockEnd') openDeadlocks.delete(e.deadlock);
+          continue;
+        }
         switch (e.t) {
           case 'orderShipped':
             waits.push(e.tick - e.arrivedTick);
@@ -160,8 +175,8 @@ export const createKpiRecorder: KpiRecorderFactory = (s: Scenario): KpiRecorder 
             openDeadlocks.set(e.deadlock, e.tick);
             break;
           case 'deadlockEnd': {
-            const since = openDeadlocks.get(e.deadlock);
-            if (since === undefined) break; // started during warm-up: not in this window's counts
+            // A start never seen means it began before the window, so it lasted at least this far into it.
+            const since = openDeadlocks.get(e.deadlock) ?? from;
             if (e.tick - since >= LONG_DEADLOCK_TICKS) longDeadlocks++;
             openDeadlocks.delete(e.deadlock);
             break;
@@ -196,6 +211,8 @@ export const createKpiRecorder: KpiRecorderFactory = (s: Scenario): KpiRecorder 
       const picked = (stats.unitsPicked?.picker ?? 0) - (start.unitsPicked?.picker ?? 0);
       const pickerHours = pickerTicks / TICKS_PER_HOUR;
       const { byType, robotUtilizationPct } = shares(start.ticksByState, stats.ticksByState);
+      let longOpen = 0; // still open at the end: only those already stuck for 2 minutes
+      for (const since of openDeadlocks.values()) if (stats.tick - since >= LONG_DEADLOCK_TICKS) longOpen++;
 
       return {
         oph,
@@ -209,7 +226,7 @@ export const createKpiRecorder: KpiRecorderFactory = (s: Scenario): KpiRecorder 
         keepsUp: keepsUpAt(trend, s.orders.perHour),
         resetsPerHour: perHour(resets),
         retasksPerHour: perHour(retasks),
-        deadlocksOver2MinPerShift: perHour(longDeadlocks + openDeadlocks.size) * shift,
+        deadlocksOver2MinPerShift: perHour(longDeadlocks + longOpen) * shift,
         unitsPerPickerHour: pickerHours > 0 ? picked / pickerHours : 0,
         byType,
       };

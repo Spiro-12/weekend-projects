@@ -64,31 +64,31 @@ describe('money: the default fleet, worked by hand', () => {
       'running cost = 2 humanoid robots × ($200,000 × 18% maintenance + $36,000 software) = $144,000 a year',
     );
   });
-  it('labor = people × H × wage × (1 + load), packers included; exact to the cent', () => {
-    // pickers 14 × 4,160 × 17.95 × 1.46 = 1,526,295.68; drivers 2 × 4,160 × 22.32 × 1.46 = 271,125.50 (cents rounded
-    // per person-year); packers 6 × 4,160 × 17.95 × 1.46 = 654,126.72
-    expect(m.laborYear.value).toBe(2_451_547.9);
+  it('labor = people × H × wage × (1 + load), packers included; each part rounded once, the total is their sum', () => {
+    // pickers 14 × 4,160 × 17.95 × 1.46 = 1,526,295.68 → $1,526,296; drivers 2 × 4,160 × 22.32 × 1.46 = 271,125.50
+    // (cents per person-year) → $271,126; packers 6 × 4,160 × 17.95 × 1.46 = 654,126.72 → $654,127; sum $2,451,549
+    expect(m.laborYear.value).toBe(2_451_549);
     expect(m.laborYear.formula).toBe(
-      'labor = 14 pickers × 4,160 h × ($17.95/h × 1.46 with benefits) ($1,526,296) + 2 forklift drivers × 4,160 h × ($22.32/h × 1.46 with benefits) ($271,126) + 6 packers × 4,160 h × ($17.95/h × 1.46 with benefits) ($654,127) = $2,451,548 a year; no manual robot resets in the run',
+      'labor = 14 pickers × 4,160 h × ($17.95/h × 1.46 with benefits) ($1,526,296) + 2 forklift drivers × 4,160 h × ($22.32/h × 1.46 with benefits) ($271,126) + 6 packers × 4,160 h × ($17.95/h × 1.46 with benefits) ($654,127) = $2,451,549 a year; no manual robot resets in the run',
     );
-    expect(m.baselineAnnualCost.value).toBe(3_023_195.13);
+    expect(m.baselineAnnualCost.value).toBe(1_962_380 + 406_688 + 654_127);
   });
   it('savings, payback, 3-year net and cost per order follow, with the numbers in the formulas', () => {
-    expect(m.annualCost.value).toBe(2_902_747.9);
-    expect(m.savingsYear.value).toBe(120_447.23);
-    expect(m.paybackMonths.value).toBeCloseTo((2_312_000 * 12) / 120_447.23, 9);
-    expect(m.paybackMonths.formula).toBe('payback = $2,312,000 upfront ÷ ($120,447 saved a year ÷ 12) = 230.3 months (19.2 years)');
-    expect(m.threeYearNet.value).toBe(-1_950_658.31);
-    expect(m.threeYearNet.formula).toBe('3-year net = 3 × $120,447 savings a year − $2,312,000 upfront = −$1,950,658');
-    expect(m.costPerOrder.formula).toBe('cost per order = $2,902,748 a year ÷ (600 orders/h × 4,160 h) = $1.16');
+    expect(m.annualCost.value).toBe(2_902_749);
+    expect(m.savingsYear.value).toBe(120_446);
+    expect(m.paybackMonths.value).toBe((2_312_000 * 12) / 120_446);
+    expect(m.paybackMonths.formula).toBe('payback = $2,312,000 upfront ÷ ($120,446 saved a year ÷ 12) = 230.3 months (19.2 years)');
+    expect(m.threeYearNet.value).toBe(-1_950_662);
+    expect(m.threeYearNet.formula).toBe('3-year net = 3 × $120,446 savings a year − $2,312,000 upfront = −$1,950,662');
+    expect(m.costPerOrder.formula).toBe('cost per order = $2,902,749 a year ÷ (600 orders/h × 4,160 h) = $1.16');
     expect(m.hoursPerYear).toBe(H);
     expect(m.baseline).toEqual({ picker: 18, driver: 3, keepsUp: true });
   });
   it('a cart-robot-only fleet: the payback string reads like the brief’s example', () => {
     const s = withFleet(base, { forklift: 0, humanoid: 0, driver: 3 });
     const r = money(s, { crew: { picker: 24, driver: 3 } });
-    // savings = 10 pickers × 109,021.12 − 24 × 9,000 = 874,211.20; payback = 1,092,000 ÷ (874,211.20 ÷ 12)
-    expect(r.savingsYear.value).toBe(874_211.2);
+    // savings = $2,616,507 (24 pickers) − $1,526,296 (14) − 24 × $9,000 = $874,211; payback = 1,092,000 ÷ (874,211 ÷ 12)
+    expect(r.savingsYear.value).toBe(874_211);
     expect(r.paybackMonths.formula).toBe('payback = $1,092,000 upfront ÷ ($874,211 saved a year ÷ 12) = 15.0 months');
   });
 });
@@ -103,16 +103,17 @@ describe('money: matches an independent float re-implementation of PROTOCOL §7'
         const b = mkRun({ oph: 600 }, { amr: 0, forklift: 0, humanoid: 0, ...crew });
         const m = money(s, { cand, baseRun: b });
         const r = reference(s, agents, cand, b, crew);
-        near(m.capex.value, r.capex);
-        near(m.robotOpexYear.value, r.opex);
-        near(m.laborYear.value, r.labor);
-        near(m.annualCost.value, r.annual);
-        near(m.baselineAnnualCost.value, r.baseAnnual);
-        near(m.savingsYear.value, r.S);
-        if (r.S > 0) near(m.paybackMonths.value, r.payback, 0.001);
-        near(m.threeYearNet.value, r.net, 3);
-        near(m.costPerOrder.value, r.cpo, 1e-6);
-        near(m.baselineCostPerOrder.value, r.baseCpo, 1e-6);
+        // Within the whole-dollar rounding of the parts (at most $0.50 each).
+        near(m.capex.value, r.capex, 2);
+        near(m.robotOpexYear.value, r.opex, 2);
+        near(m.laborYear.value, r.labor, 2);
+        near(m.annualCost.value, r.annual, 4);
+        near(m.baselineAnnualCost.value, r.baseAnnual, 2);
+        near(m.savingsYear.value, r.S, 6);
+        if (r.S > 0) near(m.paybackMonths.value, r.payback, 0.01);
+        near(m.threeYearNet.value, r.net, 20);
+        near(m.costPerOrder.value, r.cpo, 1e-5);
+        near(m.baselineCostPerOrder.value, r.baseCpo, 1e-5);
       });
     }
   }
@@ -124,14 +125,15 @@ describe('money: the parts add up exactly', () => {
       const s = withFleet(base, { driver: 5 }, fin);
       const cand = mkRun({ resetsPerHour: 1.25, oph: 597.5 }, s.fleet);
       const m = money(s, { cand });
-      const c = (v: number | null) => Math.round(v! * 100); // compare in cents
+      const c = (v: number | null) => v!; // whole dollars: every value is an exact integer
+      for (const [name, e] of allExplained(m)) if (e.unit === 'USD' || e.unit === 'USD/yr') expect(Number.isInteger(e.value), name).toBe(true);
       const lines = (k: 'capex' | 'opexYear', types: readonly string[]) => m.lines.filter((l) => types.includes(l.type)).reduce((a, l) => a + c(l[k].value), 0);
       expect(m.lines.map((l) => l.type)).toEqual(AGENT_TYPES);
       expect(lines('capex', AGENT_TYPES)).toBe(c(m.capex.value));
       expect(lines('opexYear', ROBOT_TYPES)).toBe(c(m.robotOpexYear.value));
       // labor = picker line + driver line + packers + supervisor reset time (1.25 × 4,160 × 10 ÷ 60 × $30 = $26,000)
-      const packers = 6 * Math.round(H * 1795 * 1.46);
-      expect(lines('opexYear', ['picker', 'driver']) + packers + 2_600_000).toBe(c(m.laborYear.value));
+      const packers = Math.round((6 * Math.round(H * 1795 * 1.46)) / 100); // $654,127
+      expect(lines('opexYear', ['picker', 'driver']) + packers + 26_000).toBe(c(m.laborYear.value));
       expect(c(m.annualCost.value)).toBe(c(m.laborYear.value) + c(m.robotOpexYear.value));
       expect(c(m.savingsYear.value)).toBe(c(m.baselineAnnualCost.value) - c(m.annualCost.value));
       expect(c(m.threeYearNet.value)).toBe(3 * c(m.savingsYear.value) - c(m.capex.value));
@@ -225,7 +227,7 @@ describe('flags', () => {
     const s: Scenario = { ...base, economics: { financing: 'buy', baseline: { picker: 8, driver: 1 } } };
     const m = money(s, { crew: { picker: 8, driver: 1 }, baseRun: mkRun({ keepsUp: false, oph: 300, backlogTrendPerHour: 300 }) });
     expect(m.paybackMonths).toMatchObject({ value: null, flag: 'doesntKeepUp' });
-    expect(m.paybackMonths.formula).toContain('the people-only crew (8 pickers + 1 forklift driver) can\'t keep up');
+    expect(m.paybackMonths.formula).toContain("the people-only crew you set (8 pickers + 1 forklift driver) can't keep up");
     expect(m.threeYearNet.flag).toBe('doesntKeepUp');
     expect(m.baseline.keepsUp).toBe(false);
     expect(m.baselineAnnualCost.inputs.find((i) => i.label === 'People-only crew: pickers')!.from).toBe('user');
@@ -351,6 +353,11 @@ describe('trust: every Explained explains itself', () => {
     reports.push([`resets + extra drivers ${fin}`, money(withFleet(base, { driver: 6 }, fin), { cand: mkRun({ resetsPerHour: 4.2 }) })]);
     reports.push([`doesn't keep up ${fin}`, money(withFleet(base, {}, fin), { cand: mkRun({ keepsUp: false, oph: 410, backlogTrendPerHour: 190 }) })]);
     reports.push([`user baseline ${fin}`, money({ ...withFleet(base, {}, fin), economics: { financing: fin, baseline: { picker: 30, driver: 4 } } }, { crew: { picker: 30, driver: 4 } })]);
+    reports.push([`people only = the crew ${fin}`, money(withFleet(base, { amr: 0, forklift: 0, humanoid: 0, ...crew }, fin), { cand: baselineRun })]);
+    reports.push([`cart robots only (all estimates) ${fin}`, money(withFleet(base, { forklift: 0, humanoid: 0, driver: 3 }, fin), { crew: { picker: 24, driver: 3 } })]);
+    reports.push([`baseline short ${fin}`, money(withFleet(base, {}, fin), { baseRun: mkRun({ keepsUp: false, oph: 410, backlogTrendPerHour: 190 }) })]);
+    reports.push([`no orders ${fin}`, money({ ...withFleet(base, {}, fin), orders: { ...base.orders, perHour: 0 } }, { cand: mkRun({ oph: 0 }), baseRun: mkRun({ oph: 0 }) })]);
+    reports.push([`nothing shipped ${fin}`, money(withFleet(base, {}, fin), { cand: mkRun({ oph: 0, keepsUp: false }) })]);
   }
 
   it.each(reports)('%s: every input has a known origin; every source exists in sources.json', (_, m) => {
@@ -383,6 +390,105 @@ describe('trust: every Explained explains itself', () => {
       const shown = e.unit === 'months' ? `${fixed(e.value, 1)} months` : e.unit === 'USD/order' ? usd2(e.value) : usd(e.value);
       expect(e.formula, name).toContain(`= ${shown}`);
     }
+  });
+  it.each(reports)('%s: the arithmetic in every formula adds up to the dollar', (_, m) => {
+    const d = (sign: string, digits: string) => (sign ? -1 : 1) * Number(digits.replace(/,/g, ''));
+    for (const [name, e] of allExplained(m)) {
+      const f = e.formula;
+      // "a ($x) + b ($y) = $total"
+      const parts = [...f.matchAll(/\((−?)\$([\d,]+)\)/g)].map((x) => d(x[1], x[2]));
+      if (parts.length >= 2 && f.includes(' + ')) {
+        const t = [...f.matchAll(/= (−?)\$([\d,]+)/g)].pop()!;
+        expect(parts.reduce((a, b) => a + b, 0), `${name}: ${f}`).toBe(d(t[1], t[2]));
+      }
+      let x = f.match(/^annual cost = \$([\d,]+) labor \+ \$([\d,]+) robot running cost = \$([\d,]+)/);
+      if (x) expect(d('', x[1]) + d('', x[2]), f).toBe(d('', x[3]));
+      x = f.match(/^savings = \$([\d,]+) people-only cost − \$([\d,]+) this option = (−?)\$([\d,]+)/);
+      if (x) expect(d('', x[1]) - d('', x[2]), f).toBe(d(x[3], x[4]));
+      x = f.match(/^3-year net = 3 × \(?(−?)\$([\d,]+)\)? savings a year − \$([\d,]+) upfront = (−?)\$([\d,]+)$/);
+      if (x) expect(3 * d(x[1], x[2]) - d('', x[3]), f).toBe(d(x[4], x[5]));
+      x = f.match(/^payback = \$([\d,]+) upfront ÷ \(\$([\d,]+) saved a year ÷ 12\) = ([\d,.]+) months/);
+      if (x) expect(fixed((d('', x[1]) * 12) / d('', x[2]), 1), f).toBe(x[3]);
+      x = f.match(/^cost per order = \$([\d,]+) a year ÷ \(([\d,.]+) orders\/h × ([\d,]+) h\) = \$([\d.]+)$/);
+      if (x) expect(Math.abs(d('', x[1]) / (Number(x[2].replace(/,/g, '')) * d('', x[3])) - Number(x[4])), f).toBeLessThan(0.006);
+    }
+  });
+  it.each(reports)('%s: every field of the report, lines included, cites at least one published source', (_, m) => {
+    const all = allExplained(m);
+    expect(all.length).toBe(10 + 2 * AGENT_TYPES.length);
+    for (const [name, e] of all) expect(e.inputs.some((i) => i.from.startsWith('source:')), `${name}: ${e.formula}`).toBe(true);
+  });
+  it('with no robots in the plan, the $0 upfront and running cost cite what robots would cost, without changing the $0', () => {
+    for (const fin of ['buy', 'raas'] as const) {
+      const m = money(withFleet(base, { amr: 0, forklift: 0, humanoid: 0 }, fin));
+      for (const e of [m.capex, m.robotOpexYear]) {
+        expect(e.value).toBe(0);
+        const ref = e.inputs.filter((i) => i.label.startsWith('For reference (none in this plan)'));
+        expect(ref.some((i) => i.from === 'source:dynamo-agility')).toBe(true);
+      }
+      // The reference prices are context: they don't make the derived upfront cost an estimate, nor leak elsewhere.
+      if (m.paybackMonths.flag !== 'doesntKeepUp') expect(m.paybackMonths.inputs.find((i) => i.label === 'Upfront cost')!.from).toBe('user');
+      expect(m.paybackMonths.inputs.some((i) => i.label.startsWith('For reference'))).toBe(false);
+    }
+  });
+  it('a line whose own inputs are all estimates cites the published labor it is compared with, as context', () => {
+    const amr = money(base).lines.find((l) => l.type === 'amr')!;
+    const ctx = amr.capex.inputs.filter((i) => i.label.startsWith('Compared with (context)'));
+    expect(ctx.map((i) => i.from)).toEqual(['source:bls-hand-laborers', 'source:bls-ecec']);
+    expect(amr.capex.value).toBe(1_092_000);
+  });
+  it.each(reports)('%s: payback and 3-year net cite at least one published source in every branch', (_, m) => {
+    for (const e of [m.paybackMonths, m.threeYearNet]) {
+      const srcs = e.inputs.filter((i) => i.from.startsWith('source:'));
+      expect(srcs.length, e.formula).toBeGreaterThan(0);
+      expect(srcs.map((i) => i.from)).toContain('source:bls-ecec');
+    }
+  });
+  it('payback cites sources in every branch: buy, rent/never, people only, many brains with resets, flagged', () => {
+    const branches: [string, MoneyReport][] = [
+      ['buy pays back', money(withFleet(base, { forklift: 0, humanoid: 0, driver: 3 }), { crew: { picker: 24, driver: 3 } })],
+      ['rent never', money(withFleet(base, {}, 'raas'))],
+      ['people only, same crew', money(withFleet(base, { amr: 0, forklift: 0, humanoid: 0, ...crew }), { cand: baselineRun })],
+      ['siloed with resets', money({ ...withFleet(base, {}), traffic: { ...base.traffic, mode: 'siloed' } }, { cand: mkRun({ resetsPerHour: 6, keepsUp: true }) })],
+      ['candidate short', money(base, { cand: mkRun({ keepsUp: false, oph: 410, backlogTrendPerHour: 190 }) })],
+      ['baseline short', money(base, { baseRun: mkRun({ keepsUp: false, oph: 410, backlogTrendPerHour: 190 }) })],
+    ];
+    expect(branches.map(([, m]) => m.paybackMonths.flag ?? 'number')).toEqual(['number', 'never', 'never', 'never', 'doesntKeepUp', 'doesntKeepUp']);
+    for (const [name, m] of branches) {
+      for (const e of [m.paybackMonths, m.threeYearNet]) expect(e.inputs.some((i) => i.from.startsWith('source:')), `${name}: ${e.formula}`).toBe(true);
+    }
+    const priced = branches[0][1].paybackMonths.inputs.map((i) => i.from);
+    expect(priced).toContain('source:bls-hand-laborers');
+  });
+  it('a total built from several published sources is not pinned to one of them; the sources are listed beside it', () => {
+    const m = money(withFleet(base, { amr: 0, forklift: 0, humanoid: 0 })); // people-only labor: BLS wages + ECEC, no sim input
+    const laborIn = m.annualCost.inputs.find((i) => i.label === 'Labor')!;
+    expect(laborIn.from).toBe('sim');
+    expect(laborIn.note).toMatch(/published sources are listed as separate inputs/);
+    const listed = m.annualCost.inputs.filter((i) => i.from.startsWith('source:')).map((i) => i.from);
+    expect(listed).toEqual(expect.arrayContaining(['source:bls-hand-laborers', 'source:bls-machine-operators', 'source:bls-ecec']));
+    // A total from a single source still cites it: 2 humanoids bought, nothing else.
+    const one = money(withFleet(base, { amr: 0, forklift: 0, humanoid: 2 }));
+    expect(one.paybackMonths.inputs.concat(one.threeYearNet.inputs).find((i) => i.label === 'Upfront cost')!.from).toBe('source:dynamo-agility');
+  });
+  it('the measured window in the hovers follows the scenario', () => {
+    const s = { ...base, run: { ...base.run, measureMin: 90 } };
+    const m = money(s, { cand: mkRun({ keepsUp: false, oph: 410, backlogTrendPerHour: 190 }) });
+    expect(m.paybackMonths.inputs.find((i) => i.label.endsWith('backlog growth'))!.note).toContain('the 1.5 h measured window');
+    expect(m.costPerOrder.inputs.find((i) => i.label === 'Orders shipped per hour')!.note).toContain('the 1.5 h window');
+  });
+  it('no orders at all: cost per order is $0, not "can’t keep up"', () => {
+    const s = { ...base, orders: { ...base.orders, perHour: 0 } };
+    const m = money(s, { cand: mkRun({ oph: 0 }), baseRun: mkRun({ oph: 0 }) });
+    expect(m.costPerOrder.flag).toBeUndefined();
+    expect(m.costPerOrder.value).toBe(0);
+    expect(m.costPerOrder.formula).toMatch(/there are no orders/);
+    expect(m.baselineCostPerOrder.flag).toBeUndefined();
+  });
+  it('an automatic baseline that found no crew that keeps up says so', () => {
+    const m = money(base, { baseRun: mkRun({ keepsUp: false, oph: 700, backlogTrendPerHour: 800 }), crew: { picker: 60, driver: 9 } });
+    expect(m.paybackMonths.formula).toMatch(/^no payback: no people-only crew we tried keeps up with these orders \(the biggest, 60 pickers \+ 9 forklift drivers\)/);
+    expect(m.threeYearNet.formula).toContain('no people-only crew we tried keeps up');
   });
   it('the agents.json source of each price is the one cited', () => {
     const m = money(base);
