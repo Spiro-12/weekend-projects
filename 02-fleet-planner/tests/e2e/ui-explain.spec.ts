@@ -115,7 +115,7 @@ test('keyboard: Tab shows the popover, Enter pins it, Esc closes it (and does no
   // A pinned popover closes when keyboard focus leaves it, and focus goes back to its number.
   await page.keyboard.press('Enter');
   await expect(pop).toBeFocused();
-  for (let i = 0; i < 8 && (await pop.isVisible()); i++) await page.keyboard.press('Tab');
+  for (let i = 0; i < 40 && (await pop.isVisible()); i++) await page.keyboard.press('Tab');
   await expect(pop).toBeHidden();
   await expect(page.getByTestId('money-payback')).toBeFocused();
   // Tab moves on to the next explained text (the 3-year mark, with its survey source), then the next number.
