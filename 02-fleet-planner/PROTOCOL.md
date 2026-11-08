@@ -158,6 +158,8 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
   - **Interface assumptions both sides keep** (Track B review):
     - `order` lists every ready robot. A ready robot left out gets no `want` and can't be pushed.
     - Robots parked or waiting at their goal may be `ready` with `goal === cell` (so they can be pushed); the planner decides them **last** (standard PIBT).
+    - Parked robots are walls for detour searches. They are pushed only by a robot blocked ≥ 2 × `waitTicks` (10 ticks), never by a robot whose own goal is that cell (until it has been blocked ≥ 6 × `waitTicks`), and always by a person's yield. Freely pushable parked robots cut throughput by a third (passers shoved working robots off their pick faces).
+    - `blockedSinceProgress` counts blocked ticks only (not dwell or travel).
     - `ready` is valid before `recover()`. After applying resets the sim refreshes the views (`cell`, `sinceProgress = 0`, `blockedSinceProgress = 0`) and `occ`, then calls `plan()` with the same input.
     - `blockedSinceProgress` drops to 0 on progress or a new goal.
     - A forklift's safety cell is released when it arrives; the planner treats a safety cell holding its own id as free.
