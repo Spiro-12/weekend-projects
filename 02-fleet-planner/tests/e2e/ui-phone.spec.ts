@@ -73,8 +73,11 @@ test('phone: tabs open each panel, a tap on a money number explains it', async (
   await card.getByTestId('follow-close').tap();
   await expect(card).toHaveCount(0);
 
-  // A tap on a KPI chip explains it too.
+  // A tap on a KPI chip explains it too; a tap on the dimmed backdrop closes it without touching the 3D view.
   await page.getByTestId('kpi-oph').tap();
   await expect(page.getByTestId('explain-popover')).toContainText('Orders shipped per hour');
+  await page.touchscreen.tap(195, 300);
+  await expect(page.getByTestId('explain-popover')).toBeHidden();
+  expect(await page.evaluate(() => window.__fp!.host.selected.value)).toBeNull();
   await expectNoErrors(errors);
 });

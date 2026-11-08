@@ -12,9 +12,15 @@ test('hovering the payback shows the formula, the worked numbers and real source
   const pop = page.getByTestId('explain-popover');
   await expect(pop).toBeVisible();
   await expect(pop).toContainText('Pays back in');
-  await expect(pop.getByTestId('explain-formula')).toContainText('payback');
-  // The formula with the real numbers: "$X ÷ ($Y ÷ 12 months) = Z months".
-  await expect(pop.getByTestId('explain-worked')).toContainText(/\$[\d,]+ ÷ \(\$[\d,]+ ÷ 12 months\) = [\d.]+ months/);
+  await expect(pop.getByTestId('explain-formula')).not.toBeEmpty();
+  const flag = await page.evaluate(() => window.__fp!.host.money.value!.paybackMonths.flag ?? null);
+  if (flag === null) {
+    // The formula with the real numbers: "$X ÷ ($Y ÷ 12 months) = Z months".
+    await expect(pop.getByTestId('explain-worked')).toContainText(/\$[\d,]+ ÷ \(\$[\d,]+ ÷ 12 months\) = [\d.]+ months/);
+  } else {
+    await expect(pop.getByTestId('explain-flag')).toHaveText(/Never pays back at these numbers|Can't keep up with the orders/);
+    await expect(pop.getByTestId('explain-worked')).not.toBeEmpty();
+  }
   const hrefs = await pop.getByTestId('explain-source').evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).href));
   expect(hrefs.length).toBeGreaterThan(0);
   for (const h of hrefs) expect(SOURCE_URLS.has(h), h).toBe(true);

@@ -79,7 +79,9 @@ test('People only: upfront cost $0 and the payback is a flag in words', async ({
   // A flag is words, never a number.
   await expect(page.getByTestId('money-payback')).not.toHaveText(/\d/);
   await expect(page.getByTestId('fleet-people-only')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('[data-testid^="money-line-"]')).toHaveCount(0);
+  // No robot lines left (people lines may stay: they carry pay and trucks).
+  for (const t of ['amr', 'forklift', 'humanoid']) await expect(page.getByTestId(`money-line-${t}`)).toHaveCount(0);
+  await expect(page.locator('.mline-empty')).toHaveText('No robots in this plan.');
   await expectNoErrors(errors);
 });
 
@@ -121,7 +123,8 @@ test('more orders than the fleet can handle: warning words, no fake payback', as
   await expect(page.getByTestId('kpi-oph-note')).toHaveText('backlog growing');
   await expect(page.getByTestId('money-keepsup')).toBeVisible();
   await expect(page.getByTestId('money-payback')).toHaveText(/Can’t keep up with the orders|Can't keep up with the orders/);
-  await expect(page.getByTestId('money-3yr')).toHaveText('—');
-  await expect(page.getByTestId('money-savings')).toHaveText('—');
+  // Savings of a plan that can't keep up: a dash or the flag words, never a number.
+  await expect(page.getByTestId('money-3yr')).toHaveText(/^(—|Can't keep up with the orders)$/);
+  await expect(page.getByTestId('money-savings')).toHaveText(/^(—|Can't keep up with the orders)$/);
   await expectNoErrors(errors);
 });

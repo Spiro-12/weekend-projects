@@ -10,7 +10,7 @@ import { fakeEvaluate } from '../../src/host/runner/fake.ts';
 import { peopleOnly } from '../../src/host/settings.ts';
 import { agentContent, cleanNote, FLAG_WORDS, fromExplained, headlineIsEstimate } from '../../src/ui/explain/content.ts';
 import { clock, duration, minutes, n1, usd, usdShort, withUnit } from '../../src/ui/explain/format.ts';
-import { moneyContent, workedLine } from '../../src/ui/explain/money.ts';
+import { lineContent, moneyContent, workedLine } from '../../src/ui/explain/money.ts';
 
 const agents = agentsJson as AgentsFile;
 const sources = (sourcesJson as SourcesFile).sources;
@@ -83,6 +83,32 @@ test('flags are words and never numbers; every money hover lists what is left ou
   const labor = fromExplained('People', econFixture.econ.laborPerYear as Explained, sources);
   const wage = labor.inputs!.find((r) => r.label === 'Picker wage')!;
   expect(wage.source?.url).toBe(sources.find((s) => s.id === 'bls-hand-laborers')!.url);
+});
+
+test("Track C's report shape: people lines (pay, trucks) and a flagged 3-year net", () => {
+  const { m, candidate, baseOph } = report(scenario);
+  const ex = (value: number, unit: string): Explained => ({ value, unit, formula: 'count × yearly pay', inputs: [] });
+  const withPeople = {
+    ...m,
+    lines: [
+      ...m.lines,
+      { type: 'picker' as const, label: 'Picker (person)', count: 14, capex: ex(0, 'USD'), opexYear: ex(1_000_000, 'USD/yr') },
+      { type: 'driver' as const, label: 'Forklift driver (person)', count: 2, capex: ex(70_000, 'USD'), opexYear: ex(190_000, 'USD/yr') },
+    ],
+    capex: { ...m.capex, value: m.capex.value! + 70_000 },
+    threeYearNet: { ...m.threeYearNet, value: null, flag: 'doesntKeepUp' as const },
+  };
+  const ctx = { oph: candidate.kpis.oph, baselineOph: baseOph, demand: scenario.orders.perHour, sources };
+  // Robot running cost still adds up from robot lines only; upfront includes the drivers' trucks.
+  expect(workedLine('robotOpexYear', withPeople, ctx)).toMatch(/ a year$/);
+  expect(workedLine('capex', withPeople, ctx)).toContain('(2 forklift drivers)');
+  expect(lineContent(withPeople.lines.at(-2)!, 'opexYear', ctx, 'buy').title).toBe('14 pickers: pay per year');
+  expect(lineContent(withPeople.lines.at(-1)!, 'capex', ctx, 'buy').title).toBe('2 forklift drivers: equipment upfront');
+  expect(lineContent(withPeople.lines[0], 'opexYear', ctx, 'raas').title).toBe('24 cart robots: rent per year');
+  const net = moneyContent('threeYearNet', withPeople, ctx);
+  expect(net.value).toBeUndefined();
+  expect(net.flag).toBe(FLAG_WORDS.doesntKeepUp);
+  expect(workedLine('threeYearNet', withPeople, ctx)).toBeUndefined();
 });
 
 test('fleet hovers: based-on products and every spec number with its origin', () => {

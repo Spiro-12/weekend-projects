@@ -42,6 +42,14 @@
 .kpi.warn { border-color: rgba(255,181,71,.55); }
 .kpi.warn .kpi-note { color: var(--warn); font-weight: 600; }
 .kpi.warn .kpi-note::before { content: '▲ '; font-size: 9px; }
+/* Narrow desktops: keep one row (a second row would run into the left panels); tighter tiles, sideways scroll. */
+@media (min-width: 761px) and (max-width: 1260px) {
+  .kpis { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .kpis::-webkit-scrollbar { display: none; }
+  .kpi.card { flex: 0 0 auto; min-width: 0; padding: 8px 11px; box-shadow: none; }
+  .kpi-label { letter-spacing: .3px; font-size: 10.5px; }
+  .kpi-value { font-size: 22px; }
+}
 
 /* ───────── fleet + scenario ───────── */
 .fleet, .scenario { padding: 12px 14px; }
@@ -136,6 +144,11 @@
 /* ───────── follow card (slot overlay: positions itself; never blocks clicks outside the card) ───────── */
 /* While following on a desktop, the money column stops above the card instead of running under it. */
 @media (min-width: 761px) { #ui:has(.follow-card) .slot-right { max-height: calc(100% - 330px); } }
+/* Narrower desktops: the centered bottom bar reaches the right corner, so the card sits just above it. */
+@media (min-width: 761px) and (max-width: 1340px) {
+  #ui .follow-card { bottom: 72px; }
+  #ui:has(.follow-card) .slot-right { max-height: calc(100% - 390px); }
+}
 .follow-card { position: absolute; right: 14px; bottom: 14px; width: 304px; padding: 12px 14px; }
 .fc-head { display: grid; grid-template-columns: 1fr auto auto; align-items: start; gap: 8px; }
 .fc-name { font-size: 16px; font-weight: 700; letter-spacing: .2px; }
@@ -206,6 +219,9 @@ a.xp-src::after { content: ' ↗'; }
   /* The shell's `#ui > * { pointer-events: none }` outranks `.sheet-tabs { pointer-events: auto }`, so the tabs
      couldn't be tapped. Workaround until the lead moves this into styles.css (reported as a change request). */
   #ui > .sheet-tabs { pointer-events: auto; }
+  #ui button, .xp-pop button { -webkit-tap-highlight-color: transparent; }
+  /* A tap that opens the sheet must not leave a text selection behind on it. */
+  .xp-pop.xp-sheet { -webkit-user-select: none; user-select: none; }
   .kpis { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 6px; margin-top: 6px; -webkit-overflow-scrolling: touch; }
   .kpis::-webkit-scrollbar { display: none; }
   .kpi.card { flex: 0 0 auto; min-width: 0; flex-direction: row; align-items: baseline; gap: 6px; padding: 6px 10px; box-shadow: none; border-radius: 11px; }

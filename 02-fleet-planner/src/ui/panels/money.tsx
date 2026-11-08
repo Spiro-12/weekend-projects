@@ -1,7 +1,7 @@
 // Money panel (Track F, slot `right`): when do the robots pay back, compared with doing it with people only.
 // Every number hovers (taps on phones) to its formula with the real numbers, its inputs and their sources.
 // Flags are words, never numbers. While the money is recalculating the numbers dim; after a failure none are shown.
-import type { Explained, MoneyLine, MoneyReport } from '../../contracts/types.ts';
+import { ROBOT_TYPES, type Explained, type MoneyLine, type MoneyReport } from '../../contracts/types.ts';
 import type { Host } from '../../host/index.ts';
 import { FLAG_WORDS, runLine, typeCount, type ExplainContent } from '../explain/content.ts';
 import { monthsShort, num, plural, usd, usdShort, yearsFromMonths } from '../explain/format.ts';
@@ -43,7 +43,7 @@ function MoneyPanel({ host }: { host: Host }) {
     if (!mm) return waiting(title);
     const c = moneyContent(key, mm, ctx());
     const k = host.result.value?.kpis;
-    if ((key === 'threeYearNet' || key === 'savingsYear') && (k?.keepsUp === false || mm.paybackMonths.flag === 'doesntKeepUp'))
+    if ((key === 'threeYearNet' || key === 'savingsYear') && !mm[key].flag && (k?.keepsUp === false || mm.paybackMonths.flag === 'doesntKeepUp'))
       c.text = [
         'Not shown on the panel: this plan can’t keep up with the orders, so it looks cheaper only because it ships fewer of them. The math is below for reference.',
         ...(c.text ?? []),
@@ -52,7 +52,7 @@ function MoneyPanel({ host }: { host: Host }) {
   };
   const explainLine = (type: MoneyLine['type'], part: 'capex' | 'opexYear') => () => {
     const line = host.money.value?.lines.find((l) => l.type === type);
-    return line ? lineContent(line, part, ctx(), host.settings.value.economics.financing) : waiting('By robot type');
+    return line ? lineContent(line, part, ctx(), host.settings.value.economics.financing) : waiting('By type');
   };
 
   const pb = m?.paybackMonths;
@@ -127,7 +127,15 @@ function MoneyPanel({ host }: { host: Host }) {
           >
             {m?.threeYearNet.flag ? <span class="flag-words">{FLAG_WORDS[m.threeYearNet.flag]}</span> : unfair ? '—' : <Num value={net} format={usdShort} />}
           </Explain>
-          <div class="hero-sub">{unfair ? 'shown once the plan keeps up' : net !== null && net < 0 ? 'you lose money over 3 years' : 'after paying for the robots'}</div>
+          <div class="hero-sub">
+            {m?.threeYearNet.flag === 'doesntKeepUp' || unfair
+              ? 'shown once the plan keeps up'
+              : m?.threeYearNet.flag === 'never'
+                ? 'it costs more each year than people only'
+                : net !== null && net < 0
+                  ? 'you lose money over 3 years'
+                  : 'after paying for the robots'}
+          </div>
         </div>
       </div>
 
@@ -161,9 +169,9 @@ function MoneyPanel({ host }: { host: Host }) {
         <div class="msec-h">
           <span>By type</span>
           <span>Upfront</span>
-          <span>{financing === 'raas' ? 'Rent / yr' : 'Upkeep / yr'}</span>
+          <span>Per year</span>
         </div>
-        {m && lines.length === 0 && <div class="mline-empty">No robots in this plan.</div>}
+        {m && !lines.some((l) => (ROBOT_TYPES as readonly string[]).includes(l.type)) && <div class="mline-empty">No robots in this plan.</div>}
         {lines.map((l) => (
           <div class="mline" key={l.type} data-testid={`money-line-${l.type}`}>
             <span class="mline-name" title={l.label}>

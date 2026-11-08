@@ -81,6 +81,8 @@ function ensureLayer() {
       const st = explainOpen.value;
       const t = e.target as Node;
       if (!st || popEl()?.contains(t) || st.anchor.contains(t)) return;
+      // The phone backdrop closes on its own click, so the tap can't fall through to the 3D view underneath.
+      if ((t as Element).closest?.('.xp-backdrop')) return;
       closeExplain();
     },
     true,
@@ -174,7 +176,7 @@ function Layer() {
   if (phone)
     return (
       <>
-        <div class="xp-backdrop" />
+        <div class="xp-backdrop" onClick={() => closeExplain()} />
         <div {...common} class="xp-pop xp-sheet">
           {body}
         </div>

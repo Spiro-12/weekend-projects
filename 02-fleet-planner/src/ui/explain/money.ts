@@ -1,7 +1,7 @@
 // Money hovers (Track F): the formula with the real numbers filled in, built from the MoneyReport's own fields.
 // A worked line is only shown when it reproduces the reported value (so the hover can never show sums that don't
 // add up, whichever economics module is plugged in). Otherwise the hover shows the formula and its inputs.
-import type { Explained, MoneyLine, MoneyReport, SourceRef } from '../../contracts/types.ts';
+import { ROBOT_TYPES, type Explained, type MoneyLine, type MoneyReport, type SourceRef } from '../../contracts/types.ts';
 import { capitalize, fromExplained, typeCount, type ExplainContent } from './content.ts';
 import { close, num, usd, withUnit } from './format.ts';
 
@@ -87,7 +87,8 @@ export function workedLine(key: MoneyKey, m: MoneyReport, ctx: MoneyCtx): string
     case 'capex':
       return capex === null ? undefined : sumLine(m.lines, (l) => l.capex, capex);
     case 'robotOpexYear':
-      return opex === null ? undefined : sumLine(m.lines, (l) => l.opexYear, opex, ' a year');
+      // Robot running cost covers robot lines only (people lines carry pay in opexYear).
+      return opex === null ? undefined : sumLine(m.lines.filter((l) => isRobot(l.type)), (l) => l.opexYear, opex, ' a year');
     case 'costPerOrder':
     case 'baselineCostPerOrder': {
       const v = val(key === 'costPerOrder' ? m.costPerOrder : m.baselineCostPerOrder);
@@ -108,8 +109,12 @@ export function moneyContent(key: MoneyKey, m: MoneyReport, ctx: MoneyCtx): Expl
   return c;
 }
 
+const isRobot = (t: string) => (ROBOT_TYPES as readonly string[]).includes(t);
+
+/** A breakdown cell. Robot lines: upfront price/setup and upkeep or rent. People lines: equipment (trucks) and pay. */
 export function lineContent(line: MoneyLine, part: 'capex' | 'opexYear', ctx: MoneyCtx, financing: 'buy' | 'raas'): ExplainContent {
   const ex = line[part];
-  const what = part === 'capex' ? 'upfront' : financing === 'raas' ? 'rent per year' : 'upkeep per year';
+  const robot = isRobot(line.type);
+  const what = part === 'capex' ? (robot ? 'upfront' : 'equipment upfront') : !robot ? 'pay per year' : financing === 'raas' ? 'rent per year' : 'upkeep per year';
   return fromExplained(`${capitalize(typeCount(line.type, line.count, line.label))}: ${what}`, ex, ctx.sources, { demo: ctx.demo, value: ex.value === null ? undefined : withUnit(ex.value, ex.unit) });
 }
