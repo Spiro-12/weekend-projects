@@ -167,6 +167,7 @@ test('click an agent (via render.project) to follow it, Escape returns to the ov
   expect(await page.evaluate(([x, y]) => window.__fp!.render.pick(x, y), [target.x, target.y])).toBe(target.id);
   await page.mouse.click(target.x, target.y);
   await page.waitForFunction(() => window.__fp!.render.following());
+  await frames(page, 2);
   expect((await page.evaluate(() => window.__fp!.host.selected.value))?.agentId).toBe(target.id);
   expect(await page.evaluate(() => window.__fp!.render.following())).toBe(true);
   expect((await dbg(page)).selectionRings).toBe(1);
