@@ -1,4 +1,5 @@
-// Test hooks (PROTOCOL §10): window.__fp. Used by e2e, the perf harness, the visual shots and the clip capture.
+// Test hooks (PROTOCOL §10): window.__fp. Used by e2e, the perf harness (tests/perf/hook.ts PerfPage), the visual
+// shots and the clip capture.
 import type { Host } from '../host/index.ts';
 import type { LiveSim } from '../host/live.ts';
 import type { Runner } from '../host/runner/types.ts';
@@ -8,8 +9,18 @@ export interface FpHooks {
   host: Host;
   sims: LiveSim[];
   runner: Runner;
+  /** True once the first useful view has rendered (perf harness contract). */
+  ready: boolean;
+  whenReady: Promise<void>;
   render: {
-    info(): { drawCalls: number; triangles: number; geometries: number; textures: number };
+    /** Last frame: draw calls and triangles over all views and passes, per-view breakdown, agent counts. */
+    info(): {
+      calls: number;
+      triangles: number;
+      views: { id: string; calls: number; triangles: number }[];
+      agents: Record<string, number>;
+      labels: Record<string, string | number | boolean>;
+    };
     /** Screen position (CSS px) of an agent, or null. */
     project(agentId: number): { x: number; y: number } | null;
     /** Agent id at a screen position (CSS px), or null. */
@@ -17,10 +28,10 @@ export interface FpHooks {
     cameraPose(): { position: number[]; target: number[] };
     following(): boolean;
   };
-  perf: PerfMonitor & { firstUsefulViewMs: number | null; fullLookMs: number | null };
-  /** Run a named camera tour (perf harness). Resolves when done. */
-  tour(name: string): Promise<void>;
+  perf: PerfMonitor;
+  /** Drive the camera along a named path for `seconds` of real time; resolves at the end. */
+  tour(name: string, seconds?: number): Promise<void>;
+  tours: string[];
   /** Freeze or unfreeze the live sim (screenshots). */
   freeze(on: boolean): void;
-  ready: Promise<void>;
 }

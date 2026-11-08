@@ -30,7 +30,7 @@ test('draw calls and triangles at the overview stay under budget', async ({ page
   await openApp(page, '?tier=high');
   await page.waitForTimeout(1500);
   const info = await page.evaluate(() => window.__fp!.render.info());
-  console.log(`overview: ${info.drawCalls} draw calls, ${info.triangles} triangles`);
-  expect(info.drawCalls).toBeLessThanOrEqual(budgets.drawCalls);
+  console.log(`overview: ${info.calls} draw calls, ${info.triangles} triangles`);
+  expect(info.calls).toBeLessThanOrEqual(budgets.drawCalls);
   expect(info.triangles).toBeLessThanOrEqual(budgets.triangles);
 });

@@ -225,19 +225,21 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
   - `flyTo(pose, ms)`, `pose()`, `distance()`
 - **Grid ↔ world** (`geom.ts`): x = (col + 0.5 − W/2) × 1.5, z = (row + 0.5 − H/2) × 1.5, Y up.
 - **Agent rendering** interpolates from the latest snapshot at `live.renderTick` = `sim.tick − 1 + accumulated/500 ms`: position = lerp(cell, to, (renderTick − moveStart) ÷ (moveEnd − moveStart)).
-- **Tiers:**
+- **Tiers** (tuned by spike a on Spiro's M2 Air):
 
   | Tier | DPR | Effects |
   |---|---|---|
-  | high | ≤ 2 | bloom, agent shadow map |
-  | medium | 1.5 | |
-  | low | 1 | far racks drop upper boxes, simple people |
+  | high | ≤ 1.5 | half-size bloom, agent shadow map |
+  | medium (desktop default) | ≤ 1.5 | glow ribbons, blob shadows |
+  | low (touch / small screens) | 1 | far racks drop upper boxes, simple people |
   | lite | 0.75 | |
 
-  - Start low on touch or small screens, medium otherwise.
-  - Demote when frame cost (CPU + GPU) > 20 ms for 2 s; promote when < 12 ms for 5 s.
+  - Full-size bloom at DPR 2 costs about 8 ms of GPU on the M2 Air, so high never uses it.
+  - **Demote** when the frame interval runs > 20 ms for 2 s.
+  - **Promote** only when GPU timing exists and CPU p95 + GPU p50 × (next tier's cost ratio: high/medium 2.7, medium/low 1.3) < 14 ms for 5 s. Never without timer queries (iOS Safari). Not for 60 s after a demotion.
   - `?tier=` freezes it.
   - A lost WebGL context shows a reload card that reopens in lite. No WebGL shows a friendly message.
+- **People are rendered as instanced rigid parts** with a procedural walk (40 people: 23 draw calls, 1.4 ms CPU), not skinned clones (779 draw calls, 12.4 ms). At most one skinned "hero" worker, for the followed person.
 - **Panels:** every file in `src/ui/panels/*.tsx` default-exports `definePanel({ id, slot, order, title, Component, when? })`.
   - Slots: `kpi`, `left`, `right`, `bottom`, `overlay`.
   - On phones, `left`/`right`/`bottom` become bottom-sheet tabs.
@@ -245,7 +247,13 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
 - **Asset manifest** `public/assets/manifest.json`: key → `{url, urlLo?, scale, offset, tris, bytes, gzBytes, license, credit, source, firstTier}`. In-app credits read it.
 
 ## §10 Test hooks and URL parameters
-- **`window.__fp`:** `{ host, sims, runner, render {info, project(id), pick(x, y), cameraPose, following}, perf (PerfMonitor + firstUsefulViewMs, fullLookMs), tour(name), freeze(on), ready }`.
+- **`window.__fp`** (`src/app/hooks.ts`; the perf harness contract is `tests/perf/hook.ts`):
+  - `host`, `sims`, `runner`
+  - `ready` (true after the first useful view), `whenReady`
+  - `render {info() → {calls, triangles, views[], agents, labels}, project(id), pick(x, y), cameraPose, following}`
+  - `perf`: PerfMonitor with `cpuMs()`, `gpuMs()`, `drain()` (paired per-frame CPU/GPU samples), `sync(on)` (1-pixel readback per frame → `work` ms), `tier`, `summary()`, `firstUsefulViewMs`
+  - `tour(name, seconds)` and `tours` (`default`, `overview`, `aisle`, `static`; `src/render/core/tours.ts`)
+  - `freeze(on)`
 - **`window.__fpSim.runHash(scenarioId, ticks)`:** set before WebGL, for the determinism test.
 - **`data-testid`** on every tile and control (`kpi-oph`, `stage-canvas`, `perf-overlay`, …).
 - **URL parameters:**
@@ -290,4 +298,22 @@ Full numbers: `spikes/b-traffic/RESULTS.md`, `spikes/c-assets-RESULTS.md`, `spik
   - The vertex-colored forklift looks flat.
   - **The building shell and lighting matter most:** the references have bright walls, trusses and skylights; our scene is a dark void.
 
-**Spike a (render):** _pending._
+**Spike a (render):**
+- **Medium tier holds 60 fps in split screen** with 150 robots + 40 people per side (46 draw calls, thin headroom). **High as first specified (DPR 2 + full bloom) does not**, so high is now DPR 1.5 with half-size bloom, and medium is the desktop default.
+- **People:** instanced rigid parts, not skinned (see §9).
+- **The perf harness is kept:** `scripts/perf.ts` + `tests/perf/`.
+  - New headless Chromium uses the real Apple M2 GPU via Metal; the harness refuses software GL.
+  - **The GPU timer query reads high on ANGLE/Metal** (it spans idle gaps), so gates use **sync mode** (`--sync`: 1-pixel readback per frame) and `work` p95, plus dropped frames ≤ 0.5% in the normal loop.
+  - Restart `serve-gz` after rebuilds is no longer needed (it now caches by file mtime).
+- **Budgets tightened:** triangles ≤ 1.5M (both views), initial JS ≤ 250 KB gz.
+- **Keep procedural racks for the far field:** a SimReady rack GLB would add about 1.1M triangles per view.
+- **Phase 0 skeleton, measured by the lead with nothing else running** (M2 Air, 1440×900, medium, default 20 s tour, `--sync`):
+
+  | Run | fps | work p95 | Draw calls | Notes |
+  |---|---|---|---|---|
+  | Default fleet (46 agents) | 59.9 | 14.6 ms | 32 | 3 runs within 4.8% |
+  | 150 cart robots | 59.9 | 14.6 to 15.9 ms | 32 | |
+  | Phone smoke (390×844, 4× CPU slowdown, low) | 59.9 | | 32 | CPU+GPU p95 3.1 ms; the iPhone `?perf=1` screenshot is the real phone check |
+
+  - Initial JS 171 KB gz.
+

@@ -9,7 +9,8 @@ import { createSim, DEFAULT_IMPL } from '../sim/index.ts';
 import { createFakeRunner } from '../host/runner/fake.ts';
 import { createWorkerRunner } from '../host/runner/pool.ts';
 import { BasicAgentLayer } from '../render/agents/basic.ts';
-import { CameraRig } from '../render/core/camera.ts';
+import { CameraRig, type Pose } from '../render/core/camera.ts';
+import { makeTours, TOURS } from '../render/core/tours.ts';
 import { createRenderer } from '../render/core/renderer.ts';
 import { tierSettings } from '../render/core/tiers.ts';
 import { buildProceduralWorld, type WorldBuild } from '../render/world/procedural.ts';
@@ -108,13 +109,21 @@ let frozen = params.freeze;
 let lastAspect = 0;
 let firstUsefulViewMs: number | null = null;
 let readyResolve: () => void = () => {};
-const ready = new Promise<void>((r) => (readyResolve = r));
+const whenReady = new Promise<void>((r) => (readyResolve = r));
+let tourState: { fn: (u: number) => Pose; t0: number; ms: number; done: () => void } | null = null;
 
 core.onFrame((dt, now) => {
   if (!frozen) host.live.advance(dt);
   const sel = host.selected.value;
   agentLayer.update(host.live.snapshot, host.live.renderTick, sel?.agentId ?? null, dt);
-  rig.update(now);
+  if (tourState) {
+    const u = Math.min(1, (now - tourState.t0) / tourState.ms);
+    rig.setPose(tourState.fn(u));
+    if (u >= 1) {
+      tourState.done();
+      tourState = null;
+    }
+  } else rig.update(now);
   core.perf.agents = agentLayer.count();
   const fog = core.scene.fog as Fog;
   const dist = rig.distance();
@@ -127,7 +136,8 @@ core.onFrame((dt, now) => {
   if (firstUsefulViewMs === null && agentLayer.count() > 0 && host.result.value) {
     firstUsefulViewMs = Math.round(performance.now());
     performance.mark('fp:first-useful-view');
-    hooks.perf.firstUsefulViewMs = firstUsefulViewMs;
+    core.perf.firstUsefulViewMs = firstUsefulViewMs;
+    hooks.ready = true;
     host.bus.emit('firstUsefulView', { ms: firstUsefulViewMs });
     document.getElementById('boot')?.remove();
     readyResolve();
@@ -171,8 +181,21 @@ const hooks: FpHooks = {
   host,
   sims: [host.live],
   runner,
+  ready: false,
+  whenReady,
   render: {
-    info: () => core.info(),
+    info: () => {
+      const i = core.info();
+      const counts: Record<string, number> = {};
+      for (const a of host.live.snapshot.agents) counts[a.type] = (counts[a.type] ?? 0) + 1;
+      return {
+        calls: i.calls,
+        triangles: i.triangles,
+        views: i.views,
+        agents: counts,
+        labels: { tier: core.tiers.tier, dpr: core.renderer.getPixelRatio(), layout: host.settings.value.layout, canvas: `${canvas.width}x${canvas.height}` },
+      };
+    },
     project: (id) => {
       const r = canvas.getBoundingClientRect();
       const p = agentLayer.project(id, rig.camera, r.width, r.height);
@@ -182,26 +205,17 @@ const hooks: FpHooks = {
     cameraPose: () => rig.pose(),
     following: () => rig.following,
   },
-  perf: Object.assign(core.perf, { firstUsefulViewMs: null as number | null, fullLookMs: null as number | null }),
-  async tour(name) {
-    const size = Math.max(world.sizeX, world.sizeZ);
-    const poses: Record<string, [number, number, number, number, number, number][]> = {
-      overview: [[-size * 0.1, size * 0.5, size * 0.75, 0, 0, 0]],
-      orbit: [
-        [-size * 0.5, size * 0.35, size * 0.5, 0, 0, 0],
-        [size * 0.5, size * 0.3, size * 0.4, 0, 0, 0],
-        [0, 14, 10, 0, 0, -5],
-        [-size * 0.1, size * 0.5, size * 0.75, 0, 0, 0],
-      ],
-    };
-    for (const p of poses[name] ?? poses.orbit) {
-      rig.flyTo({ position: [p[0], p[1], p[2]], target: [p[3], p[4], p[5]] }, 2500);
-      await new Promise((r) => setTimeout(r, 2600));
-    }
+  perf: core.perf,
+  tours: [...TOURS],
+  tour(name, seconds = 20) {
+    const fn = makeTours(layout)[name] ?? makeTours(layout).default;
+    host.select(0, null);
+    return new Promise<void>((done) => {
+      tourState = { fn, t0: performance.now(), ms: seconds * 1000, done };
+    });
   },
   freeze(on) {
     frozen = on;
   },
-  ready,
 };
 window.__fp = hooks;

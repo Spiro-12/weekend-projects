@@ -42,7 +42,8 @@ export interface RendererCore {
   onFrame(fn: (dtMs: number, nowMs: number) => void): () => void;
   /** Called after the scene renders each frame (post effects can replace the plain render). */
   setRenderPass(fn: ((view: View) => void) | null): void;
-  info(): { drawCalls: number; triangles: number; geometries: number; textures: number };
+  /** Last frame, all views and passes (tests/perf/hook.ts RenderInfo). */
+  info(): { calls: number; triangles: number; views: { id: string; calls: number; triangles: number }[]; geometries: number; textures: number };
   setTier(t: Tier): void;
   dispose(): void;
 }
@@ -111,6 +112,10 @@ export function createRenderer(container: HTMLElement, opts: { tier?: Tier; onTi
   ro.observe(container);
 
   const vp = new Vector4();
+  const viewInfo: { id: string; calls: number; triangles: number }[] = [];
+  const syncPixel = new Uint8Array(4);
+  let lastCalls = 0;
+  let lastTris = 0;
   let last = performance.now();
   let lost = false;
   renderer.domElement.addEventListener('webglcontextlost', (e) => {
@@ -131,7 +136,10 @@ export function createRenderer(container: HTMLElement, opts: { tier?: Tier; onTi
     renderer.clear();
     const w = renderer.domElement.width / renderer.getPixelRatio();
     const h = renderer.domElement.height / renderer.getPixelRatio();
+    viewInfo.length = 0;
     for (const v of views) {
+      const c0 = renderer.info.render.calls;
+      const t0v = renderer.info.render.triangles;
       vp.set(v.rect[0] * w, v.rect[1] * h, v.rect[2] * w, v.rect[3] * h);
       renderer.setViewport(vp);
       renderer.setScissor(vp);
@@ -142,13 +150,21 @@ export function createRenderer(container: HTMLElement, opts: { tier?: Tier; onTi
         renderer.clearDepth();
         renderer.render(scene, v.camera);
       }
+      viewInfo.push({ id: v.id, calls: renderer.info.render.calls - c0, triangles: renderer.info.render.triangles - t0v });
     }
     const cpu = performance.now() - t0;
+    lastCalls = renderer.info.render.calls;
+    lastTris = renderer.info.render.triangles;
+    if (perf.syncMode) {
+      const gl = renderer.getContext();
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, syncPixel);
+      perf.pushWork(performance.now() - t0);
+    }
     perf.drawCalls = renderer.info.render.calls;
     perf.triangles = renderer.info.render.triangles;
     perf.endFrame(cpu);
     const s = perf.summary();
-    tiers.sample(cpu + (s.gpuP50 ?? cpu), dt);
+    tiers.sample(dt, s.cpuP95, s.gpuP50, now);
   });
 
   return {
@@ -178,8 +194,9 @@ export function createRenderer(container: HTMLElement, opts: { tier?: Tier; onTi
     },
     info() {
       return {
-        drawCalls: renderer.info.render.calls,
-        triangles: renderer.info.render.triangles,
+        calls: lastCalls,
+        triangles: lastTris,
+        views: viewInfo.map((v) => ({ ...v })),
         geometries: renderer.info.memory.geometries,
         textures: renderer.info.memory.textures,
       };

@@ -32,6 +32,12 @@ class Ring {
   }
 }
 
+/** Per-frame samples since the last drain (perf harness, tests/perf/hook.ts). */
+interface Frame {
+  cpu: number;
+  gpu: number | null;
+}
+
 export class PerfMonitor {
   readonly cpu = new Ring();
   readonly gpu = new Ring();
@@ -45,7 +51,17 @@ export class PerfMonitor {
   private ext: { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null = null;
   private queries: WebGLQuery[] = [];
   private active: WebGLQuery | null = null;
+  private activeFrame: Frame | null = null;
+  private queryFrame = new Map<WebGLQuery, Frame>();
   private last = 0;
+  private frames: Frame[] = [];
+  private work: number[] = [];
+  private lastCpu = 0;
+  private lastGpu: number | null = null;
+  /** Sync mode: the renderer waits for the GPU each frame (1-pixel readback) and reports `work`. */
+  syncMode = false;
+  firstUsefulViewMs: number | null = null;
+  fullLookMs: number | null = null;
 
   attach(renderer: WebGLRenderer) {
     const gl = renderer.getContext() as WebGL2RenderingContext;
@@ -58,17 +74,31 @@ export class PerfMonitor {
   beginFrame(now: number) {
     if (this.last) this.frame.push(now - this.last);
     this.last = now;
+    this.activeFrame = { cpu: 0, gpu: null };
     if (this.gl && this.ext && !this.active) {
       const q = this.gl.createQuery();
       if (q) {
         this.gl.beginQuery(this.ext.TIME_ELAPSED_EXT, q);
         this.active = q;
+        this.queryFrame.set(q, this.activeFrame);
       }
     }
   }
 
+  /** Sync mode: time from frame start until the GPU finished it. */
+  pushWork(ms: number) {
+    this.work.push(ms);
+  }
+
   endFrame(cpuMs: number) {
     this.cpu.push(cpuMs);
+    this.lastCpu = cpuMs;
+    if (this.activeFrame) {
+      this.activeFrame.cpu = cpuMs;
+      this.frames.push(this.activeFrame);
+      if (this.frames.length > 20_000) this.frames.splice(0, 10_000);
+      this.activeFrame = null;
+    }
     const gl = this.gl;
     const ext = this.ext;
     if (gl && ext && this.active) {
@@ -81,10 +111,36 @@ export class PerfMonitor {
         const q = this.queries[0];
         if (!gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) break;
         this.queries.shift();
-        if (!gl.getParameter(ext.GPU_DISJOINT_EXT)) this.gpu.push(Number(gl.getQueryParameter(q, gl.QUERY_RESULT)) / 1e6);
+        const frame = this.queryFrame.get(q);
+        this.queryFrame.delete(q);
+        if (!gl.getParameter(ext.GPU_DISJOINT_EXT)) {
+          const ms = Number(gl.getQueryParameter(q, gl.QUERY_RESULT)) / 1e6;
+          this.gpu.push(ms);
+          this.lastGpu = ms;
+          if (frame) frame.gpu = ms;
+        }
         gl.deleteQuery(q);
       }
     }
+  }
+
+  // ── tests/perf/hook.ts PerfHook ──
+  cpuMs(): number {
+    return this.lastCpu;
+  }
+  gpuMs(): number | null {
+    return this.lastGpu;
+  }
+  drain(): { cpu: number[]; gpu: (number | null)[]; work?: number[] } {
+    const f = this.frames;
+    this.frames = [];
+    const work = this.syncMode ? this.work : undefined;
+    this.work = [];
+    return { cpu: f.map((x) => x.cpu), gpu: f.map((x) => x.gpu), work };
+  }
+  sync(on: boolean) {
+    this.syncMode = on;
+    this.work = [];
   }
 
   reset() {
