@@ -29,5 +29,5 @@ describe('one brain: planner speed', () => {
     }
     console.log(`[traffic] planner ms/tick (1 h each): ${rows.join(' | ')}`);
     expect(at150).toBeLessThanOrEqual(budgets.plannerMsPerTick * budgets.ciSlack);
-  }, 300_000);
+  });
 });

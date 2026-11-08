@@ -157,8 +157,8 @@ describe('CentralController: one tick at a time', () => {
     const { input } = scene([{ cell: P(30, 28), goal: P(40, 28), passClass: 'forklift' }], [P(31, 28)]);
     input.yields = [0, P(31, 28)];
     const out = plan(new CentralController(), input);
-    expect(out.moveTo[0]).not.toBe(P(30, 29));
-    expect(world.code[out.moveTo[0]]).not.toBe(2);
+    expect(out.moveTo[0]).toBeGreaterThanOrEqual(0); // it does make way...
+    expect(world.code[out.moveTo[0]]).not.toBe(2); // ...but never onto the pack lane
   });
 
   it('plans a bounded detour around a standing person after waitTicks blocked ticks, and reports it', () => {
@@ -176,7 +176,56 @@ describe('CentralController: one tick at a time', () => {
       }
     }
     expect(c.counters.detours).toBe(1);
-    expect(c.stateWords().length).toBeGreaterThan(6 + 8); // the detour path is part of the state
+    expect(c.stateWords().length).toBeGreaterThan(7 + 8); // the detour path is part of the state
+  });
+
+  it('a robot parked at its goal (ready, goal = cell) decides last, so robots behind it can push it aside', () => {
+    // Track A marks parked robots ready with goal = their cell. Whatever the order, the mover pushes it.
+    const robots: R[] = [
+      { cell: P(21, 4), goal: P(21, 4) },
+      { cell: P(20, 4), goal: P(25, 4) },
+    ];
+    for (const order of [[0, 1], [1, 0]]) {
+      const { input } = scene(robots, [P(20, 3), P(20, 5), P(19, 4)], { order });
+      input.ready[0] = input.tick; // parked but pushable
+      const c = new CentralController();
+      const out = plan(c, input);
+      expect(out.moveTo[0], `order ${order}`).toBeGreaterThanOrEqual(0); // the parked robot steps aside...
+      expect(out.moveTo[1], `order ${order}`).toBe(-1); // ...and the mover waits for the cell to clear
+      expect(c.counters.pushes).toBe(1);
+    }
+    // unpushed, a parked robot stays put
+    const alone = scene([{ cell: P(21, 4), goal: P(21, 4) }]);
+    alone.input.ready[0] = alone.input.tick;
+    expect(plan(new CentralController(), alone.input).moveTo[0]).toBe(-1);
+  });
+
+  it('a moving robot reports the cell it moves into as want (also when it can’t take its first choice)', () => {
+    const { input } = scene([{ cell: P(20, 4), goal: P(25, 5) }], [P(21, 4)]);
+    const out = plan(new CentralController(), input);
+    expect(out.moveTo[0]).toBe(P(20, 5));
+    expect(out.want[0]).toBe(out.moveTo[0]);
+  });
+
+  it('detour searches are skipped when nothing is in sight, or when they would repeat the current detour', () => {
+    const c = new CentralController();
+    const people = [P(4, 11)];
+    // blocked 5 ticks behind a standing person: one search, one detour
+    plan(c, scene([{ cell: P(4, 10), goal: P(4, 20), heading: S, blocked: 5 }], people, {}, 100).input);
+    expect([c.counters.detours, c.counters.detourSkips]).toEqual([1, 0]);
+    // still there 5 ticks later, same blocker, detour still active: kept, not searched again
+    plan(c, scene([{ cell: P(4, 10), goal: P(4, 20), heading: S, blocked: 10 }], people, {}, 105).input);
+    expect([c.counters.detours, c.counters.detourSkips]).toEqual([1, 1]);
+    // a different blocker: searched again
+    plan(c, scene([{ cell: P(4, 10), goal: P(4, 20), heading: S, blocked: 15 }], [P(5, 11), P(4, 11)], {}, 110).input); // another person in front
+    expect(c.counters.detours + c.counters.detourFails).toBe(2); // searched (with both lanes blocked it finds no way)
+    expect(c.counters.detourSkips).toBe(1);
+    // blocked by a moving robot with no person or parked robot within sensor range: no search at all
+    const d = new CentralController();
+    plan(d, scene([{ cell: P(30, 4), goal: P(40, 4), blocked: 5 }, { cell: P(31, 4), goal: P(50, 4), movingTo: P(32, 4) }]).input);
+    expect([d.counters.detours, d.counters.detourFails, d.counters.detourSkips]).toEqual([0, 0, 1]);
+    // the skip state is part of stateWords
+    expect(c.stateWords()).toContain(P(4, 10));
   });
 
   it('no detour when the blocker is a robot it can push', () => {
@@ -208,6 +257,21 @@ describe('CentralController: recover()', () => {
     expect(at(1200, 1601).resets).toHaveLength(1);
   });
 
+  it('returns the same frozen empty result when there is nothing to do (no per-tick allocation)', () => {
+    const c = new CentralController();
+    const a = c.recover(scene([{ cell: P(20, 4), goal: P(40, 4) }]).input);
+    const b = c.recover(scene([{ cell: P(20, 4), goal: P(40, 4) }], [], {}, 101).input);
+    expect(a).toBe(b);
+    expect(Object.isFrozen(a) && Object.isFrozen(a.resets) && Object.isFrozen(a.retasks)).toBe(true);
+  });
+
+  it('never resets a robot parked at its goal, even when its counter is old', () => {
+    const c = new CentralController();
+    const { input } = scene([{ cell: P(20, 4), goal: P(20, 4), sinceProgress: 5000 }]);
+    input.ready[0] = input.tick;
+    expect(c.recover(input).resets).toEqual([]);
+  });
+
   it('never resets a robot that is moving, dwelling or idle; never re-tasks', () => {
     const c = new CentralController();
     const { input } = scene([
@@ -233,21 +297,21 @@ describe('CentralController: recover()', () => {
 describe('CentralController: state', () => {
   it('stateWords are integers and only cover robots it has seen', () => {
     const c = new CentralController();
-    expect(c.stateWords()).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(c.stateWords()).toEqual([0, 0, 0, 0, 0, 0, 0]);
     plan(c, scene([{ cell: P(20, 4), goal: P(25, 4) }]).input);
     const w = c.stateWords();
     expect(w.every((x) => Number.isSafeInteger(x))).toBe(true);
-    expect(w.slice(6, 8)).toEqual([0, P(25, 4)]); // robot 0 and the goal it saw
+    expect(w.slice(7, 9)).toEqual([0, P(25, 4)]); // robot 0 and the goal it saw
   });
 
   it('a layout switch (new world) drops every robot’s cell-based state', () => {
     const c = new CentralController();
     plan(c, scene([{ cell: P(4, 10), goal: P(4, 20), heading: S, blocked: 5 }], [P(4, 11)]).input);
-    expect(c.stateWords().length).toBeGreaterThan(6);
+    expect(c.stateWords().length).toBeGreaterThan(7);
     const small = buildWorld(smallLayout as LayoutFile);
     const input: TrafficInput = { tick: 200, world: small, dist: new DistanceCache(small), agents: [null], order: [], ready: new Int32Array(1).fill(-1), occ: new Int32Array(small.n).fill(-1), yields: [] };
     c.plan(input, createPlan(1));
-    expect(c.stateWords().slice(6)).toEqual([]);
+    expect(c.stateWords().slice(7)).toEqual([]);
   });
 
   it('the same inputs give the same outputs and state', () => {

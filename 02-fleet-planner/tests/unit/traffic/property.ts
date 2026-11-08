@@ -16,9 +16,22 @@ export interface PropertyResult {
   personMoves: number;
 }
 
-/** Even seeds draw work goals (faces, stations, pockets), odd seeds any cell (robots dwell in cross aisles too). */
+/**
+ * Variants across the seeds:
+ * - even seeds: Track A's convention, robots parked at their goal are `ready` with goal = cell (pushable)
+ * - seeds 0, 1 mod 4: work goals (faces, stations, pockets); 2, 3 mod 4: any cell (robots dwell in cross aisles)
+ * - every third seed: breakdowns (a robot holds its cell 1 to 5 min) and fleet churn (robots leave, leaving null
+ *   holes in `agents`, and new ones join with new ids: the fleet grows)
+ */
 export function propertyRun(seed: number): PropertyResult {
-  const h = new Harness({ seed, robots: mix(60), pickers: 14, drivers: 2, checks: true, pocketGoalPct: 10, goals: seed % 2 === 0 ? 'work' : 'any' });
+  const events = seed % 3 === 0;
+  const h = new Harness({
+    seed, robots: mix(60), pickers: 14, drivers: 2, checks: true, pocketGoalPct: 10,
+    goals: seed % 4 < 2 ? 'work' : 'any',
+    parkedReady: seed % 2 === 0,
+    breakdownEvery: events ? 400 : 0,
+    churnEvery: events ? 300 : 0,
+  });
   h.run(PROPERTY_TICKS);
   return {
     seed,
@@ -32,4 +45,4 @@ export function propertyRun(seed: number): PropertyResult {
   };
 }
 
-export const NO_VIOLATIONS: Violations = { overlap: 0, occMismatch: 0, intoHeld: 0, intoPerson: 0, intoVacating: 0, conflict: 0, swap: 0, forkliftOnNarrow: 0, pocketNotGoal: 0, badMove: 0 };
+export const NO_VIOLATIONS: Violations = { overlap: 0, occMismatch: 0, intoHeld: 0, intoPerson: 0, intoVacating: 0, conflict: 0, swap: 0, forkliftOnNarrow: 0, pocketNotGoal: 0, badMove: 0, wantMissing: 0, wantNotMove: 0 };

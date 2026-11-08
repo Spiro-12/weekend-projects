@@ -47,6 +47,10 @@ export class HAgent {
   want = -1;
   /** Placed agents stop at their goal (reachedAt) instead of drawing a new one. */
   oneShot = false;
+  /** Ticks left broken down (holds its cell, not ready). */
+  broken = 0;
+  /** Taken out of the fleet: off the floor, its view is a null hole. */
+  removed = false;
   reachedAt = -1;
   goals = 0;
   readonly goalsByHour: number[] = [];
@@ -87,6 +91,10 @@ export interface Violations {
   pocketNotGoal: number;
   /** Not ready, not a neighbour, not passable, wrong dir, or a missing/extra safety cell. */
   badMove: number;
+  /** A ready robot with somewhere to go but no `want`, or a `want` that is not a usable neighbour. */
+  wantMissing: number;
+  /** A robot that moves somewhere other than its `want`. */
+  wantNotMove: number;
 }
 
 export interface DeadlockStats {
@@ -124,6 +132,14 @@ export interface HarnessOptions {
   stationPct?: number;
   /** Percent of robot goals that are a free pocket of its class (charger or parking). */
   pocketGoalPct?: number;
+  /** Track A's convention: robots dwelling or idle at their goal are `ready` with goal = their cell, so the planner may
+   *  push them aside. Pushed off mid-dwell, a robot drives back and resumes its dwell. */
+  parkedReady?: boolean;
+  /** Every this many ticks a random robot at a cell boundary breaks down for 120..599 ticks (holds its cell). */
+  breakdownEvery?: number;
+  /** Every this many ticks a random robot at a cell boundary leaves the fleet (its view becomes a null hole) and a new
+   *  one joins at a free cell; every third time two join (the fleet grows). */
+  churnEvery?: number;
   /** Fold every plan output into `digest` (determinism). */
   digest?: boolean;
   /** Called with each tick's input just before recover() (the input object is reused: copy what you keep). */
@@ -141,7 +157,7 @@ export class Harness {
   readonly ready = new Int32Array(CAPACITY).fill(-1);
   readonly out: TrafficPlan = createPlan(CAPACITY);
   readonly controller: TrafficController;
-  readonly violations: Violations = { overlap: 0, occMismatch: 0, intoHeld: 0, intoPerson: 0, intoVacating: 0, conflict: 0, swap: 0, forkliftOnNarrow: 0, pocketNotGoal: 0, badMove: 0 };
+  readonly violations: Violations = { overlap: 0, occMismatch: 0, intoHeld: 0, intoPerson: 0, intoVacating: 0, conflict: 0, swap: 0, forkliftOnNarrow: 0, pocketNotGoal: 0, badMove: 0, wantMissing: 0, wantNotMove: 0 };
   readonly deadlock: DeadlockStats = { started: 0, ended: 0, maxTicks: 0, over2min: 0, activeAtEnd: 0 };
   readonly events: Record<TrafficEvent['t'], number> = { detour: 0, stepAside: 0, safetyStop: 0, yield: 0 };
   resets = 0;
@@ -172,6 +188,7 @@ export class Harness {
   private readonly waitFor = new Int32Array(CAPACITY).fill(-1);
   private readonly opts: HarnessOptions;
   private heldCount = 0;
+  private mixTypes: AgentTypeId[] = [];
 
   constructor(opts: HarnessOptions = {}) {
     this.opts = opts;
@@ -203,15 +220,7 @@ export class Harness {
     const r = opts.robots ?? {};
     const spawn = (type: AgentTypeId, k: number) => {
       for (let i = 0; i < k; i++) {
-        const cells = this.goalCells[classIndex(SPECS.get(type)!.passClass)];
-        let c = -1;
-        for (let tries = 0; tries < 100000 && c < 0; tries++) {
-          const x = cells[this.rng.int(cells.length)];
-          if (this.occ[x] < 0) c = x;
-        }
-        if (c < 0) throw new Error('no free spawn cell');
-        const a = this.add(type, c);
-        a.heading = this.rng.int(4);
+        const a = this.spawnOne(type);
         if (type === 'picker') {
           // picker k of K: aisles [floor(k A / K), floor((k + 1) A / K)), at least one
           const K = opts.pickers ?? 1;
@@ -223,6 +232,7 @@ export class Harness {
         this.newGoal(a);
       }
     };
+    this.mixTypes = [...Array(r.amr ?? 0).fill('amr'), ...Array(r.forklift ?? 0).fill('forklift'), ...Array(r.humanoid ?? 0).fill('humanoid')];
     spawn('amr', r.amr ?? 0);
     spawn('forklift', r.forklift ?? 0);
     spawn('humanoid', r.humanoid ?? 0);
@@ -231,6 +241,56 @@ export class Harness {
   }
 
   // ───────────── agents ─────────────
+
+  private spawnOne(type: AgentTypeId): HAgent {
+    const cells = this.goalCells[classIndex(SPECS.get(type)!.passClass)];
+    let c = -1;
+    for (let tries = 0; tries < 100000 && c < 0; tries++) {
+      const x = cells[this.rng.int(cells.length)];
+      if (this.occ[x] < 0) c = x;
+    }
+    if (c < 0) throw new Error('no free spawn cell');
+    const a = this.add(type, c);
+    a.heading = this.rng.int(4);
+    return a;
+  }
+
+  /** Breakdowns and fleet churn (options), at the start of a tick. */
+  private floorEvents(t: number): void {
+    const be = this.opts.breakdownEvery ?? 0;
+    if (be > 0 && t % be === 0) {
+      const a = this.pickIdleRobot();
+      if (a) a.broken = 120 + this.rng.int(480);
+    }
+    const ce = this.opts.churnEvery ?? 0;
+    if (ce > 0 && t % ce === 0) {
+      const a = this.pickIdleRobot();
+      if (a) {
+        if (this.pocketBy[a.cell] === a.id) this.pocketBy[a.cell] = -1;
+        if (a.goal >= 0 && this.pocketBy[a.goal] === a.id) this.pocketBy[a.goal] = -1;
+        this.clearOcc(a.cell);
+        a.removed = true;
+        this.views[a.id] = null;
+        this.ready[a.id] = -1;
+      }
+      const joins = (t / ce) % 3 === 0 ? 2 : 1;
+      for (let k = 0; k < joins && this.mixTypes.length > 0 && this.agents.length < CAPACITY; k++) {
+        const n = this.spawnOne(this.mixTypes[this.rng.int(this.mixTypes.length)]);
+        n.goalTick = t;
+        this.newGoal(n);
+      }
+    }
+  }
+
+  /** A random robot at a cell boundary (not moving, broken or removed), or null. */
+  private pickIdleRobot(): HAgent | null {
+    const n = this.agents.length;
+    for (let k = 0, s = this.rng.int(n); k < n; k++) {
+      const a = this.agents[(s + k) % n];
+      if (a.robot && !a.removed && a.broken === 0 && a.to < 0) return a;
+    }
+    return null;
+  }
 
   private add(type: AgentTypeId, cell: number): HAgent {
     if (this.agents.length >= CAPACITY) throw new Error('harness capacity');
@@ -309,7 +369,7 @@ export class Harness {
     for (let k = 0; k < cells.length; k++) {
       const c = cells[(start + k) % cells.length];
       let load = 0;
-      for (const b of this.agents) if (b.goal === c || (b.cell === c && b.dwell > 0)) load++;
+      for (const b of this.agents) if (!b.removed && (b.goal === c || (b.cell === c && b.dwell > 0))) load++;
       if (load < bestLoad) {
         best = c;
         bestLoad = load;
@@ -325,7 +385,7 @@ export class Harness {
     a.goalsByHour[h]++;
     if (a.oneShot) {
       if (a.reachedAt < 0) a.reachedAt = this.tick;
-      a.goal = -1;
+      if (!(a.robot && this.opts.parkedReady)) a.goal = -1;
       return;
     }
     const [lo, hi] = this.opts.dwell ?? [4, 20];
@@ -355,12 +415,19 @@ export class Harness {
     if (this.world.isPocket[old] && this.pocketBy[old] === a.id && a.goal !== old) this.pocketBy[old] = -1;
     if (a.goal >= 0) {
       const d = this.dist.to(a.passClass, a.goal)[a.cell];
+      if (old === a.goal) a.bestDist = d; // pushed off its goal (parked robots): measure progress from here
       if (d < a.bestDist) {
         a.bestDist = d;
         a.sinceProgress = 0;
         a.blockedSinceProgress = 0;
       }
-      if (a.cell === a.goal) this.reach(a);
+      if (a.cell === a.goal) {
+        if (a.dwell > 0 || (a.oneShot && a.reachedAt >= 0)) {
+          // back at the goal it was pushed off: resume
+          a.sinceProgress = 0;
+          a.blockedSinceProgress = 0;
+        } else this.reach(a);
+      }
     }
   }
 
@@ -482,11 +549,19 @@ export class Harness {
     const agents = this.agents;
     const occ = this.occ;
 
-    // 1. moves, dwells
+    // 0. breakdowns and fleet churn
+    this.floorEvents(t);
+
+    // 1. moves, dwells (a robot pushed off its goal mid-dwell drives back first)
     for (const a of agents) {
+      if (a.removed) continue;
+      if (a.broken > 0) {
+        a.broken--;
+        continue;
+      }
       if (a.to >= 0) {
         if (--a.left <= 0) this.arrive(a);
-      } else if (a.dwell > 0 && --a.dwell === 0) {
+      } else if (a.dwell > 0 && a.cell === a.goal && --a.dwell === 0) {
         if (!a.oneShot) this.newGoal(a);
       }
     }
@@ -498,10 +573,11 @@ export class Harness {
     const ready = this.ready;
     const order = this.order;
     order.length = 0;
+    const parkedReady = !!this.opts.parkedReady;
     for (const a of agents) {
-      if (!a.robot) continue;
+      if (!a.robot || a.removed) continue;
       order.push(a.id);
-      if (a.to < 0 && a.dwell === 0 && a.goal >= 0 && a.cell !== a.goal) ready[a.id] = t;
+      if (a.to < 0 && a.broken === 0 && a.goal >= 0 && (a.cell !== a.goal || parkedReady)) ready[a.id] = t;
       this.refreshView(a);
     }
     order.sort((x, y) => agents[x].goalTick - agents[y].goalTick || agents[y].tb - agents[x].tb || x - y);
@@ -512,7 +588,7 @@ export class Harness {
     for (const p of agents) {
       if (p.robot || p.to >= 0 || p.want < 0) continue;
       const h = occ[p.want];
-      if (h >= 0 && agents[h].robot && ready[h] === t) yields.push(h, p.cell);
+      if (h >= 0 && agents[h].robot && !agents[h].removed && ready[h] === t) yields.push(h, p.cell);
     }
 
     const input: TrafficInput = { tick: t, world: this.world, dist: this.dist, agents: this.views, order, ready, occ, yields };
@@ -554,9 +630,10 @@ export class Harness {
     const wf = this.waitFor;
     for (const a of agents) {
       wf[a.id] = -1;
-      if (a.to >= 0 || a.dwell > 0 || a.goal < 0 || a.cell === a.goal) {
+      if (a.removed || a.broken > 0) continue;
+      if (a.to >= 0 || a.goal < 0 || a.cell === a.goal) {
         a.stoppedRun = 0;
-        if (a.goal >= 0 && a.dwell === 0) a.sinceProgress++;
+        if (a.to >= 0 && a.goal >= 0) a.sinceProgress++;
         continue;
       }
       a.sinceProgress++;
@@ -592,6 +669,7 @@ export class Harness {
     const V = this.violations;
     const movers: HAgent[] = [];
     for (const a of this.agents) {
+      if (a.robot && !a.removed && this.ready[a.id] === t) this.checkWant(a);
       const c = out.moveTo[a.id];
       if (c < 0) {
         if (out.safety[a.id] >= 0 || out.dir[a.id] >= 0) V.badMove++;
@@ -652,6 +730,20 @@ export class Harness {
     }
   }
 
+  /** A ready robot reports a usable neighbour as `want` whenever it has one, and moves only to its `want`. */
+  private checkWant(a: HAgent): void {
+    const w = this.world;
+    const D = this.dist.to(a.passClass, a.goal);
+    const usable = (j: number) => j >= 0 && a.pass[j] === 1 && (!w.isPocket[j] || j === a.goal) && D[j] !== UNREACHABLE;
+    let any = false;
+    for (let d = 0; d < 4; d++) if (usable(w.nbr[a.cell * 4 + d])) any = true;
+    const want = this.out.want[a.id];
+    const adjacent = want >= 0 && [0, 1, 2, 3].some((d) => w.nbr[a.cell * 4 + d] === want);
+    if (any && (!adjacent || !usable(want))) this.violations.wantMissing++;
+    const m = this.out.moveTo[a.id];
+    if (m >= 0 && m !== want) this.violations.wantNotMove++;
+  }
+
   private fold(out: TrafficPlan, resets: { agent: number; cell: number }[]): void {
     let h = this.digest;
     const mix = (x: number) => {
@@ -707,6 +799,7 @@ export class Harness {
     const held = this.held;
     let count = 0;
     for (const a of this.agents) {
+      if (a.removed) continue;
       for (const c of [a.cell, a.to, a.safety]) {
         if (c < 0) continue;
         count++;
@@ -733,7 +826,7 @@ export class Harness {
   }
 
   robots(): HAgent[] {
-    return this.agents.filter((a) => a.robot);
+    return this.agents.filter((a) => a.robot && !a.removed);
   }
 }
 

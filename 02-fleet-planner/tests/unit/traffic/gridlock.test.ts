@@ -25,5 +25,5 @@ describe('one brain: no permanent gridlock', () => {
     expect(worst).toBeGreaterThanOrEqual(1);
     const { overlap: _o, occMismatch: _m, ...moves } = h.violations;
     expect(Object.values(moves).every((n) => n === 0), JSON.stringify(h.violations)).toBe(true);
-  }, 300_000);
+  });
 });

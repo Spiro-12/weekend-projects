@@ -45,6 +45,8 @@ export interface CentralCounters {
   detours: number;
   /** Detour searches that found walls but no way round. */
   detourFails: number;
+  /** Detour tries skipped: no wall in sight, or the same search as the robot's current detour. */
+  detourSkips: number;
   /** Robots that made way for a person. */
   yields: number;
   /** PIBT pushes that moved the pushed robot (priority inheritance). */
@@ -54,6 +56,12 @@ export interface CentralCounters {
   /** Manual resets returned by recover(). */
   resets: number;
 }
+
+/** Returned when there is nothing to recover (no per-tick allocation). Frozen: the sim must not modify it. */
+const NO_RECOVERY: Recovery = Object.freeze({
+  resets: Object.freeze([]) as unknown as Recovery['resets'],
+  retasks: Object.freeze([]) as unknown as number[],
+});
 
 const P_STAY = 0;
 const P_MOVE = 1;
@@ -74,7 +82,7 @@ const K_STAY = 127;
 export class CentralController implements TrafficController {
   readonly mode = 'central' as const;
   readonly opts: CentralOptions;
-  readonly counters: CentralCounters = { detours: 0, detourFails: 0, yields: 0, pushes: 0, safetyPushes: 0, resets: 0 };
+  readonly counters: CentralCounters = { detours: 0, detourFails: 0, detourSkips: 0, yields: 0, pushes: 0, safetyPushes: 0, resets: 0 };
 
   // ── world scratch (rebuilt when the world changes) ──
   private world: World | null = null;
@@ -123,6 +131,9 @@ export class CentralController implements TrafficController {
   private detourLen = new Int32Array(0);
   private detourPos = new Int32Array(0);
   private detourUntil = new Int32Array(0);
+  /** Cell the robot searched from, and who blocked it, at its last detour search (-1 none). */
+  private detourFrom = new Int32Array(0);
+  private detourBlocker = new Int32Array(0);
 
   // ── the call being served ──
   private tick = 0;
@@ -139,14 +150,15 @@ export class CentralController implements TrafficController {
 
   recover(input: TrafficInput): Recovery {
     this.begin(input);
-    const resets: Recovery['resets'] = [];
     const rt = this.opts.resetTicks;
-    if (rt <= 0) return { resets, retasks: [] };
+    if (rt <= 0) return NO_RECOVERY;
+    let resets: Recovery['resets'] | null = null;
     const { order, agents, ready, tick } = input;
     for (let i = 0; i < order.length; i++) {
       const id = order[i];
       const a = agents[id];
-      if (!a || ready[id] !== tick || a.goal < 0 || a.sinceProgress < rt) continue;
+      // a robot parked at its goal (ready only so it can be pushed) is never reset
+      if (!a || ready[id] !== tick || a.goal < 0 || a.cell === a.goal || a.sinceProgress < rt) continue;
       const last = this.lastReset[id];
       if (last >= 0 && tick - last < rt) continue;
       this.ensureDist(a);
@@ -155,9 +167,9 @@ export class CentralController implements TrafficController {
       this.claimed[cell] = this.pass;
       this.lastReset[id] = tick;
       this.counters.resets++;
-      resets.push({ agent: id, cell });
+      (resets ??= []).push({ agent: id, cell });
     }
-    return { resets, retasks: [] };
+    return resets ? { resets, retasks: [] } : NO_RECOVERY;
   }
 
   plan(input: TrafficInput, out: TrafficPlan): void {
@@ -184,18 +196,25 @@ export class CentralController implements TrafficController {
       }
     }
 
-    // 3. PIBT in the sim's priority order.
+    // 3. PIBT in the sim's priority order. Robots parked at their goal (the sim marks them ready so they can be pushed
+    //    out of the way) have the lowest priority, as in standard PIBT: they decide last, after everyone who wants to
+    //    move has had the chance to push them.
     for (let i = 0; i < order.length; i++) {
       const id = order[i];
       const a = agents[id];
-      if (a && this.prepared[id] === pass && this.decided[id] !== pass) this.decide(a, -1, 0);
+      if (a && a.cell !== a.goal && this.prepared[id] === pass && this.decided[id] !== pass) this.decide(a, -1, 0);
+    }
+    for (let i = 0; i < order.length; i++) {
+      const id = order[i];
+      const a = agents[id];
+      if (a && a.cell === a.goal && this.prepared[id] === pass && this.decided[id] !== pass) this.decide(a, -1, 0);
     }
     this.out = null;
   }
 
   stateWords(): number[] {
     const c = this.counters;
-    const out = [c.detours, c.detourFails, c.yields, c.pushes, c.safetyPushes, c.resets];
+    const out = [c.detours, c.detourFails, c.detourSkips, c.yields, c.pushes, c.safetyPushes, c.resets];
     const wt = this.opts.waitTicks;
     for (let id = 0; id < this.cap; id++) {
       const len = this.detourLen[id];
@@ -203,8 +222,10 @@ export class CentralController implements TrafficController {
       const next = this.nextDetourAt[id];
       const lastB = this.lastBlocked[id];
       const lastR = this.lastReset[id];
-      if (goal === -1 && len === 0 && next === wt && lastB === 0 && lastR === -1) continue;
-      out.push(id, goal, next, lastB, lastR, len);
+      const from = this.detourFrom[id];
+      const blocker = this.detourBlocker[id];
+      if (goal === -1 && len === 0 && next === wt && lastB === 0 && lastR === -1 && from === -1 && blocker === -1) continue;
+      out.push(id, goal, next, lastB, lastR, from, blocker, len);
       if (len > 0) {
         out.push(this.detourPos[id], this.detourUntil[id]);
         for (let k = 0; k < len; k++) out.push(this.detour[id * DETOUR_MAX + k]);
@@ -270,6 +291,8 @@ export class CentralController implements TrafficController {
     this.detourLen.fill(0);
     this.detourPos.fill(0);
     this.detourUntil.fill(0);
+    this.detourFrom.fill(-1);
+    this.detourBlocker.fill(-1);
   }
 
   private grow(need: number): void {
@@ -289,6 +312,8 @@ export class CentralController implements TrafficController {
     this.detourLen = g(this.detourLen, 0);
     this.detourPos = g(this.detourPos, 0);
     this.detourUntil = g(this.detourUntil, 0);
+    this.detourFrom = g(this.detourFrom, -1);
+    this.detourBlocker = g(this.detourBlocker, -1);
     const det = new Int32Array(cap * DETOUR_MAX);
     det.set(this.detour);
     this.detour = det;
@@ -328,6 +353,8 @@ export class CentralController implements TrafficController {
       this.seenGoal[id] = a.goal;
       this.detourLen[id] = 0;
       this.nextDetourAt[id] = wt;
+      this.detourFrom[id] = -1;
+      this.detourBlocker[id] = -1;
     }
     // Follow the detour: skip past the robot's cell; drop it when done, expired, or the robot was pushed off it.
     let len = this.detourLen[id];
@@ -345,14 +372,50 @@ export class CentralController implements TrafficController {
         len = 0;
       }
     }
-    // Detour timer: a drop in blocked ticks means progress (or a new goal), so re-arm.
+    if (a.cell === a.goal) return; // parked: nothing to go round
+    // Detour timer: a drop in blocked ticks means progress (or a new goal), so re-arm; then a try every waitTicks.
     const b = a.blockedSinceProgress;
     if (b < this.lastBlocked[id]) this.nextDetourAt[id] = wt;
     this.lastBlocked[id] = b;
     if (b >= this.nextDetourAt[id]) {
       this.nextDetourAt[id] = b + wt;
+      // Still on the cell it planned its current detour from, with the same blocker: the search would find the same
+      // way round, so keep the detour it has. (Delaying retries after failed searches was tried: they are rare, under
+      // 1% of searches, and a boxed-in robot then missed the brief gaps people open; the 3+3 crossing stalled.)
+      const blocker = this.blockerOf(a);
+      if (len > 0 && this.detourFrom[id] === a.cell && this.detourBlocker[id] === blocker) {
+        this.counters.detourSkips++;
+        return;
+      }
+      this.detourFrom[id] = a.cell;
+      this.detourBlocker[id] = blocker;
       this.computeDetour(a);
     }
+  }
+
+  /** Who holds the robot's preferred next cell (or, for a forklift, the safety cell beyond it): -1 nobody. */
+  private blockerOf(a: TrafficAgent): number {
+    const w = this.world!;
+    const nbr = w.nbr;
+    const D = this.distOf[a.id]!;
+    const passable = this.passOf[a.id]!;
+    let best = -1;
+    let bestDir = 0;
+    let bestKey = 0x7fffffff;
+    for (let d = 0; d < 4; d++) {
+      const j = nbr[a.cell * 4 + d];
+      if (j < 0 || !passable[j] || (w.isPocket[j] && j !== a.goal) || D[j] === UNREACHABLE) continue;
+      const key = this.keyOf(a, j, d, D[j]);
+      if (key < bestKey) {
+        best = j;
+        bestDir = d;
+        bestKey = key;
+      }
+    }
+    if (best < 0) return -1;
+    if (this.occ[best] >= 0 || a.safetyCells <= 0) return this.occ[best];
+    const s = nbr[best * 4 + bestDir];
+    return s >= 0 && this.open[s] ? this.occ[s] : -1;
   }
 
   /** Candidate sort key for moving robot a into neighbour j heading d (see K_COST). */
@@ -463,9 +526,9 @@ export class CentralController implements TrafficController {
       if (resv[c] === pass) continue;
       const dir = cd[base + k];
       const h = occ[c];
-      if (h >= 0) {
+      if (h >= 0 && h !== id) {
         // Held: a person, a moving robot, or a robot that already decided can't be pushed. Never enter a held cell.
-        if (h === id || !this.pushable(h)) {
+        if (!this.pushable(h)) {
           if (k === 0 && canStay && a.safetyCells > 0) {
             const sc = nbr[c * 4 + dir];
             if (sc >= 0 && this.open[sc] && occ[sc] < 0 && resv[sc] !== pass) holdS = sc;
@@ -503,6 +566,7 @@ export class CentralController implements TrafficController {
       out.moveTo[id] = c;
       out.safety[id] = s;
       out.dir[id] = dir;
+      out.want[id] = c;
       return P_MOVE;
     }
     resv[v] = pass;
@@ -534,6 +598,12 @@ export class CentralController implements TrafficController {
     const v = a.cell;
     const vx = X[v];
     const vy = Y[v];
+    // Exact shortcut: with no person or parked robot within sensor range the search would count no walls and return
+    // without a detour (its walls are a subset of these cells), so skip it. About two thirds of searches at 150 robots.
+    if (!this.wallInSight(a, vx, vy, S)) {
+      this.counters.detourSkips++;
+      return;
+    }
     const stamp = ++this.bfsGen;
     const bs = this.bfsStamp;
     const gd = this.gd;
@@ -612,6 +682,25 @@ export class CentralController implements TrafficController {
     this.detourUntil[a.id] = this.tick + keep * 4 + this.opts.waitTicks;
     this.counters.detours++;
     this.out!.events.push({ t: 'detour', agent: a.id, cell: best });
+  }
+
+  /** Any cell within Manhattan range S of (vx, vy) held by a wall for robot a (a person, a parked robot). */
+  private wallInSight(a: TrafficAgent, vx: number, vy: number, S: number): boolean {
+    const w = this.world!;
+    const occ = this.occ;
+    for (let dy = -S; dy <= S; dy++) {
+      const y = vy + dy;
+      if (y < 0 || y >= w.height) continue;
+      const r = S - (dy < 0 ? -dy : dy);
+      const x0 = vx - r < 0 ? 0 : vx - r;
+      const x1 = vx + r >= w.width ? w.width - 1 : vx + r;
+      for (let x = x0; x <= x1; x++) {
+        const c = y * w.width + x;
+        const h = occ[c];
+        if (h >= 0 && h !== a.id && this.isWall(h, c)) return true;
+      }
+    }
+    return false;
   }
 
   /**
