@@ -62,8 +62,9 @@ interface Motion {
   lift: number;
   state: AgentState;
   stateSince: number;
-  /** Real seconds (layer clock) since it last moved, for the dwell pull-out. */
-  stillSince: number;
+  /** Real seconds it has stood still while the sim was running (paused or frozen time doesn't count): the dwell
+   *  pull-out. */
+  stillSec: number;
   scale: number;
   seen: number;
   fresh: boolean;
@@ -141,6 +142,10 @@ export class AgentLayerImpl implements AgentLayer {
   private up = new Vector3(0, 1, 0);
   private v3 = new Vector3();
   private s3 = new Vector3();
+  /** Forget agents that were not in this frame's snapshot (bound once: no per-frame closure). */
+  private dropStale = (m: Motion, id: number) => {
+    if (m.seen !== this.frame) this.motions.delete(id);
+  };
   private onMove = (e: PointerEvent) => {
     if (e.pointerType !== 'mouse') return;
     const r = this.core.renderer.domElement.getBoundingClientRect();
@@ -340,10 +345,11 @@ export class AgentLayerImpl implements AgentLayer {
 
     // 1. Kinematics.
     for (const a of snap.agents) this.advance(a, renderTick, snap.tick, dTick, realSec, eff);
-    for (const [id, m] of this.motions) if (m.seen !== this.frame) this.motions.delete(id);
+    this.motions.forEach(this.dropStale);
 
     // Hero worker for a followed picker.
-    const sel = selectedId !== null ? snap.agents.find((a) => a.id === selectedId) : undefined;
+    let sel: AgentView | undefined;
+    if (selectedId !== null) for (const a of snap.agents) if (a.id === selectedId) sel = a;
     const selM = sel ? this.motions.get(sel.id) : undefined;
     const wantHero = !!sel && !!selM && sel.type === 'picker';
     if (wantHero && !this.hero) this.loadHero();
@@ -353,7 +359,7 @@ export class AgentLayerImpl implements AgentLayer {
 
     // Follow framing (pull out on a long dwell).
     if (sel && selM) {
-      this.follow = this.framing.framing(sel.id, sel.type, this.time - selM.stillSince, dtMs, this.followOut);
+      this.follow = this.framing.framing(sel.id, sel.type, selM.stillSec, dtMs, this.followOut);
     } else this.follow = null;
 
     // 2. Instances, glow discs, rings.
@@ -485,8 +491,10 @@ export class AgentLayerImpl implements AgentLayer {
     // Selection: a thin glowing cyan ring, and a "waiting for" arrow to the agent it waits on.
     if (sel && selM) {
       const sc = FX.select;
-      const r = this.ringRadius(sel, selM) + 0.15;
-      this.decals.ring(selM.x, selM.z, r, 0.06, sc.r, sc.g, sc.b, 3.2 * ringk, false);
+      // A deadlocked robot keeps its red ring readable: the selection ring goes just outside it and dims.
+      const locked = inDeadlock.has(sel.id);
+      const r = this.ringRadius(sel, selM) + (locked ? 0.42 : 0.15);
+      this.decals.ring(selM.x, selM.z, r, 0.06, sc.r, sc.g, sc.b, 3.2 * (locked ? 0.45 : ringk), false);
       d.selectionRings++;
       const w = sel.waitOn >= 0 ? byId.get(sel.waitOn) : undefined;
       const wm = w ? this.motions.get(w.id) : undefined;
@@ -549,7 +557,7 @@ export class AgentLayerImpl implements AgentLayer {
     if (!m || m.type !== a.type) {
       m = {
         id: a.id, type: a.type, x: this.cx(a.cell), z: this.cz(a.cell), yaw: headingYaw(a.heading), camYaw: headingYaw(a.heading), cur: null, prev: null,
-        phase: (a.id * 0.37) % 1, amount: 0, speed: 0, lift: 0, state: a.state, stateSince: tick, stillSince: this.time, scale: 1, seen: 0, fresh: true,
+        phase: (a.id * 0.37) % 1, amount: 0, speed: 0, lift: 0, state: a.state, stateSince: tick, stillSec: 0, scale: 1, seen: 0, fresh: true,
       };
       this.motions.set(a.id, m);
     }
@@ -623,7 +631,8 @@ export class AgentLayerImpl implements AgentLayer {
     m.x = x;
     m.z = z;
     m.amount += ((moving ? 1 : 0) - m.amount) * (1 - Math.exp(-eff * 6));
-    if (moving) m.stillSince = this.time;
+    if (moving) m.stillSec = 0;
+    else if (dTick > 0) m.stillSec += realSec;
 
     // Forks: rise at a rack face during `work` (up, hold, down over the pallet move time), low with a pallet.
     if (a.type === 'forklift' || a.type === 'driver') {

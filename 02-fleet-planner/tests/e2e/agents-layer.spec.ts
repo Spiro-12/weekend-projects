@@ -331,3 +331,14 @@ test('switching to another layout rebuilds the agent layer cleanly', async ({ pa
   expect(r.overlays).toBe(1);
   await expectNoErrors(errors);
 });
+
+test('the follow camera does not pull out while the sim is frozen', async ({ page }) => {
+  const errors = await openApp(page, '?tier=medium');
+  await page.evaluate(() => window.__fp!.freeze(true));
+  const id = await page.evaluate(() => window.__fp!.host.live.snapshot.agents.find((a) => a.type === 'amr')!.id);
+  await page.evaluate((i) => window.__fp!.host.select(0, i), id);
+  await page.waitForTimeout(6500); // longer than the 5 s dwell
+  const f = await page.evaluate(() => (window.__fp!.render.layers.agents.debug!() as { followFraming: { pulled: boolean } | null }).followFraming);
+  expect(f?.pulled).toBe(false);
+  await expectNoErrors(errors);
+});

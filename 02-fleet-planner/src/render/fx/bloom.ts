@@ -22,14 +22,11 @@ interface PerView {
   h: number;
   pr: number;
   last: number;
-  seen: number;
 }
 
 export class Bloom {
   private views = new Map<string, PerView>();
   private vp = new Vector4();
-  private frame = 0;
-  private lastFrameAt = -1;
 
   constructor(private core: RendererCore, private scale: number, private samples: number) {}
 
@@ -46,7 +43,7 @@ export class Bloom {
       composer.addPass(bloom);
       composer.addPass(new OutputPass());
       composer.addPass(new FXAAPass());
-      pv = { composer, pass, bloom, w: 0, h: 0, pr: 0, last: performance.now(), seen: 0 };
+      pv = { composer, pass, bloom, w: 0, h: 0, pr: 0, last: performance.now() };
       this.views.set(v.id, pv);
     }
     if (pv.w !== w || pv.h !== h || pv.pr !== pr) {
@@ -63,31 +60,28 @@ export class Bloom {
   /** The renderer core's per-view render pass (viewport and scissor are already set to the view). */
   readonly render = (v: View) => {
     const now = performance.now();
-    // A new frame starts when time moves on: drop composers of views that were not drawn last frame.
-    if (now !== this.lastFrameAt) {
-      if (this.views.size > this.core.views.length) this.prune(this.frame);
-      this.frame++;
-      this.lastFrameAt = now;
-    }
+    // The core draws its views in order, so the first view starts a frame: drop composers for view ids the core no
+    // longer has (leaving split screen, or views swapped for new ids).
+    if (v === this.core.views[0]) this.prune();
     const r = this.core.renderer;
     r.getViewport(this.vp);
     const w = Math.max(1, Math.round(this.vp.z));
     const h = Math.max(1, Math.round(this.vp.w));
     const pv = this.forView(v, w, h);
-    pv.seen = this.frame;
     pv.pass.camera = v.camera as PerspectiveCamera;
     pv.composer.render((now - pv.last) / 1000);
     pv.last = now;
   };
 
-  /** Dispose composers for view ids the core no longer draws (e.g. leaving split screen). */
-  private prune(frame: number) {
-    for (const [id, pv] of this.views) {
-      if (pv.seen >= frame && this.core.views.some((v) => v.id === id)) continue;
-      this.disposeView(pv);
-      this.views.delete(id);
-    }
+  /** Dispose composers whose view id the core no longer draws. No allocation when nothing changed. */
+  private prune() {
+    this.views.forEach(this.dropIfGone);
   }
+  private dropIfGone = (pv: PerView, id: string) => {
+    for (const v of this.core.views) if (v.id === id) return;
+    this.disposeView(pv);
+    this.views.delete(id);
+  };
 
   private disposeView(pv: PerView) {
     pv.composer.renderTarget1.dispose();
