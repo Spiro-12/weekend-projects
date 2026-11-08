@@ -226,9 +226,27 @@ export function paintFloor(p: WorldPlan, layout: LayoutFile, pxPerM: number): HT
   // ── Contact shadows and slab joints (B channel; white = open floor) ──
   const ao = canvas(cw, ch);
   const a = ao.getContext('2d')!;
-  a.fillStyle = '#ffffff';
+  // B channel: 160 = plain floor (× 1.0 in the shader), darker = contact shadow, brighter = a pool of light.
+  a.fillStyle = 'rgb(255,255,160)';
   a.fillRect(0, 0, cw, ch);
-  const shade = (v: number) => `rgb(255,255,${Math.round(v * 255)})`;
+  const shade = (v: number) => `rgb(255,255,${Math.round(v * 160)})`;
+  // Pools of light under the LED panels (drawn first: rack footprints cover them).
+  a.globalCompositeOperation = 'lighter';
+  for (const l of p.lights) {
+    const r = 3.6 * k;
+    const grad = a.createRadialGradient(X(l.x), Z(l.z), 0, X(l.x), Z(l.z), r);
+    grad.addColorStop(0, 'rgba(0,0,80,1)');
+    grad.addColorStop(0.45, 'rgba(0,0,40,1)');
+    grad.addColorStop(1, 'rgba(0,0,0,1)');
+    a.fillStyle = grad;
+    a.save();
+    a.translate(X(l.x), Z(l.z));
+    a.scale(0.75, 1.25);
+    a.translate(-X(l.x), -Z(l.z));
+    a.fillRect(X(l.x) - r, Z(l.z) - r, 2 * r, 2 * r);
+    a.restore();
+  }
+  a.globalCompositeOperation = 'source-over';
   // Racks: the footprint, darker where pallets sit on the floor.
   for (const r of p.runs) {
     a.fillStyle = shade(0.42);
@@ -265,7 +283,7 @@ export function paintFloor(p: WorldPlan, layout: LayoutFile, pxPerM: number): HT
   bg.filter = 'none';
   // Slab joints every 6 m and faint wear: crisp-ish dark lines and soft blobs in the aisles.
   bg.globalCompositeOperation = 'multiply';
-  bg.strokeStyle = shade(0.72);
+  bg.strokeStyle = 'rgb(255,255,184)';
   bg.lineWidth = Math.max(1, 0.03 * k);
   for (let m = 6; m < p.sizeX; m += 6) {
     bg.beginPath();
@@ -283,7 +301,7 @@ export function paintFloor(p: WorldPlan, layout: LayoutFile, pxPerM: number): HT
   for (let i = 0; i < (p.sizeX * p.sizeZ) / 30; i++) {
     const x = rnd(i, 3) * cw;
     const y = rnd(i, 5) * ch;
-    bg.fillStyle = shade(0.86 + rnd(i, 9) * 0.12);
+    bg.fillStyle = `rgb(255,255,${Math.round((0.86 + rnd(i, 9) * 0.12) * 255)})`;
     bg.beginPath();
     bg.ellipse(x, y, (0.6 + rnd(i, 11) * 2.2) * k, (0.4 + rnd(i, 13) * 1.2) * k, rnd(i, 17) * Math.PI, 0, Math.PI * 2);
     bg.fill();
@@ -407,7 +425,7 @@ export function buildFloor(p: WorldPlan, layout: LayoutFile, tier: Tier, envMap:
   const lin = (hex: string) => new Color(hex);
   const uniforms = {
     uPaint: { value: tex },
-    uConcrete: { value: lin('#24272c') },
+    uConcrete: { value: lin('#282b30') },
     uYard: { value: lin('#16181b') },
     uYellow: { value: lin('#f2c230') },
     uWhite: { value: lin('#e4e7ea') },
@@ -444,7 +462,7 @@ float fpYard = 0.0;`,
     c = mix(c, uWhite * 0.92, w);
     c = mix(c, uGreen, gr);
     fpPaint = clamp(y + w + gr, 0.0, 1.0);
-    c *= mix(0.35, 1.0, t.b);
+    c *= t.b * 1.6;
     diffuseColor.rgb *= c;
   } else {
     fpYard = 1.0;

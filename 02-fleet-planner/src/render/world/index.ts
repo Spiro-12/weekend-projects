@@ -33,7 +33,7 @@ export function createWorldLayer(o: WorldLayerOptions): WorldLayerExt {
   const shell = buildShell(plan, env.texture);
   const racks = new Racks(plan, o.tier, env.texture, shell.trailerPallets);
   const props = new Props(plan, env.texture, shell.uniforms, racks.blockMat);
-  group.add(floor.mesh, shell.walls, shell.steel, racks.group, props.group);
+  group.add(floor.mesh, shell.walls, shell.signs, shell.steel, racks.group, props.group);
   const buildMs = Math.round(performance.now() - t0);
 
   let tier = o.tier;
@@ -109,6 +109,9 @@ export function createWorldLayer(o: WorldLayerOptions): WorldLayerExt {
         tier,
         buildMs,
         size: [plan.sizeX, plan.sizeZ],
+        grid: [plan.W, plan.H],
+        /** A rack cell with stock, for tests of setFaceFill. */
+        sampleFace: [...plan.faceSlots].find(([, l]) => l.filter((i) => plan.slots[i].kind).length >= 3)?.[0] ?? -1,
         wallH: plan.wallH,
         floorTexture: [(floor.texture.image as HTMLCanvasElement).width, (floor.texture.image as HTMLCanvasElement).height],
         models: Object.fromEntries(loaded),

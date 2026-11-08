@@ -81,18 +81,10 @@ export class Props {
     }
 
     // ── LED panels: a grid over the aisles, between the trusses, just above the rack tops ──
-    const ly = Math.min(p.trussY0 - 0.25, p.rackH + 0.9);
-    const lightXs: number[] = [];
-    for (let x = 0; x < p.W - 1; x++) if (p.at(x, 10) === '=' && p.at(x + 1, 10) === '=' && p.at(x - 1, 10) !== '=') lightXs.push((p.wx(x) + p.wx(x + 1)) / 2);
-    if (lightXs.length < 3) for (let x = -hx + 6; x < hx; x += 6) lightXs.push(x);
-    const tz = p.trussZ;
     const lightGlow0 = glow.length;
-    for (let i = 0; i + 1 < tz.length; i++) {
-      const z = (tz[i] + tz[i + 1]) / 2;
-      for (const x of lightXs) {
-        P.light_panel.push({ m: place(x, ly, z, Math.PI / 2, 0.42, 1.2, 0.36), g: new Vector3(x, ly, z) });
-        glow.push({ x, y: ly, z, sx: 0.5, sy: 0.08, sz: 2.4, c: '#ffffff' });
-      }
+    for (const l of p.lights) {
+      P.light_panel.push({ m: place(l.x, l.y, l.z, Math.PI / 2, 0.42, 1.2, 0.36), g: new Vector3(l.x, l.y, l.z) });
+      glow.push({ x: l.x, y: l.y, z: l.z, sx: 0.5, sy: 0.08, sz: 2.4, c: '#ffffff' });
     }
 
     // ── Docks: SimReady safety gate at the inner edge of each door well ──
@@ -230,7 +222,12 @@ export class Props {
             sm.emissive.set('#fff8ee');
             sm.emissiveIntensity = 4;
             sm.toneMapped = true;
-          } else sm.color.multiplyScalar(0.85);
+          } else {
+            sm.color.multiplyScalar(0.85);
+            // A soft glow on the housing too, so the far rows still read as lights from the overview (above).
+            sm.emissive.set('#ffffff');
+            sm.emissiveIntensity = 0.35;
+          }
           patchCutaway(m, this.cut, { instanced: true });
         };
       } else if (key === 'pack_table') {

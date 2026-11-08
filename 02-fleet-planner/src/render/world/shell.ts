@@ -5,6 +5,7 @@
 import {
   BoxGeometry,
   BufferGeometry,
+  CanvasTexture,
   Color,
   Float32BufferAttribute,
   InstancedBufferAttribute,
@@ -13,6 +14,7 @@ import {
   Mesh,
   MeshStandardMaterial,
   Quaternion,
+  SRGBColorSpace,
   Vector3,
   type Texture,
 } from 'three';
@@ -76,6 +78,8 @@ class Merger {
 
 export interface Shell {
   walls: Mesh;
+  /** Wall signs: "SHIPPING & RECEIVING" over the docks and a number plate over each door (1 draw call). */
+  signs: Mesh;
   steel: InstancedMesh;
   uniforms: CutUniforms;
   /** Trailer slots for pallets inside open trailers (x, y, z). */
@@ -103,8 +107,8 @@ export function buildShell(p: WorldPlan, envMap: Texture | null): Shell {
   const SEAM = '#c2c7ce';
   const UPPER = '#cfd4da';
   const CAP = '#8c929a';
-  const winY0 = H - 3.7;
-  const winY1 = H - 1.3;
+  const winY0 = H - 5.0;
+  const winY1 = H - 1.0;
   const GLASS = new Color('#cfe0f2');
   const MULLION = '#30353c';
 
@@ -140,7 +144,10 @@ export function buildShell(p: WorldPlan, envMap: Texture | null): Shell {
     B(a0, winY0, a1, winY1, GLASS, part(cut), 1, Math.min(gi, gi + dir * 0.04), Math.max(gi, gi + dir * 0.04));
     for (let m = a0; m <= a1 + 1e-6; m += 1.5) B(m - 0.05, winY0, m + 0.05, winY1, MULLION, part(cut), 0, Math.min(inner, gi), Math.max(inner, gi));
     B(a0, winY0 - 0.12, a1, winY0, MULLION, part(cut));
-    B(a0, (winY0 + winY1) / 2 - 0.04, a1, (winY0 + winY1) / 2 + 0.04, MULLION, part(cut), 0, Math.min(inner, gi), Math.max(inner, gi));
+    for (const f of [1 / 3, 2 / 3]) {
+      const y = winY0 + (winY1 - winY0) * f;
+      B(a0, y - 0.04, a1, y + 0.04, MULLION, part(cut), 0, Math.min(inner, gi), Math.max(inner, gi));
+    }
     B(a0, winY1, a1, winY1 + 0.1, MULLION, part(cut));
     B(a0, winY1 + 0.1, a1, H, UPPER, part(cut));
     B(a0, H, a1, H + 0.25, CAP, part(cut), 0, t0 - 0.05, t1 + 0.05);
@@ -234,7 +241,11 @@ export function buildShell(p: WorldPlan, envMap: Texture | null): Shell {
     M.quad([[x0, yF, z1], [x1, yF, z1], [x1, yF, z0], [x0, yF, z0]], [0, 1, 0], insideFloor, NONE, 0.1);
     M.quad([[x1, yF, z0], [x0, yF, z0], [x0, yF + hIn, z0], [x1, yF + hIn, z0]], [0, 0, 1], inside, NONE, 0.12);
     // Rear frame, chassis, wheels, landing legs.
-    M.box(x0 - 0.06, yF - 0.12, z1 - 0.12, x1 + 0.06, yF + hIn + 0.12, z1, '#2a2e33', NONE, 0, 'nz');
+    const fr = '#2a2e33';
+    M.box(x0 - 0.06, yF - 0.12, z1 - 0.12, x0 + 0.06, yF + hIn + 0.12, z1, fr, NONE);
+    M.box(x1 - 0.06, yF - 0.12, z1 - 0.12, x1 + 0.06, yF + hIn + 0.12, z1, fr, NONE);
+    M.box(x0 - 0.06, yF + hIn - 0.04, z1 - 0.12, x1 + 0.06, yF + hIn + 0.12, z1, fr, NONE);
+    M.box(x0 - 0.06, yF - 0.12, z1 - 0.12, x1 + 0.06, yF + 0.02, z1, fr, NONE);
     M.box(x0 + 0.3, YARD_Y + 0.55, z0 + 0.5, x1 - 0.3, yF - 0.06, z1 - 0.3, '#1e2125', NONE);
     for (const wz of [z1 - 1.6, z1 - 2.9]) for (const wx of [x0 + 0.05, x1 - 0.35]) M.box(wx, YARD_Y, wz - 0.5, wx + 0.3, YARD_Y + 1.0, wz + 0.5, '#0e0f11', NONE);
     for (const wx of [x0 + 0.5, x1 - 0.6]) M.box(wx, YARD_Y, z0 + 3.0, wx + 0.1, yF - 0.06, z0 + 3.1, '#3a3e44', NONE);
@@ -251,7 +262,7 @@ export function buildShell(p: WorldPlan, envMap: Texture | null): Shell {
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvEmit = aEmit;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying float vEmit;')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vColor.rgb * vEmit * 1.15;')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vColor.rgb * (vEmit * 1.15 + 0.2);')
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.12, vEmit);');
   };
   patchCutaway(wallsMat, u, { instanced: false });
@@ -338,18 +349,119 @@ export function buildShell(p: WorldPlan, envMap: Texture | null): Shell {
   steelMesh.name = 'steel';
   steelMesh.frustumCulled = false;
 
+  const signs = buildSigns(p, u, envMap, doorTop);
+
   return {
     walls,
+    signs: signs.mesh,
     steel: steelMesh,
     uniforms: u,
     trailerPallets,
     stats: () => ({ wallTris: wallsGeo.getAttribute('position').count / 3, steelParts: steel.length }),
     dispose() {
+      signs.dispose();
       wallsGeo.dispose();
       wallsMat.dispose();
       unit.dispose();
       steelMat.dispose();
       steelMesh.dispose();
+    },
+  };
+}
+
+/** Signs on the dock wall, painted on one small canvas: a zone banner and door numbers. Cut away with the wall. */
+function buildSigns(p: WorldPlan, u: CutUniforms, envMap: Texture | null, doorTop: number) {
+  const W = 1024;
+  const H = 256;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const font = (px: number) => `800 ${px}px ui-sans-serif, system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif`;
+  // Banner (top 128 px): white letters on safety blue with a yellow rule.
+  g.fillStyle = '#1f4f9a';
+  g.fillRect(0, 0, W, 128);
+  g.fillStyle = '#f2c230';
+  g.fillRect(0, 112, W, 16);
+  g.fillStyle = '#ffffff';
+  g.font = font(74);
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('SHIPPING & RECEIVING', W / 2, 58, W - 40);
+  // Door plates (bottom 128 px): up to 8 cells of 128 px, a yellow plate with a black number.
+  for (let i = 0; i < 8; i++) {
+    g.fillStyle = '#f2c230';
+    g.fillRect(i * 128 + 4, 132, 120, 120);
+    g.fillStyle = '#15171a';
+    g.font = font(84);
+    g.fillText(String(i + 1), i * 128 + 64, 196);
+  }
+  const tex = new CanvasTexture(c);
+  tex.colorSpace = SRGBColorSpace;
+  tex.anisotropy = 8;
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const nrm: number[] = [];
+  const cut: number[] = [];
+  const grp: number[] = [];
+  const hz = p.sizeZ / 2;
+  const zf = -hz + 0.03;
+  const quad = (x0: number, y0: number, x1: number, y1: number, u0: number, v0: number, u1: number, v1: number) => {
+    const pts = [
+      [x0, y0, u0, v0],
+      [x1, y0, u1, v0],
+      [x1, y1, u1, v1],
+      [x0, y0, u0, v0],
+      [x1, y1, u1, v1],
+      [x0, y1, u0, v1],
+    ];
+    for (const [x, y, uu, vv] of pts) {
+      pos.push(x, y, zf);
+      uv.push(uu, vv);
+      nrm.push(0, 0, 1);
+      cut.push(0, -1, hz + 0.175, 2);
+      grp.push(0, 0, 0);
+    }
+  };
+  // Banner over the widest gap between doors near the middle; a number plate above each door.
+  const ds = [...p.doors].sort((a, b) => a.x - b.x);
+  let gap = { x: 0, w: Math.min(16, p.sizeX * 0.3) };
+  let best = Infinity;
+  for (let i = 0; i + 1 < ds.length; i++) {
+    const a = ds[i].x + ds[i].width / 2;
+    const b = ds[i + 1].x - ds[i + 1].width / 2;
+    const score = Math.abs((a + b) / 2) - (b - a);
+    if (score < best) {
+      best = score;
+      gap = { x: (a + b) / 2, w: b - a };
+    }
+  }
+  const bw = Math.min(16, gap.w - 1);
+  const by = doorTop + 0.55;
+  quad(gap.x - bw / 2, by, gap.x + bw / 2, by + bw / 8, 0, 0.5, 1, 1);
+  p.doors.forEach((d, i) => {
+    const k = i % 8;
+    quad(d.x - 0.35, doorTop + 0.6, d.x + 0.35, doorTop + 1.3, k / 8, 0, (k + 1) / 8, 0.5);
+  });
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new Float32BufferAttribute(uv, 2));
+  geo.setAttribute('normal', new Float32BufferAttribute(nrm, 3));
+  geo.setAttribute('aCut', new Float32BufferAttribute(cut, 4));
+  geo.setAttribute('aGroup', new Float32BufferAttribute(grp, 3));
+  geo.computeBoundingSphere();
+  const mat = new MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: new Color(0.45, 0.45, 0.45), roughness: 0.6, envMap, envMapIntensity: 0.5 });
+  mat.name = 'signs';
+  patchCutaway(mat, u, { instanced: false });
+  const mesh = new Mesh(geo, mat);
+  mesh.name = 'signs';
+  mesh.frustumCulled = false;
+  return {
+    mesh,
+    dispose() {
+      geo.dispose();
+      mat.dispose();
+      tex.dispose();
     },
   };
 }

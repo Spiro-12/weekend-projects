@@ -109,6 +109,8 @@ export interface WorldPlan {
   /** Interior columns (in the flue between back-to-back racks) and their z lines. */
   columns: { x: number; z: number }[];
   trussZ: number[];
+  /** LED panels: over every aisle between racks, midway between trusses, just above the rack tops. */
+  lights: { x: number; y: number; z: number }[];
 }
 
 const isRackChar = (c: string) => c === '#';
@@ -298,6 +300,18 @@ export function planWorld(layout: LayoutFile): WorldPlan {
     }
   }
 
+  const lights: WorldPlan['lights'] = [];
+  const st = layout.zones.find((z) => z.kind === 'storage');
+  const probeRow = st ? st.y + Math.floor(st.h / 4) : Math.floor(H / 2);
+  const lightXs: number[] = [];
+  for (let x = 1; x < W - 1; x++) {
+    const open = (c: string) => c === '=' || c === '.';
+    if (open(at(x, probeRow)) && open(at(x + 1, probeRow)) && !open(at(x - 1, probeRow))) lightXs.push((wx(x) + wx(x + 1)) / 2);
+  }
+  if (lightXs.length < 3) for (let x = -sizeX / 2 + 6; x < sizeX / 2; x += 6) lightXs.push(x);
+  const ly = Math.min(trussY0 - 0.25, rackH + 0.9);
+  for (let i = 0; i + 1 < trussZ.length; i++) for (const x of lightXs) lights.push({ x, y: ly, z: (trussZ[i] + trussZ[i + 1]) / 2 });
+
   return {
     W,
     H,
@@ -324,5 +338,6 @@ export function planWorld(layout: LayoutFile): WorldPlan {
     crossBands,
     columns,
     trussZ,
+    lights,
   };
 }
