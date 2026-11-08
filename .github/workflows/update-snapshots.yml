@@ -1,0 +1,28 @@
+name: Update Fleet Planner visual baselines
+
+# Visual baselines are Linux renders (CI compares Linux to Linux). The lead runs this once per phase after
+# integration, downloads the artifact with `gh run download` and commits the PNGs (PLAN §9.4).
+on:
+  workflow_dispatch:
+
+jobs:
+  snapshots:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 02-fleet-planner
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: 02-fleet-planner/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --project=chromium --grep @visual --update-snapshots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fleet-visual-baselines
+          path: 02-fleet-planner/tests/e2e/**/*-snapshots/**
+          retention-days: 7

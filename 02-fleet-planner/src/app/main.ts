@@ -5,6 +5,7 @@ import agents from '../../data/agents.json';
 import sources from '../../data/sources.json';
 import type { AgentsFile, LayoutFile, Scenario, SourcesFile } from '../contracts/types.ts';
 import { createHost, type AppData } from '../host/index.ts';
+import { createSim } from '../sim/index.ts';
 import { createFakeRunner } from '../host/runner/fake.ts';
 import { BasicAgentLayer } from '../render/agents/basic.ts';
 import { CameraRig } from '../render/core/camera.ts';
@@ -28,27 +29,50 @@ const data: AppData = {
   layouts: byId(layoutMods),
   scenarios: byId(scenarioMods),
 };
+// Sim-only hook, set before anything touches WebGL, so the cross-engine determinism test works everywhere.
+window.__fpSim = {
+  runHash(scenarioId, ticks) {
+    const sc = data.scenarios[scenarioId];
+    const sim = createSim(sc, { agents: data.agents, layout: data.layouts[sc.layout] });
+    sim.step(ticks);
+    return sim.hash();
+  },
+};
 const runner = createFakeRunner(120);
 const host = createHost(data, runner, { scenario: params.scenario, seed: params.seed });
 if (params.agents) host.setFleet('amr', params.agents);
 
 const stage = document.getElementById('stage')!;
 const ui = document.getElementById('ui')!;
-const core = createRenderer(stage, {
-  tier: params.tier,
-  onTier: (t) => host.bus.emit('tier', t),
-  onLost: () => {
-    const el = document.createElement('div');
-    el.className = 'lost';
-    el.innerHTML = `<div class="card"><h3>The 3D view stopped</h3><p>Your device ran low on graphics memory. Reload to start again; it will use a lighter view.</p><button class="primary">Reload</button></div>`;
-    el.querySelector('button')!.addEventListener('click', () => {
-      const u = new URL(location.href);
-      u.searchParams.set('tier', 'lite');
-      location.href = u.toString();
-    });
-    document.body.appendChild(el);
-  },
-});
+function fatal(title: string, body: string): never {
+  document.getElementById('boot')?.remove();
+  const el = document.createElement('div');
+  el.className = 'lost';
+  el.innerHTML = `<div class="card"><h3>${title}</h3><p>${body}</p></div>`;
+  document.body.appendChild(el);
+  throw new Error(title);
+}
+let coreOrNull: ReturnType<typeof createRenderer> | null = null;
+try {
+  coreOrNull = createRenderer(stage, {
+    tier: params.tier,
+    onTier: (t) => host.bus.emit('tier', t),
+    onLost: () => {
+      const el = document.createElement('div');
+      el.className = 'lost';
+      el.innerHTML = `<div class="card"><h3>The 3D view stopped</h3><p>Your device ran low on graphics memory. Reload to start again; it will use a lighter view.</p><button class="primary">Reload</button></div>`;
+      el.querySelector('button')!.addEventListener('click', () => {
+        const u = new URL(location.href);
+        u.searchParams.set('tier', 'lite');
+        location.href = u.toString();
+      });
+      document.body.appendChild(el);
+    },
+  });
+} catch (e) {
+  console.warn('WebGL unavailable', e);
+}
+const core = coreOrNull ?? fatal('This device can\'t show the 3D warehouse', 'Fleet Planner needs WebGL 2. Try a recent Chrome, Safari, Edge or Firefox.');
 if (params.tier || params.freeze || params.capture) core.tiers.frozen = true;
 
 let layout = data.layouts[host.settings.value.layout];
