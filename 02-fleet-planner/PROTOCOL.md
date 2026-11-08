@@ -243,8 +243,8 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
 
   | Tier | DPR | Effects |
   |---|---|---|
-  | high | ≤ 1.5 | half-size bloom, agent shadow map |
-  | medium (desktop default) | ≤ 1.5 | glow ribbons, blob shadows |
+  | high | ≤ 1.5 | half-size bloom (no canvas MSAA) |
+  | medium (desktop default) | ≤ 1.5 | glow ribbons, contact-shadow glow discs under agents |
   | low (touch / small screens) | 1 | far racks drop upper boxes, simple people |
   | lite | 0.75 | |
 
@@ -254,6 +254,8 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
   - `?tier=` freezes it.
   - A lost WebGL context shows a reload card that reopens in lite. No WebGL shows a friendly message.
 - **`LiveSim.reset(scenario, data)`** restarts in place: the same object, listeners, speed and pause survive a scenario or layout change; the selection is cleared.
+- **No real-time shadow maps on any tier:** agents get a contact-shadow glow disc, racks and props get baked contact shadows (Tracks D and E).
+- **Follow framing** (Track E, signed off): chase 4.4 m back / 2.4 m up for AMRs and people, 6.2 to 7.0 m for forklifts, so the subject fills about 45% of the frame low in the picture; an eased pull-out after about 5 s (real time) standing still.
 - **People are rendered as instanced rigid parts** with a procedural walk (40 people: 23 draw calls, 1.4 ms CPU), not skinned clones (779 draw calls, 12.4 ms). At most one skinned "hero" worker, for the followed person.
 - **Panels:** every file in `src/ui/panels/*.tsx` default-exports `definePanel({ id, slot, order, title, Component, when? })`.
   - Slots: `kpi`, `left`, `right`, `bottom`, `overlay`.
