@@ -1,7 +1,7 @@
 // Runner worker: runs one scenario per message. The data files are bundled into the worker.
 import agents from '../../../data/agents.json';
 import type { AgentsFile, LayoutFile, RunResult, Scenario } from '../../contracts/types.ts';
-import { basicRecorder } from './basic-recorder.ts';
+import { createKpiRecorder } from '../../kpi/index.ts';
 import { runScenario } from './run.ts';
 
 const layouts = Object.fromEntries(
@@ -21,7 +21,7 @@ const ctx = self as unknown as { onmessage: ((e: MessageEvent<RunRequest>) => vo
 ctx.onmessage = (e: MessageEvent<RunRequest>) => {
   const { id, scenario, saturate } = e.data;
   try {
-    const result = runScenario(scenario, { agents: agents as AgentsFile, layout: layouts[scenario.layout] }, basicRecorder, { saturate });
+    const result = runScenario(scenario, { agents: agents as AgentsFile, layout: layouts[scenario.layout] }, createKpiRecorder, { saturate });
     ctx.postMessage({ id, ok: true, result });
   } catch (err) {
     ctx.postMessage({ id, ok: false, error: String(err) });

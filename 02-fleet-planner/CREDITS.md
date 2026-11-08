@@ -28,8 +28,14 @@ Models used (source revision: codepawl/simready-glb `3be2abd90406285b34f86890729
 
 ## Characters
 
-"Universal Base Characters" (Superhero Male body) and "Universal Animation Library" (walk, idle and push clips) by **Quaternius** (https://quaternius.com), **CC0 1.0** (https://creativecommons.org/publicdomain/zero/1.0/). No credit is required; we give it anyway. Modified: skin texture replaced by painted work clothes (hi-vis vest with reflective bands, navy shirt, trousers, boots, gloves, white hard hat), animations copied onto the body by bone name, re-compressed.
+`worker`: "Universal Base Characters" (Superhero Male body) and "Universal Animation Library" (walk, idle and push clips) by **Quaternius** (https://quaternius.com), **CC0 1.0** (https://creativecommons.org/publicdomain/zero/1.0/). No credit is required; we give it anyway. Modified: skin texture replaced by painted work clothes (hi-vis vest with reflective bands, navy shirt, trousers, boots, gloves, white hard hat), animations copied onto the body by bone name, re-compressed.
 
 ## Built in code
 
 The cart robot (AMR), the humanoid robot and the autonomous-forklift sensor kit are our own geometry (`src/render/models/`), with no third-party assets or brands.
+
+The building (walls, windows, dock doors, trailers, steel columns and roof trusses), the pallet racking, the far-field rack loads, the floor markings, the chargers and the wall signs are generated in code (`src/render/world/`), with textures painted on canvases at load time. No third-party assets.
+
+## Where the credits show
+
+The app's "i" button (bottom-left on desktop, top-right on phones) opens **About & credits**, which shows the NVIDIA line above word for word, every shipped model's credit from `public/assets/manifest.json`, the Quaternius line and the license links (`src/ui/panels/about.tsx`). An e2e test (`tests/e2e/world-credits.spec.ts`) checks that every manifest model appears there and in this file.
