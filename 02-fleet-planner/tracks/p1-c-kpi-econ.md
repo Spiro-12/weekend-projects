@@ -20,7 +20,8 @@ Read PLAN.md §4, §6 and §9; PROTOCOL.md §2, §6 and §7; `src/contracts/type
      - `jamsPerHour`, `deadlocksPerShift`
      - `avgOrderSec` / `p90OrderSec` (orders shipped inside the window, any arrival time)
      - `backlogEnd`, `backlogTrendPerHour` (least-squares slope of the `openOrders` samples), `keepsUp` (trend ≤ +2% of demand per hour)
-     - `unitsPerPickerHour` (from `unitsPicked` and the picker count), `resetsPerHour`
+     - `unitsPerPickerHour` (from `unitsPicked` and the picker count), `resetsPerHour` (`manualReset` events), `retasksPerHour` (`retask` events)
+     - `deadlocksOver2MinPerShift` (deadlocks whose `deadlockEnd` comes ≥ 240 ticks after their `deadlockStart`, or still open at the end)
    - `capacityOph` is just `oph` of a saturate run; the runner sets it.
    - Integer-safe: do the arithmetic in plain numbers; no transcendental functions.
 2. **`src/kpi/uplift.ts`: `pickerUplift(withRobots: RunResult, peopleOnly: RunResult)`** = units per picker-hour ratio (both are capacity runs).

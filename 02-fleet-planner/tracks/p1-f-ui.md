@@ -11,7 +11,7 @@ Read PLAN.md §1, §4 and §9; PROTOCOL.md §6, §7, §9 and §10; `src/ui/panel
 - `src/ui/panels.css`: your styles, imported from your panels
 - `tests/e2e/ui-*.spec.ts`
 
-`kpi.tsx` exists (the lead's Phase 0 version); you replace it. Don't edit `shell.tsx`, `panel.ts`, `styles.css`, `host/*`. If you need a host method or signal that doesn't exist, ask in your report.
+`kpi.tsx` exists (the lead's Phase 0 version); you replace it. `about.tsx` (credits) belongs to Track D. Don't edit `shell.tsx`, `panel.ts`, `styles.css`, `host/*`. If you need a host method or signal that doesn't exist, ask in your report.
 
 ## What you build against
 - **The fake runner and the fake economics** (`host.demoData` is true: show the "demo data" badge exactly as now).

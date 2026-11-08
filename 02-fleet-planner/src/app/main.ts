@@ -8,12 +8,12 @@ import { createHost, type AppData } from '../host/index.ts';
 import { createSim, DEFAULT_IMPL } from '../sim/index.ts';
 import { createFakeRunner } from '../host/runner/fake.ts';
 import { createWorkerRunner } from '../host/runner/pool.ts';
-import { BasicAgentLayer } from '../render/agents/basic.ts';
+import { createAgentLayer } from '../render/agents/index.ts';
+import type { AgentLayer, WorldLayer } from '../render/core/layers.ts';
 import { CameraRig, type Pose } from '../render/core/camera.ts';
 import { makeTours, TOURS } from '../render/core/tours.ts';
 import { createRenderer } from '../render/core/renderer.ts';
-import { tierSettings } from '../render/core/tiers.ts';
-import { buildProceduralWorld, type WorldBuild } from '../render/world/procedural.ts';
+import { createWorldLayer } from '../render/world/index.ts';
 import { readParams } from '../ui/params.ts';
 import { mountShell } from '../ui/shell.tsx';
 import type { FpHooks } from './hooks.ts';
@@ -79,8 +79,8 @@ const core = coreOrNull ?? fatal('This device can\'t show the 3D warehouse', 'Fl
 if (params.tier || params.freeze || params.capture) core.tiers.frozen = true;
 
 let layout = data.layouts[host.settings.value.layout];
-let world: WorldBuild;
-let agentLayer: BasicAgentLayer;
+let world: WorldLayer;
+let agentLayer: AgentLayer;
 let rig: CameraRig;
 const raycaster = new Raycaster();
 
@@ -89,15 +89,25 @@ function buildScene(l: LayoutFile) {
   core.roots.world.clear();
   agentLayer?.dispose();
   core.roots.agents.clear();
-  const ts = tierSettings(core.tiers.tier);
-  world = buildProceduralWorld(l, { farBoxes: ts.farBoxes });
+  const opts = { layout: l, tier: core.tiers.tier, core, baseUrl: import.meta.env.BASE_URL };
+  world = createWorldLayer(opts);
   core.roots.world.add(world.group);
-  agentLayer = new BasicAgentLayer({ width: l.grid[0].length, height: l.grid.length });
+  agentLayer = createAgentLayer(opts);
   core.roots.agents.add(agentLayer.group);
   rig?.controls.dispose();
   rig = new CameraRig(core.renderer.domElement, world.sizeX, world.sizeZ);
   core.setViews([{ id: 'main', rect: [0, 0, 1, 1], camera: rig.camera, layers: [0] }]);
+  const built = world;
+  void built.fullLook.then(() => {
+    if (built !== world) return;
+    core.perf.fullLookMs = Math.round(performance.now());
+    host.bus.emit('fullLook', { ms: core.perf.fullLookMs });
+  });
 }
+host.bus.on('tier', (t) => {
+  world.setTier(t);
+  agentLayer.setTier(t);
+});
 buildScene(layout);
 performance.mark('fp:scene');
 host.bus.on('layoutChanged', ({ layout: l }) => {
@@ -114,6 +124,7 @@ let tourState: { fn: (u: number) => Pose; t0: number; ms: number; done: () => vo
 
 core.onFrame((dt, now) => {
   if (!frozen) host.live.advance(dt);
+  world.update?.(dt, now);
   const sel = host.selected.value;
   agentLayer.update(host.live.snapshot, host.live.renderTick, sel?.agentId ?? null, dt);
   if (tourState) {
