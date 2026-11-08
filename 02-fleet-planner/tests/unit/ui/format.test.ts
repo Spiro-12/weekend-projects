@@ -19,7 +19,7 @@ const scenario = scenarioJson as Scenario;
 
 function report(s: Scenario) {
   const candidate = fakeEvaluate(s);
-  const crew = { picker: 18, driver: 3 };
+  const crew = { picker: 19, driver: 3 }; // the smallest toy crew with capacity ≥ demand
   const base = { ...peopleOnly(s), fleet: { ...peopleOnly(s).fleet, ...crew } };
   const baseline = fakeEvaluate(base);
   const m = fakeEcon.computeMoney({ scenario: s, agents, candidate, baseline, baselineCrew: crew });
@@ -128,7 +128,7 @@ describe('who is behind', () => {
     // The fake economics' worked line (its formula has no numbers) explains the people-only side.
     const fakeShape = { ...r, paybackMonths: { ...r.paybackMonths, formula: 'payback = upfront ÷ (savings ÷ 12)' } };
     expect(moneyContent('paybackMonths', fakeShape, ctx).worked).toBe(
-      'The people-only crew (18 pickers + 3 drivers) ships 1,400 of the 1,500 orders coming in each hour, so it falls behind. This plan keeps up, so there is no like-for-like payback.',
+      'The people-only crew (19 pickers + 3 drivers) ships 1,400 of the 1,500 orders coming in each hour, so it falls behind. This plan keeps up, so there is no like-for-like payback.',
     );
   });
   it('the plan can’t keep up: its savings are words, the payback flag blames the plan', () => {

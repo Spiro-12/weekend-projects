@@ -22,7 +22,6 @@ import type { RunResult, Scenario } from '../contracts/types.ts';
 import { ROBOT_TYPES } from '../contracts/types.ts';
 import type { Runner } from '../host/runner/types.ts';
 import { peopleOnly } from '../host/settings.ts';
-import { KEEPS_UP_PCT } from '../kpi/index.ts';
 
 export interface Crew {
   picker: number;
@@ -47,8 +46,8 @@ const ASSUMED_PICKER_BUSY_PCT = 90;
 const PICKERS_SHORT_SHARE = 0.9;
 /** Growth margin on top of the measured shortfall when a crew didn't keep up. */
 const GROW_MARGIN = 1.02;
-/** Share of the measured work a crew must cover to keep up: backlog growth up to KEEPS_UP_PCT of demand still counts. */
-const KEEPS_UP_SHARE = 1 - KEEPS_UP_PCT / 100;
+/** Share of the measured work a crew must cover to keep up: all of it (keeps up = capacity ≥ demand, PROTOCOL §6). */
+const KEEPS_UP_SHARE = 1;
 /** Drivers are sized to 1 ÷ 0.95 of their measured pallet work (a little slack so faces don't run dry). */
 const DRIVER_HEADROOM = 1.05;
 /** People-only runs have no robots, so vendors and the many-brains knobs can't matter: they are fixed to one value
@@ -146,7 +145,7 @@ export async function findBaseline(s: Scenario, runner: Runner): Promise<{ crew:
   });
   const fewerDrivers = (c: Crew): Crew | null => (c.driver > minDrivers ? { picker: c.picker, driver: c.driver - 1 } : null);
   /** Pickers for the workload a demand run measured: its pickers × their busy share ÷ the busy share at saturation,
-   *  less the backlog growth that still counts as keeping up (KEEPS_UP_PCT: a crew at 95% of the work is exactly on the line). */
+   *  for all of the work (keeps up = capacity ≥ demand). */
   const pickersForWorkload = (c: Crew, r: RunResult): number | null => {
     const busy = r.kpis.byType.picker?.utilizationPct ?? 0;
     return busy > 0 && pickerBusyAtCap > 0 ? Math.max(1, Math.ceil(((c.picker * busy) / pickerBusyAtCap) * KEEPS_UP_SHARE)) : null;

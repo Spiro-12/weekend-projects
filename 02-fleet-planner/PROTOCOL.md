@@ -103,7 +103,7 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
   - Phase 1: `breakdown {atMin, agent, forMin}`, where `agent` is `'<type>:<n>'` (the n-th agent of that type in spawn order, 0-based; validated)
   - Phase 2: `personInAisle`, `chargers`, `orderSurge {factorPct}`
   - The default scenario has **no events**.
-- **`expect`** (golden files only): ranges for `oph`, `capacityOph`, `deadlocks`, `pickerUplift`, plus `keepsUp`, `backlogGrows`, `robotCostUsd`.
+- **`expect`** (golden files only): ranges for `oph`, `capacityOph`, `deadlocks`, `longDeadlocks` (over 2 min, per shift), `resetsPerHour`, `pickerUplift`, plus `keepsUp`, `backlogGrows`, `robotCostUsd`, `isAutoCrew` (the fleet's people are the auto-sized people-only crew). Phase 1 integration added the last three.
 - `validateScenario()` lists every problem in plain words. The AI consultant (Phase 3) uses it too.
 
 ## §5 Sim API (`src/sim/index.ts`)

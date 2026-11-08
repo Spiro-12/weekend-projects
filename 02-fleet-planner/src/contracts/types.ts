@@ -148,6 +148,12 @@ export interface GoldenExpect {
   backlogGrows?: boolean;
   pickerUplift?: [number, number];
   robotCostUsd?: number;
+  /** Wait-for cycles lasting over 2 minutes, per shift. */
+  longDeadlocks?: [number, number];
+  /** Manual resets per hour. */
+  resetsPerHour?: [number, number];
+  /** The fleet's pickers and drivers are the auto-sized people-only crew (findBaseline of this scenario). */
+  isAutoCrew?: boolean;
 }
 
 export interface Scenario {

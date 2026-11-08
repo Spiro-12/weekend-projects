@@ -45,7 +45,7 @@
   "amr": 0,
   "forklift": 0,
   "humanoid": 0,
-  "picker": 19,
+  "picker": 20,
   "driver": 1
  },
  "vendors": {
@@ -88,6 +88,7 @@
  "events": [],
  "expect": {
   "keepsUp": true,
-  "robotCostUsd": 0
+  "robotCostUsd": 0,
+  "isAutoCrew": true
  }
 }

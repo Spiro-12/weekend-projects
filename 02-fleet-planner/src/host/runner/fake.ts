@@ -32,7 +32,7 @@ export function fakeEvaluate(s: Scenario, opts: EvaluateOptions = {}): RunResult
   const capacity = Math.max(0, Math.min(pickCap, palletLimitedCap, packCap));
   const demand = opts.saturate || s.orders.mode === 'saturate' ? capacity : s.orders.perHour;
   const oph = Math.min(demand, capacity);
-  const keepsUp = capacity >= demand * 0.98;
+  const keepsUp = capacity >= demand; // PROTOCOL §6: enough capacity (and the trend, flat here, within KEEPS_UP_PCT)
   const load = capacity > 0 ? Math.min(1, demand / capacity) : 1;
   const util = (base: number) => Math.round(100 * base * load * (siloed ? 0.75 : 1));
   const share = (u: number, blocked: number, charge: number): StateShare => ({

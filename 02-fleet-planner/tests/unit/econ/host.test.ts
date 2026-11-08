@@ -15,7 +15,7 @@ describe('host + real economics', () => {
   it('computes money against the auto baseline; People only ⇒ $0 robot cost', async () => {
     const host = createHost(data, createFakeRunner(), { econ });
     await settle();
-    expect(host.baseline.value?.crew).toEqual({ picker: 18, driver: 3 });
+    expect(host.baseline.value?.crew).toEqual({ picker: 19, driver: 3 });
     expect(host.money.value?.capex.value).toBe(2_312_000);
     expect(host.money.value?.paybackMonths.formula).toMatch(/^payback = \$2,312,000 upfront ÷ \(\$[\d,]+ saved a year ÷ 12\) = [\d.]+ months/);
     host.peopleOnly();

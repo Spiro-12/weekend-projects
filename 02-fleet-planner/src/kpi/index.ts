@@ -20,7 +20,7 @@
 //  - avgOrderSec, p90OrderSec = (ship tick − arrival tick) × 0.5 s for every order shipped in the window, any
 //    arrival time; p90 is the nearest-rank 90th percentile (at least 90% of orders took no longer)
 //  - backlogEnd = open orders at the end; backlogTrendPerHour = least-squares slope of the open-order samples
-//    (start, every sample, end); keepsUp = trend ≤ KEEPS_UP_PCT (5%) of the order rate per hour. On saturate (capacity) runs the
+//    (start, every sample, end); keepsUp here = trend ≤ KEEPS_UP_PCT (5%) of the order rate per hour; the runner also requires capacity ≥ demand. On saturate (capacity) runs the
 //    queue is kept full by design, so keepsUp means nothing there; only demand runs say whether an option keeps up.
 //  - events before the window (tick < start tick) only tell the recorder about deadlocks still open; the rest are
 //    ignored
@@ -45,11 +45,10 @@ import {
 
 /** A deadlock counts as "over 2 minutes" when it lasts at least this many ticks (2 min at 0.5 s per tick). */
 export const LONG_DEADLOCK_TICKS = 240;
-/** Keeps up = backlog trend ≤ this share of the order rate per hour (PROTOCOL §6): 5 ⇒ 5%. A 2-hour window can't see
- *  less: with random (Poisson) arrivals the least-squares backlog slope over 2 h scatters by about ±√(λ·0.6) per hour
- *  (≈ ±19/h at 600 orders/h, about 3%), so a 2% line called fleets with spare capacity "falling behind" on an unlucky
- *  arrival stream (Phase 1 integration: seed 99 with 60 robots and 22 pickers, mostly idle, showed +16.5/h). 5% is
- *  about two of those widths; a real shortfall shows as a steady trend well above it. */
+/** Backlog part of "keeps up" (PROTOCOL §6): the 2-hour backlog trend ≤ this share of the order rate per hour (5 ⇒ 5%).
+ *  The main test is capacity ≥ demand, which the runner adds from the capacity run (src/host/runner/capacity.ts): every
+ *  fleet sees the same orders at one seed, but how they bunch up within the window still moves a healthy fleet's trend
+ *  (measured +15.4/h on seed 99 with 12% spare capacity), so the trend alone can't tell short from unlucky. */
 export const KEEPS_UP_PCT = 5;
 
 /** Least-squares slope of y over x, times `scale`, from integer sums and one division (0 with fewer than 2 distinct x). */
@@ -77,7 +76,7 @@ export function p90(values: readonly number[]): number {
   return sorted[Math.floor((9 * sorted.length + 9) / 10) - 1];
 }
 
-/** Keeps up: backlog trend ≤ KEEPS_UP_PCT (5%) of the order rate per hour. Only meaningful on demand runs (a saturate run keeps its
+/** The backlog half of keeps-up: trend ≤ KEEPS_UP_PCT (5%) of the order rate per hour (the runner adds capacity ≥ demand). Only meaningful on demand runs (a saturate run keeps its
  *  queue full on purpose). */
 export function keepsUpAt(trendPerHour: number, perHour: number): boolean {
   return trendPerHour * 100 <= KEEPS_UP_PCT * perHour;

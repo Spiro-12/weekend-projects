@@ -33,8 +33,9 @@ const data: AppData = {
 };
 // Sim-only hook, set before anything touches WebGL, so the cross-engine determinism test works everywhere.
 window.__fpSim = {
-  runHash(scenarioId, ticks) {
-    const sc = data.scenarios[scenarioId];
+  /** A scenario id, or a whole scenario (the test passes the mixed-fleet fixture so every agent type is hashed). */
+  runHash(scenario, ticks) {
+    const sc = typeof scenario === 'string' ? data.scenarios[scenario] : scenario;
     const sim = createSim(sc, { agents: data.agents, layout: data.layouts[sc.layout] });
     sim.step(ticks);
     return sim.hash();
