@@ -147,6 +147,9 @@ test('robots keep up but people only can’t: the blame goes to the people-only 
   // the people-only crew doesn't (the strongest sales case), shaped like Track C's report.
   await page.evaluate(() => {
     const h = window.__fp!.host;
+    // This plan keeps up (set here like the money below, so the test doesn't depend on the toy model's default fleet).
+    const r = h.result.value!;
+    h.result.value = { ...r, kpis: { ...r.kpis, keepsUp: true, backlogTrendPerHour: 0, oph: h.settings.value.orders.perHour } };
     const m = h.money.value!;
     const why = "the people-only crew (18 pickers + 3 drivers) can't keep up with the orders: it ships 520.0 orders/h of the 600 ordered";
     h.money.value = {
