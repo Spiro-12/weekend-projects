@@ -43,7 +43,7 @@ function place(x: number, y: number, z: number, yaw = 0, sx = 1, sy = 1, sz = 1)
   return new Matrix4().compose(new Vector3(x, y, z), q, new Vector3(sx, sy, sz));
 }
 
-type BoxItem = { x: number; y: number; z: number; sx: number; sy: number; sz: number; c: string | number; yaw?: number };
+type BoxItem = { x: number; y: number; z: number; sx: number; sy: number; sz: number; c: string | number; yaw?: number; key?: PropKey };
 
 export class Props {
   readonly group = new Group();
@@ -58,6 +58,9 @@ export class Props {
   private conv: { x0: number; x1: number; z: number; y: number } | null;
   private mats: Material[] = [];
   private lightStandIn: [number, number] = [0, 0];
+  /** Stand-in instance indices per prop, zeroed when that prop's model arrives. */
+  private standIdx = new Map<PropKey, number[]>();
+  private standLeft = 0;
 
   constructor(
     plan: WorldPlan,
@@ -77,7 +80,7 @@ export class Props {
     // ── Interior columns in the rack flues (SimReady column, slimmed to fit the 0.3 m flue) ──
     for (const c of p.columns) {
       P.column.push({ m: place(c.x, 0, c.z, 0, (RACK_FLUE - 0.02) / 0.737, p.trussY0 / 8.5, 0.62 / 0.737) });
-      stand.push({ x: c.x, y: 0, z: c.z, sx: RACK_FLUE - 0.02, sy: p.trussY0, sz: 0.62, c: '#b8bcc2' });
+      stand.push({ x: c.x, y: 0, z: c.z, sx: RACK_FLUE - 0.02, sy: p.trussY0, sz: 0.62, c: '#b8bcc2', key: 'column' });
     }
 
     // ── LED panels: a grid over the aisles, between the trusses, just above the rack tops ──
@@ -90,7 +93,7 @@ export class Props {
     // ── Docks: SimReady safety gate at the inner edge of each door well ──
     for (const d of p.doors) {
       P.dock_gate.push({ m: place(d.x, 0, -hz + CELL_M - 0.1, 0, d.width / 3.16, 1, 1) });
-      stand.push({ x: d.x, y: 0.95, z: -hz + CELL_M - 0.1, sx: d.width - 0.2, sy: 0.06, sz: 0.06, c: '#e2b33a' });
+      stand.push({ x: d.x, y: 0.95, z: -hz + CELL_M - 0.1, sx: d.width - 0.2, sy: 0.06, sz: 0.06, c: '#e2b33a', key: 'dock_gate' });
       // Door signal lights: green when a trailer is docked, red otherwise.
       glow.push({ x: d.x + d.width / 2 + 0.45, y: 2.6, z: -hz + 0.06, sx: 0.14, sy: 0.14, sz: 0.06, c: d.open > 0 ? '#36e07a' : '#ff3b30' });
       box.push({ x: d.x + d.width / 2 + 0.45, y: 2.45, z: -hz + 0.05, sx: 0.22, sy: 0.45, sz: 0.06, c: '#1d2024' });
@@ -99,7 +102,7 @@ export class Props {
     // ── Pack stations: SimReady table, a monitor, a carton stock pile, a tape stand ──
     for (const s of p.packStations) {
       P.pack_table.push({ m: place(s.x, 0, s.z + 0.05) });
-      stand.push({ x: s.x, y: 0, z: s.z + 0.05, sx: 1.87, sy: 0.95, sz: 1.2, c: '#e9ecef' });
+      stand.push({ x: s.x, y: 0, z: s.z + 0.05, sx: 1.87, sy: 0.95, sz: 1.2, c: '#e9ecef', key: 'pack_table' });
       box.push({ x: s.x + 0.55, y: 0.99, z: s.z + 0.35, sx: 0.05, sy: 0.38, sz: 0.05, c: '#2b2f35' });
       box.push({ x: s.x + 0.55, y: 1.3, z: s.z + 0.33, sx: 0.5, sy: 0.32, sz: 0.04, c: '#16191d' });
       glow.push({ x: s.x + 0.55, y: 1.32, z: s.z + 0.31, sx: 0.44, sy: 0.27, sz: 0.01, c: '#5fb8ff' });
@@ -128,7 +131,7 @@ export class Props {
       for (let i = 0; i < n; i++) {
         const x = c.x0 + len * (i + 0.5);
         P.conveyor.push({ m: place(x, 0, c.z, Math.PI / 2, 1, 1, len / 2) });
-        stand.push({ x, y: 0.55, z: c.z, sx: len - 0.02, sy: 0.35, sz: 1.1, c: '#2f63b5' });
+        stand.push({ x, y: 0.55, z: c.z, sx: len - 0.02, sy: 0.35, sz: 1.1, c: '#2f63b5', key: 'conveyor' });
       }
       // Yellow guard frames on the station side, every 2 sections (An Xuan style).
       const zg = c.z - 0.95;
@@ -162,7 +165,7 @@ export class Props {
         [r.z1 + 0.16, 0],
       ] as const) {
         P.guard_rail.push({ m: place((x0 + x1) / 2, 0, z, yaw, w / 2.79, 1, 1) });
-        stand.push({ x: (x0 + x1) / 2, y: 0.2, z, sx: w, sy: 0.6, sz: 0.2, c: '#e8a35a' });
+        stand.push({ x: (x0 + x1) / 2, y: 0.2, z, sx: w, sy: 0.6, sz: 0.2, c: '#e8a35a', key: 'guard_rail' });
       }
     }
     this.placements = P;
@@ -181,6 +184,13 @@ export class Props {
     this.glow = instancedBoxes(unit.clone(), glowMat, glow, 'glow');
     this.standIns = instancedBoxes(unit.clone(), standMat, stand, 'stand-ins');
     this.lightStandIn = [lightGlow0, P.light_panel.length];
+    stand.forEach((it, i) => {
+      if (!it.key) return;
+      const l = this.standIdx.get(it.key) ?? [];
+      l.push(i);
+      this.standIdx.set(it.key, l);
+    });
+    this.standLeft = stand.length;
     this.group.add(this.boxes, this.glow, this.standIns);
 
     // ── Cartons riding the conveyor (block material: kind 2 = cartons, no pallet) ──
@@ -278,14 +288,17 @@ export class Props {
       const arr = this.glow.instanceMatrix.array as Float32Array;
       arr.fill(0, a * 16, (a + n) * 16);
       this.glow.instanceMatrix.needsUpdate = true;
+      return;
     }
-    const done = (Object.keys(this.placements) as PropKey[]).filter((k) => k !== 'light_panel' && this.placements[k].length).every((k) => this.glb[k]);
-    this.standIns.visible = !done;
-  }
-
-  /** Keep the first-view stand-ins for props that won't load at this tier. */
-  keepStandIns() {
-    this.standIns.visible = true;
+    const idx = this.standIdx.get(key);
+    if (!idx) return;
+    this.standIdx.delete(key);
+    const arr = this.standIns.instanceMatrix.array as Float32Array;
+    for (const i of idx) arr.fill(0, i * 16, i * 16 + 16);
+    this.standIns.instanceMatrix.needsUpdate = true;
+    this.standLeft -= idx.length;
+    // No stand-ins left (every model is in): skip the draw call.
+    this.standIns.visible = this.standLeft > 0;
   }
 
   private um = new Matrix4();

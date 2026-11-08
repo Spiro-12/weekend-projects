@@ -32,7 +32,16 @@ test('tier switch at runtime keeps the world (medium → low → medium)', async
       window.__fp!.render.layers.world.setTier(t);
       window.__fp!.render.layers.agents.setTier(t);
     }, t);
-    await page.waitForTimeout(1500);
+    // The swap is done when the models use the file for this tier (low: -lo; medium: the pallets are hi).
+    await page.waitForFunction(
+      (t) => {
+        const m = (window.__fp!.render.layers.world.debug?.() as { models: Record<string, string> }).models;
+        return t === 'low' ? m.pallet_loaded.endsWith('-lo.glb') && m.pack_table.endsWith('-lo.glb') : !m.pallet_loaded.endsWith('-lo.glb');
+      },
+      t,
+      { timeout: 15_000 },
+    );
+    await page.waitForTimeout(300);
     const dbg = await page.evaluate(() => window.__fp!.render.layers.world.debug?.() as { tier: string; failed: string[] });
     expect(dbg.tier).toBe(t);
     expect(dbg.failed).toEqual([]);

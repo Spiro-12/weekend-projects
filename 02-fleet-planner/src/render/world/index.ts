@@ -64,13 +64,9 @@ export function createWorldLayer(o: WorldLayerOptions): WorldLayerExt {
           budgetDirty = true;
         }),
       );
-    let keep = false;
     for (const key of PROP_KEYS) {
       const pt = propTier(key, t);
-      if (!pt) {
-        keep = true;
-        continue;
-      }
+      if (!pt) continue; // keeps its procedural stand-in at this tier
       jobs.push(
         load(key, pt).then((parts) => {
           if (disposed || t !== tier) return;
@@ -85,7 +81,6 @@ export function createWorldLayer(o: WorldLayerOptions): WorldLayerExt {
         failed.push(String(r.reason));
         console.warn('[world] a model failed to load; keeping its stand-in:', r.reason);
       }
-    if (keep && !disposed) props.keepStandIns();
   }
 
   // Triangle budget per view for the world alone (PLAN §9 / brief): the near SimReady pallets get what is left.

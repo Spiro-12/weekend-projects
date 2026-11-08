@@ -53,7 +53,8 @@ test('world alone stays inside its budget: overview and an aisle (near SimReady 
   await page.evaluate(() => {
     void window.__fp!.tour('aisle', 600);
   });
-  await page.waitForTimeout(1500);
+  // Wait for the camera to arrive and the near set to be re-picked (slow software GL in CI gets more time).
+  await page.waitForFunction(() => (window.__fp!.render.layers.world.debug?.() as { racks: { nearPallets: number } }).racks.nearPallets > 20, null, { timeout: 15_000 });
   const near = await page.evaluate(() => (window.__fp!.render.layers.world.debug?.() as { racks: { nearPallets: number } }).racks.nearPallets);
   const aisle = await worldOnly(page);
   console.log(`world aisle (medium): ${aisle.views[0].calls} draw calls, ${aisle.views[0].triangles} triangles, ${near} SimReady pallets`);
