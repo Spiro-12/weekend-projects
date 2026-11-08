@@ -63,6 +63,12 @@ const NO_RECOVERY: Recovery = Object.freeze({
   retasks: Object.freeze([]) as unknown as number[],
 });
 
+/** Parked robots are pushed after the chain waited this many x waitTicks; off the pusher's own goal, OWN_GOAL_WAIT. */
+export const PARKED_WAIT = 2;
+export const OWN_GOAL_WAIT = 6;
+/** `waited` for a push chain started by a person's yield: people may always move a parked robot. */
+const PUSH_ALWAYS = 0x3fffffff;
+
 const P_STAY = 0;
 const P_MOVE = 1;
 const P_WAIT = 2;
@@ -190,7 +196,7 @@ export class CentralController implements TrafficController {
       const id = yields[i];
       const a = agents[id];
       if (!a || this.prepared[id] !== pass || this.decided[id] === pass) continue;
-      if (this.decide(a, yields[i + 1], 0) === P_MOVE) {
+      if (this.decide(a, yields[i + 1], 0, PUSH_ALWAYS) === P_MOVE) {
         this.counters.yields++;
         out.events.push({ t: 'yield', agent: id, cell: yields[i + 1] });
       }
@@ -202,12 +208,12 @@ export class CentralController implements TrafficController {
     for (let i = 0; i < order.length; i++) {
       const id = order[i];
       const a = agents[id];
-      if (a && a.cell !== a.goal && this.prepared[id] === pass && this.decided[id] !== pass) this.decide(a, -1, 0);
+      if (a && a.cell !== a.goal && this.prepared[id] === pass && this.decided[id] !== pass) this.decide(a, -1, 0, 0);
     }
     for (let i = 0; i < order.length; i++) {
       const id = order[i];
       const a = agents[id];
-      if (a && a.cell === a.goal && this.prepared[id] === pass && this.decided[id] !== pass) this.decide(a, -1, 0);
+      if (a && a.cell === a.goal && this.prepared[id] === pass && this.decided[id] !== pass) this.decide(a, -1, 0, 0);
     }
     this.out = null;
   }
@@ -438,15 +444,19 @@ export class CentralController implements TrafficController {
 
   /**
    * Robot h can be pushed by robot `by` this pass: a ready robot that has not decided yet. A robot parked at its goal
-   * (working there, ready only so it can be moved) is pushed only by a robot that has been blocked 2 x waitTicks, after
-   * its detour had the chance to take it round, and never by a robot whose own goal is that cell (a station both want:
-   * it waits its turn, else the two push each other off in turn and neither finishes). People's yields always push.
+   * (working there, ready only so it can be moved) is pushed only once the push chain has waited: `waited` is the
+   * largest blockedSinceProgress along the chain (PUSH_ALWAYS for a person's yield).
+   * - 2 x waitTicks: after the detour had the chance to take the robot round.
+   * - If the cell is also the pusher's own goal (a station both want), 6 x waitTicks: it waits its turn first, else the
+   *   two push each other off in turn and neither finishes; but a robot resting on someone's exact goal (no work to
+   *   finish there) can't hold it for ever.
    */
-  private pushable(h: number, by: TrafficAgent): boolean {
+  private pushable(h: number, by: TrafficAgent, waited: number): boolean {
     const b = this.agents[h];
     if (!b || this.prepared[h] !== this.pass || this.decided[h] === this.pass) return false;
     if (b.cell !== b.goal) return true;
-    return by.goal !== b.cell && by.blockedSinceProgress >= 2 * this.opts.waitTicks;
+    const wt = this.opts.waitTicks;
+    return waited >= (by.goal === b.cell ? OWN_GOAL_WAIT : PARKED_WAIT) * wt;
   }
 
   /** For the detour search: something a robot must go around (a person, or a robot that is parked or broken). */
@@ -479,7 +489,7 @@ export class CentralController implements TrafficController {
    * must not stay and must not move into the parent's cell. Returns P_MOVE, P_WAIT (pushed someone and waits for the
    * cell to clear) or P_STAY. Writes a's moveTo / safety / dir / want.
    */
-  private decide(a: TrafficAgent, parentCell: number, depth: number): number {
+  private decide(a: TrafficAgent, parentCell: number, depth: number, chainWaited: number): number {
     const id = a.id;
     const pass = this.pass;
     const w = this.world!;
@@ -493,6 +503,7 @@ export class CentralController implements TrafficController {
     const v = a.cell;
     const goal = a.goal;
     this.decided[id] = pass;
+    const waited = a.blockedSinceProgress > chainWaited ? a.blockedSinceProgress : chainWaited;
 
     // Candidates, sorted by key (insertion sort over at most 4).
     const base = depth * 4;
@@ -536,14 +547,14 @@ export class CentralController implements TrafficController {
       const h = occ[c];
       if (h >= 0 && h !== id) {
         // Held: a person, a moving robot, or a robot that already decided can't be pushed. Never enter a held cell.
-        if (!this.pushable(h, a)) {
+        if (!this.pushable(h, a, waited)) {
           if (k === 0 && canStay && a.safetyCells > 0) {
             const sc = nbr[c * 4 + dir];
             if (sc >= 0 && this.open[sc] && occ[sc] < 0 && resv[sc] !== pass) holdS = sc;
           }
           continue;
         }
-        if (this.decide(this.agents[h]!, v, depth + 1) === P_MOVE) {
+        if (this.decide(this.agents[h]!, v, depth + 1, waited) === P_MOVE) {
           this.counters.pushes++;
           resv[v] = pass;
           return P_WAIT;
@@ -559,9 +570,9 @@ export class CentralController implements TrafficController {
           hold = c;
           holdS = hs < 0 ? sc : -1;
         }
-        if (hs < 0 || hs === id || !this.pushable(hs, a)) continue;
+        if (hs < 0 || hs === id || !this.pushable(hs, a, waited)) continue;
         resv[c] = pass;
-        if (this.decide(this.agents[hs]!, v, depth + 1) === P_MOVE) {
+        if (this.decide(this.agents[hs]!, v, depth + 1, waited) === P_MOVE) {
           this.counters.safetyPushes++;
           resv[v] = pass;
           return P_WAIT;

@@ -205,14 +205,33 @@ describe('CentralController: one tick at a time', () => {
     expect(plan(new CentralController(), alone.input).moveTo[0]).toBe(-1);
   });
 
-  it('a robot never pushes a parked robot off the cell that is its own goal (it waits its turn)', () => {
+  it('a parked robot on the cell that is the pusher’s own goal: left alone for 6 x waitTicks, then pushed aside', () => {
+    for (const [blocked, pushed] of [[0, false], [29, false], [30, true]] as const) {
+      const { input } = scene([
+        { cell: P(21, 4), goal: P(21, 4) },
+        { cell: P(20, 4), goal: P(21, 4), blocked },
+      ]);
+      input.ready[0] = input.tick;
+      const out = plan(new CentralController(), input);
+      expect(out.moveTo[0] >= 0, `blocked ${blocked}`).toBe(pushed);
+      expect([out.moveTo[1], out.want[1]]).toEqual([-1, P(21, 4)]);
+    }
+  });
+
+  it('a push chain carries the longest wait: a person’s yield moves parked C through parked D', () => {
+    // person above C asks it to make way; C is parked and boxed in except for parked D's cell, which leads on to free
+    const person = P(20, 3);
     const { input } = scene([
+      { cell: P(20, 4), goal: P(20, 4) },
       { cell: P(21, 4), goal: P(21, 4) },
-      { cell: P(20, 4), goal: P(21, 4), blocked: 50 },
-    ]);
+    ], [person, P(19, 4), P(20, 5), P(21, 3), P(21, 5)]);
     input.ready[0] = input.tick;
+    input.ready[1] = input.tick;
+    input.yields = [0, person];
     const out = plan(new CentralController(), input);
-    expect([out.moveTo[0], out.moveTo[1], out.want[1]]).toEqual([-1, -1, P(21, 4)]);
+    expect(out.moveTo[1]).toBe(P(22, 4)); // D steps on
+    expect(out.moveTo[0]).toBe(-1); // C waits for D's cell to clear (causal)
+    expect(out.want[0]).toBe(P(21, 4));
   });
 
   it('a moving robot reports the cell it moves into as want (also when it can’t take its first choice)', () => {

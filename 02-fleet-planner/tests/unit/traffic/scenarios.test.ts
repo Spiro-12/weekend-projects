@@ -147,6 +147,21 @@ describe('one brain: detours and pockets', () => {
   });
 });
 
+describe('one brain: parked robots (ready, goal = cell, as Track A marks them)', () => {
+  it('a robot whose exact goal is held by a resting robot gets there (the resting robot is moved aside)', () => {
+    const c = new CentralController();
+    const h = new Harness({ controller: c, checks: true, parkedReady: true });
+    const goal = P(30, 4);
+    h.place('amr', goal, goal); // resting on the cell: parked, no work to finish
+    const r = h.place('amr', P(24, 4), goal, E);
+    h.runUntilReached(300);
+    expect(r.reachedAt).toBeGreaterThan(0);
+    expect(r.reachedAt).toBeLessThanOrEqual(80); // 6 cells, then 6 x waitTicks blocked before it may push
+    expect(c.counters.pushes).toBeGreaterThan(0);
+    expect(h.violations).toEqual(NO_VIOLATIONS);
+  });
+});
+
 describe('one brain: guidance', () => {
   // Two 1-cell lanes: row 1 one-way east, row 2 one-way west; columns 1..8.
   const oneWay = { ...(defaultLayout as LayoutFile), id: 'one-way-test', zones: [], grid: ['XXXXXXXXXX', 'X>>>>>>>>X', 'X<<<<<<<<X', 'XXXXXXXXXX'] } as LayoutFile;
