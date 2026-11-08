@@ -5,9 +5,10 @@
 // Rounding: each part (one group of people, one robot type, the trucks) is computed exactly in integer cents and
 // rounded once to whole dollars, which is what its formula shows. Every total is the sum of those whole-dollar parts,
 // and every difference is taken between whole-dollar totals, so the arithmetic in every formula string adds up to
-// the dollar and each value is exactly the number shown. The monotonic properties (more robots never cost less, a
-// higher wage never lowers a robot option's savings, a higher robot price never raises them) hold for any change of
-// at least one cent per hour or one dollar.
+// the dollar and each value is exactly the number shown. The monotonic properties hold for any change of at least one
+// cent per hour or one dollar: more robots never cost less; a higher robot price never raises the savings; a higher
+// wage for a role never lowers a robot option's savings when the people-only crew has at least as many of that role
+// (an option with MORE pickers than the people-only crew rightly loses savings when pickers cost more).
 //
 // `lines` has one entry per agent type in AGENT_TYPES order (robots, then pickers and drivers), so:
 //   Σ lines.capex = capex,  Σ robot lines.opexYear = robotOpexYear,
@@ -69,9 +70,14 @@ function uniq(inputs: ExplainInput[]): ExplainInput[] {
   return inputs.filter((i) => (seen.has(i.label) ? false : (seen.add(i.label), true)));
 }
 /** Inputs shown for context only (not in the math): turnover, reference prices, the labor a number is compared with. */
-const isContext = (i: ExplainInput) => i.label === TURNOVER_LABEL || i.label.startsWith('For reference') || i.label.startsWith('Compared with');
-/** The published-source inputs behind some numbers (context-only inputs left out), unique. */
-const sourcesOf = (...es: Explained[]) => uniq(es.flatMap((e) => e.inputs).filter((i) => isSource(i) && !isContext(i)));
+const isContext = (i: ExplainInput) =>
+  i.label === TURNOVER_LABEL || i.label.startsWith('For reference') || i.label.startsWith('Compared with') || i.label.startsWith('Behind the costs');
+/** The prices, wages and rates behind some numbers, published or our estimates (with their notes), unique; settings,
+ *  simulated values and context-only inputs left out. Listing both kinds keeps a hover from looking more sourced than
+ *  it is. */
+const leavesOf = (...es: Explained[]) => uniq(es.flatMap((e) => e.inputs).filter((i) => (isSource(i) || i.from === 'estimate') && !isContext(i)));
+/** The same, labeled as context, for a flagged number that has no value for them to feed. */
+const asContext = (inputs: ExplainInput[]) => inputs.map((i) => ({ ...i, label: `Behind the costs (context): ${i.label}` }));
 
 /** A computed total used as an input of another number. Its origin is the weakest behind it: an estimate anywhere
  *  makes it an estimate; a simulated number makes it simulated; a single published source is cited; several
@@ -459,7 +465,7 @@ export function computeMoney(input: MoneyInput): MoneyReport {
   const annualUsd = labor.usd + opexUsd;
   const laborDer = derived('Labor', laborYear, 'Pickers, drivers, packers and supervisor time; see Labor.');
   const opexDer = derived('Robot running cost', robotOpexYear, 'Robot maintenance and software, or rent; see Robot running cost.');
-  const annualSources = sourcesOf(laborYear, robotOpexYear);
+  const annualSources = leavesOf(laborYear, robotOpexYear);
   const annualCost = ex(
     annualUsd,
     'USD/yr',
@@ -481,7 +487,7 @@ export function computeMoney(input: MoneyInput): MoneyReport {
   const baseKeeps = baseline.kpis.keepsUp;
   const baseDer = derived('People-only cost per year', baselineAnnualCost, `${crewWords(c, baselineCrew)} + packers; see People-only cost.`);
   const annualDer = derived('This option’s cost per year', annualCost, 'Labor plus robot running cost; see Annual cost.');
-  const savingsSources = sourcesOf(baselineAnnualCost, laborYear, robotOpexYear);
+  const savingsSources = leavesOf(baselineAnnualCost, laborYear, robotOpexYear);
   const savingsYear = ex(
     S,
     'USD/yr',
@@ -496,20 +502,29 @@ export function computeMoney(input: MoneyInput): MoneyReport {
       .join(' '),
   );
 
-  // Payback and 3-year net. Every branch lists the published sources behind the upfront cost and both yearly costs.
-  const keySources = sourcesOf(capex, laborYear, robotOpexYear, baselineAnnualCost);
-  const capexDer = derived('Upfront cost', capex, 'Robots and setup, plus trucks for extra drivers; see Upfront cost.');
+  // Payback and 3-year net. Every branch lists the prices and wages behind the upfront cost and both yearly costs,
+  // published and estimated alike, and says how much of the upfront rests on our estimates.
+  const keySources = leavesOf(capex, laborYear, robotOpexYear, baselineAnnualCost);
+  const estParts = robots.filter((r) => r.n > 0 && r.capexInputs.some((i) => i.from === 'estimate'));
+  const estUsd = estParts.reduce((a, r) => a + r.capex.usd, 0) + (extraDrivers > 0 && truckIn.from === 'estimate' ? trucks.usd : 0);
+  const estNames = [...estParts.map((r) => c.nouns(r.type)[0]), ...(extraDrivers > 0 && truckIn.from === 'estimate' ? ['forklift truck'] : [])];
+  const estNote =
+    estUsd > 0
+      ? `${estUsd === capexUsd ? 'All' : usd(estUsd)} of the ${usd(capexUsd)} upfront rests on our estimates (${estNames.join(', ')} prices); see each robot's hover.`
+      : undefined;
+  const capexDer = derived('Upfront cost', capex, ['Robots and setup, plus trucks for extra drivers; see Upfront cost.', estNote].filter(Boolean).join(' '));
+  const FLAG_CONTEXT = 'No number here, so the prices and wages behind the costs are listed for context only.';
   const savingsDer = derived('Yearly savings vs people only', savingsYear, 'People-only cost minus this option’s cost; see Yearly savings.');
   const candShort = `this option can't keep up with the orders: ${keepUpWords(candidate, s)}`;
   const baseShort = `${baselineShort(c, baselineCrew)}, so there is no fair comparison: ${keepUpWords(baseline, s)}`;
   let paybackMonths: Explained;
   if (!keeps) {
-    paybackMonths = flagged('doesntKeepUp', 'months', `no payback: ${candShort}`, [...keepUpInputs(c, candidate, 'This option'), ...keySources], SIMPLE_PAYBACK);
+    paybackMonths = flagged('doesntKeepUp', 'months', `no payback: ${candShort}`, [...keepUpInputs(c, candidate, 'This option'), ...asContext(keySources)], `${SIMPLE_PAYBACK} ${FLAG_CONTEXT}`);
   } else if (!baseKeeps) {
-    paybackMonths = flagged('doesntKeepUp', 'months', `no payback: ${baseShort}`, [...keepUpInputs(c, baseline, 'People-only crew'), ...keySources], SIMPLE_PAYBACK);
+    paybackMonths = flagged('doesntKeepUp', 'months', `no payback: ${baseShort}`, [...keepUpInputs(c, baseline, 'People-only crew'), ...asContext(keySources)], `${SIMPLE_PAYBACK} ${FLAG_CONTEXT}`);
   } else if (S <= 0) {
     const why = S === 0 ? 'this option costs the same per year as people only' : `this option costs ${usd(-S)} a year more than people only (${usd(annualUsd)} vs ${usd(baseUsd)})`;
-    paybackMonths = flagged('never', 'months', `never pays back: ${why}, so the ${usd(capexUsd)} upfront is never earned back`, [capexDer, savingsDer, baseDer, annualDer, ...keySources], SIMPLE_PAYBACK);
+    paybackMonths = flagged('never', 'months', `never pays back: ${why}, so the ${usd(capexUsd)} upfront is never earned back`, [capexDer, savingsDer, baseDer, annualDer, ...keySources], [SIMPLE_PAYBACK, estNote].filter(Boolean).join(' '));
   } else {
     const months = (capexUsd * 12) / S;
     const years = months >= 24 ? ` (${fixed(months / 12, 1)} years)` : '';
@@ -518,28 +533,31 @@ export function computeMoney(input: MoneyInput): MoneyReport {
       unit: 'months',
       formula: `payback = ${usd(capexUsd)} upfront ÷ (${usd(S)} saved a year ÷ 12) = ${fixed(months, 1)} months${years}`,
       inputs: [capexDer, savingsDer, ...keySources],
-      note: noteOf(SIMPLE_PAYBACK, capexUsd === 0 ? 'Nothing is paid upfront, so it pays back at once.' : undefined),
+      note: noteOf(SIMPLE_PAYBACK, estNote, capexUsd === 0 ? 'Nothing is paid upfront, so it pays back at once.' : undefined),
     };
   }
 
   const netUsd = 3 * S - capexUsd;
   const threeYearNet = !keeps
-    ? flagged('doesntKeepUp', 'USD', `no 3-year net: ${candShort}`, [...keepUpInputs(c, candidate, 'This option'), ...keySources])
+    ? flagged('doesntKeepUp', 'USD', `no 3-year net: ${candShort}`, [...keepUpInputs(c, candidate, 'This option'), ...asContext(keySources)], FLAG_CONTEXT)
     : !baseKeeps
-      ? flagged('doesntKeepUp', 'USD', `no 3-year net: ${baseShort}`, [...keepUpInputs(c, baseline, 'People-only crew'), ...keySources])
-      : ex(netUsd, 'USD', `3-year net = 3 × ${signedUsd(S)} savings a year − ${usd(capexUsd)} upfront = ${usd(netUsd)}`, [savingsDer, capexDer, ...keySources], 'Three years of savings minus the upfront cost, with no discounting.');
+      ? flagged('doesntKeepUp', 'USD', `no 3-year net: ${baseShort}`, [...keepUpInputs(c, baseline, 'People-only crew'), ...asContext(keySources)], FLAG_CONTEXT)
+      : ex(netUsd, 'USD', `3-year net = 3 × ${signedUsd(S)} savings a year − ${usd(capexUsd)} upfront = ${usd(netUsd)}`, [savingsDer, capexDer, ...keySources], ['Three years of savings minus the upfront cost, with no discounting.', estNote].filter(Boolean).join(' '));
 
   // Every money hover links at least one published source (PROTOCOL §7). A number whose own inputs are only settings
-  // and estimates (the cart-robot prices are all estimates) also lists the published labor cost it is compared with.
-  const comparedWith: ExplainInput[] = [sourced('Picker wage', c.spec('picker').cost.wageUsdPerHour, 'USD/h'), c.loadIn]
-    .filter(isSource)
-    .map((i) => ({ ...i, label: `Compared with (context): ${i.label}`, note: ['Its own inputs are settings or estimates; this is the published labor cost it is weighed against.', i.note].filter(Boolean).join(' ') }));
-  const cite = (e: Explained): Explained => (e.inputs.some(isSource) ? e : { ...e, inputs: [...e.inputs, ...comparedWith] });
+  // and estimates (the cart-robot prices are all estimates) also lists the published labor cost it is weighed
+  // against: the wage of the people that kind of robot replaces (forklifts → drivers; cart robots, humanoids → pickers).
+  const comparedWith = (role: 'picker' | 'driver'): ExplainInput[] =>
+    [sourced(role === 'picker' ? 'Picker wage' : 'Forklift driver wage', c.spec(role).cost.wageUsdPerHour, 'USD/h'), c.loadIn]
+      .filter(isSource)
+      .map((i) => ({ ...i, label: `Compared with (context): ${i.label}`, note: ['Its own inputs are settings or estimates; this is the published labor cost it is weighed against.', i.note].filter(Boolean).join(' ') }));
+  const ROLE: Record<AgentTypeId, 'picker' | 'driver'> = { amr: 'picker', humanoid: 'picker', picker: 'picker', forklift: 'driver', driver: 'driver' };
+  const cite = (e: Explained, role: 'picker' | 'driver' = 'picker'): Explained => (e.inputs.some(isSource) ? e : { ...e, inputs: [...e.inputs, ...comparedWith(role)] });
 
   return {
     financing: fin,
     hoursPerYear: c.H,
-    lines: lines.map((l) => ({ ...l, capex: cite(l.capex), opexYear: cite(l.opexYear) })),
+    lines: lines.map((l) => ({ ...l, capex: cite(l.capex, ROLE[l.type]), opexYear: cite(l.opexYear, ROLE[l.type]) })),
     capex: cite(capex),
     robotOpexYear: cite(robotOpexYear),
     laborYear: cite(laborYear),
@@ -549,7 +567,7 @@ export function computeMoney(input: MoneyInput): MoneyReport {
     paybackMonths: cite(paybackMonths),
     threeYearNet: cite(threeYearNet),
     costPerOrder: cite(costPerOrder(c, annualUsd, candidate, 'this option', annualDer, annualSources)),
-    baselineCostPerOrder: cite(costPerOrder(c, baseUsd, baseline, 'people only', baseDer, sourcesOf(baselineAnnualCost))),
+    baselineCostPerOrder: cite(costPerOrder(c, baseUsd, baseline, 'people only', baseDer, leavesOf(baselineAnnualCost))),
     baseline: { picker: baselineCrew.picker, driver: baselineCrew.driver, keepsUp: baseKeeps },
   };
 }
