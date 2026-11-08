@@ -9,7 +9,7 @@
 // Drivers (people on manual forklifts) move the same way on forklift cells, keep a safety cell ahead while moving, and
 // never swap. Deterministic: id order, fixed E, S, W, N tie-break, side-step ties drawn from the `humans` stream.
 import { Cell, UNREACHABLE } from '../world.ts';
-import { J_NONE, J_PICK, J_REST, J_SERVE, PK_AT_STOP, SV_WAIT_AMR, SV_WAIT_STOCK, T_PICKER, type CoreAgent } from './agent.ts';
+import { J_NONE, J_PICK, J_REST, J_SERVE, PK_AT_STOP, PK_HOLD, PK_ZONE_HOLD, SV_WAIT_AMR, SV_WAIT_STOCK, T_PICKER, type CoreAgent } from './agent.ts';
 import { PEOPLE_PATIENCE_TICKS, STEP_ASIDE_AFTER } from './constants.ts';
 import type { CoreSim } from './sim.ts';
 
@@ -172,7 +172,8 @@ function stepAside(s: CoreSim, p: CoreAgent, D: Uint16Array, t: number): void {
 function standingStill(p: CoreAgent): boolean {
   if (p.job === J_NONE || p.job === J_REST) return true;
   if (p.job === J_SERVE) return p.stage === SV_WAIT_AMR || p.stage === SV_WAIT_STOCK;
-  return p.job === J_PICK && p.stage === PK_AT_STOP && p.waiting === 1;
+  // waiting at a face for stock, or holding a full cart for a pack slot / room in a zone
+  return p.job === J_PICK && (p.stage === PK_AT_STOP || p.stage === PK_HOLD || p.stage === PK_ZONE_HOLD) && p.waiting === 1;
 }
 
 /** Rule 3 for a person standing still: step off a cell a robot has claimed (any free, unclaimed neighbour, E, S, W, N).
