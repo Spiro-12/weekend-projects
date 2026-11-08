@@ -3,7 +3,7 @@
 import { writeFileSync } from 'node:fs';
 import agents from '../data/agents.json' with { type: 'json' };
 import layout from '../data/layouts/default.json' with { type: 'json' };
-import scenarioJson from '../data/scenarios/default.json' with { type: 'json' };
+import scenarioJson from '../fixtures/scenario-mixed.json' with { type: 'json' }; // every agent type, as the UI tests expect
 import type { AgentsFile, Explained, LayoutFile, Scenario, SweepFile } from '../src/contracts/types.ts';
 import { fakeEvaluate } from '../src/host/runner/fake.ts';
 import { withFleet } from '../src/host/settings.ts';

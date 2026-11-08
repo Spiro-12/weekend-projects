@@ -330,8 +330,10 @@ const TRUCK_NOTE = 'Forklift trucks count only for drivers beyond the people-onl
 function keepUpWords(r: RunResult, s: Scenario): string {
   const k = r.kpis;
   return (
-    `it ships ${num(k.oph, 1)} orders/h of the ${num(s.orders.perHour)} ordered and its backlog grows by ${num(k.backlogTrendPerHour, 1)} orders an hour ` +
-    `(keeping up allows at most ${num((s.orders.perHour * KEEPS_UP_PCT) / 100, 1)}, ${KEEPS_UP_PCT}% of demand, since arrivals alone vary that much over a 2-hour window)`
+    `it ships ${num(k.oph, 1)} orders/h of the ${num(s.orders.perHour)} ordered` +
+    (k.capacityOph !== undefined ? `, can handle at most ${num(k.capacityOph, 1)} orders/h` : '') +
+    ` and its backlog grows by ${num(k.backlogTrendPerHour, 1)} orders an hour ` +
+    `(keeping up needs capacity of at least the ${num(s.orders.perHour)} ordered and backlog growth of at most ${num((s.orders.perHour * KEEPS_UP_PCT) / 100, 1)}, ${KEEPS_UP_PCT}% of demand)`
   );
 }
 function keepUpInputs(c: Ctx, r: RunResult, who: string): ExplainInput[] {
@@ -339,6 +341,9 @@ function keepUpInputs(c: Ctx, r: RunResult, who: string): ExplainInput[] {
     { label: `${who}: orders shipped per hour`, value: r.kpis.oph, unit: 'orders/h', from: 'sim' },
     { label: 'Orders per hour (demand)', value: c.s.orders.perHour, unit: 'orders/h', from: 'user' },
     { label: `${who}: backlog growth`, value: r.kpis.backlogTrendPerHour, unit: 'orders/h', from: 'sim', note: `Least-squares slope of open orders over the ${c.window} measured window.` },
+    ...(r.kpis.capacityOph !== undefined
+      ? [{ label: `${who}: capacity (orders always waiting)`, value: r.kpis.capacityOph, unit: 'orders/h', from: 'sim' as const, note: 'The same settings run with the order queue always full: the most it can ship.' }]
+      : []),
   ];
 }
 const crewWords = (c: Ctx, crew: { picker: number; driver: number }) =>

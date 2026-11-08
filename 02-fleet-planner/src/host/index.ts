@@ -60,7 +60,18 @@ export interface Host {
 export function createHost(data: AppData, runner: Runner, opts: { scenario?: string; seed?: number; impl?: SimImpl; econ?: EconPort | (() => Promise<EconPort>); demo?: boolean } = {}): Host {
   // The economics may be loaded lazily (the app does, to keep it out of the first-view JS): money waits for it.
   let econP: Promise<EconPort> | undefined;
-  const loadEcon = () => (econP ??= typeof opts.econ === 'function' ? opts.econ() : Promise.resolve(opts.econ ?? fakeEcon));
+  const loadEcon = (): Promise<EconPort> => {
+    if (econP) return econP;
+    const p = typeof opts.econ === 'function' ? opts.econ() : Promise.resolve(opts.econ ?? fakeEcon);
+    // A failed load (e.g. the chunk didn't download) is forgotten, so the next settings change tries again.
+    econP = p.catch((e) => {
+      econP = undefined;
+      throw e;
+    });
+    return econP;
+  };
+  // Start fetching it now, alongside the first run, rather than after it.
+  loadEcon().catch(() => {});
   const first = data.scenarios[opts.scenario ?? 'default'] ?? data.scenarios.default;
   const start: Scenario = opts.seed !== undefined ? { ...first, seed: opts.seed } : first;
   const bus = new Bus<HostEvents>();

@@ -9,7 +9,7 @@ import { createInlineRunner } from '../../src/host/runner/inline.ts';
 const scenario = scenarioJson as Scenario;
 const runner = createInlineRunner(() => ({ agents: agents as AgentsFile, layout: layout as LayoutFile }), basicRecorder);
 
-describe('inline runner (FakeSim in Phase 0)', () => {
+describe('inline runner (real sim)', () => {
   it('runs warm-up + window, is deterministic and cached', async () => {
     const a = await runner.evaluate(scenario);
     expect(a.ticks).toBe((30 + 120) * 120);

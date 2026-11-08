@@ -39,3 +39,33 @@ describe('host + real economics', () => {
     for (const l of host.money.value!.lines) for (const i of l.capex.inputs) if (i.from.startsWith('source:')) expect(sourceIds.has(i.from.slice(7))).toBe(true);
   });
 });
+
+describe('host + lazily loaded economics (the way the app loads it)', () => {
+  it('a loader that resolves gives the same money as the direct port', async () => {
+    const host = createHost(data, createFakeRunner(), { econ: () => Promise.resolve(econ) });
+    await settle();
+    expect(host.moneyPending.value).toBe(false);
+    expect(host.money.value?.capex.value).toBe(2_312_000);
+  });
+  it('a loader that keeps failing at first: no money (and no stuck spinner), then the next settings change retries and money comes back', async () => {
+    let tries = 0;
+    // Fails for the early preload and the first money attempt, then works.
+    const loader = () => (++tries <= 2 ? Promise.reject(new Error('chunk failed to load')) : Promise.resolve(econ));
+    const errors: unknown[] = [];
+    const orig = console.error;
+    console.error = (...a: unknown[]) => void errors.push(a);
+    try {
+      const host = createHost(data, createFakeRunner(), { econ: loader });
+      await settle();
+      expect(host.money.value).toBeNull();
+      expect(host.moneyPending.value).toBe(false);
+      expect(errors.length).toBeGreaterThan(0);
+      host.setFinancing('raas');
+      await settle();
+      expect(tries).toBe(3);
+      expect(host.money.value?.financing).toBe('raas');
+    } finally {
+      console.error = orig;
+    }
+  });
+});

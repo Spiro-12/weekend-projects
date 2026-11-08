@@ -313,7 +313,7 @@ describe('baselineScenario', () => {
     expect(runKey(a)).toBe(runKey(b));
     expect(validateScenario(a, ['small', 'default', 'large'])).toEqual([]);
   });
-  it('runs on the real runner loop (FakeSim) without trouble', () => {
+  it('runs on the real runner loop (real sim) without trouble', () => {
     const r = runScenario(baselineScenario(defaultScenario, { picker: 18, driver: 3 }), { agents, layout: defaultLayout as LayoutFile }, createKpiRecorder);
     expect(r.fleet).toMatchObject({ amr: 0, forklift: 0, humanoid: 0, picker: 18, driver: 3 });
     expect(r.kpis.oph).toBeGreaterThan(0);

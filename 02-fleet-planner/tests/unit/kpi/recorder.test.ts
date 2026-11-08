@@ -1,5 +1,5 @@
 // The KPI recorder against PROTOCOL §6: a hand-built window with exact expected values, the boundaries (keeps up at
-// +2%, deadlocks at 240 ticks, the demand cap), and an end-to-end run through the real runner loop on FakeSim.
+// +5%, deadlocks at 240 ticks, the demand cap), and an end-to-end run through the real runner loop on the real sim.
 import { describe, expect, it } from 'vitest';
 import agentsJson from '../../../data/agents.json';
 import layoutJson from '../../../data/layouts/default.json';
@@ -258,7 +258,7 @@ describe('KPI recorder: boundaries', () => {
   });
 });
 
-describe('KPI recorder in the real runner loop (FakeSim)', () => {
+describe('KPI recorder in the real runner loop (real sim)', () => {
   const a = runScenario(scenario, data, createKpiRecorder);
   it('is deterministic and finite', () => {
     const b = runScenario(scenario, data, createKpiRecorder);

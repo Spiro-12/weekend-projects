@@ -282,7 +282,7 @@ Types live in `src/contracts/types.ts`, validators in `validate.ts`, examples in
 | Jams per hour | jam starts ÷ hours. A jam = ≥ 3 agents stopped ≥ 20 ticks (10 s) within 5 cells. |
 | Deadlocks per shift | wait-for cycles lasting ≥ 10 ticks (5 s) |
 | Average order time | mean(ship tick − arrive tick) × 0.5 s; p90 in the tooltip |
-| Backlog trend | slope of open orders. **Keeps up** = trend ≤ +2% of demand per hour. |
+| Backlog trend | slope of open orders. **Keeps up** = capacity ≥ demand and trend ≤ +5% of demand per hour (changed from +2% at Phase 1 integration; see PROTOCOL §6). |
 | Cost per order | annual cost ÷ (OPH × hours per year) |
 | Picker uplift | (units/h per picker with this fleet) ÷ (units/h per picker without picking robots: cart robots and humanoids 0, forklifts unchanged), both at capacity |
 

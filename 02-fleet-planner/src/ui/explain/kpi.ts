@@ -1,4 +1,5 @@
 // KPI tile hovers (Track F): how each number is measured, from PROTOCOL §6, in plain words.
+import { KEEPS_UP_PCT } from '../../kpi/index.ts';
 import { ROBOT_TYPES, type AgentsFile, type RunResult, type Scenario } from '../../contracts/types.ts';
 import { runLine, type ExplainContent, type ExplainRow } from './content.ts';
 import { minutes, n1, num } from './format.ts';
@@ -20,7 +21,7 @@ export function kpiContent(id: KpiId, r: RunResult | null, s: Scenario, agents: 
         text: [
           'Orders shipped per hour during the measured time. It can never be higher than the orders coming in.',
           ...(behind
-            ? [`Falling behind: open orders grow by about ${num(k.backlogTrendPerHour)} an hour. A plan keeps up only if that growth stays under 5% of the orders coming in (smaller growth is within the normal ups and downs of orders arriving).`]
+            ? [`Falling behind: open orders grow by about ${num(k.backlogTrendPerHour)} an hour. A plan keeps up only if it can handle at least the orders coming in${k.capacityOph !== undefined ? ` (this one: at most ${num(k.capacityOph)} an hour)` : ''} and that growth stays under ${KEEPS_UP_PCT}% of them.`]
             : []),
         ],
         inputs: [

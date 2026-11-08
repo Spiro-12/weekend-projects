@@ -10,7 +10,8 @@ export type { SimData } from './fake.ts';
 /** Which simulator to build. A factory (not a name), so the app bundle only carries the one it uses. */
 export type SimImpl = (scenario: Scenario, data: SimData) => Sim;
 
-/** Traffic controller per mode. Phase 1 has one brain only; many brains (siloed, shared-status) arrive in Phase 2 (Track G). */
+/** Traffic controller per mode. Phase 1 has one brain only: every mode gets the CentralController until Track G's many
+ *  brains land in Phase 2, so nothing in the Phase 1 UI offers another mode (a siloed run would be one brain labelled siloed). */
 export function trafficFor(_mode: TrafficMode): TrafficController {
   return new CentralController();
 }
