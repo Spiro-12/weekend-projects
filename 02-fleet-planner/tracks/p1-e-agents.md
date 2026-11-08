@@ -67,3 +67,26 @@ Plus glowing route lines on the floor, visible jams and deadlocks, click-to-foll
 
 ## Done when
 `E2E_WEB_PORT=5202 npm run gate` is green, the budgets are met (report the numbers), the screenshots are reviewed, and the work is committed on your branch.
+
+## Gate 0 visual review notes (address these)
+1. **Forklifts:**
+   - Chunky red/orange (≈ #D9452B) with a black mast, like the references, not the glossy royal-blue SimReady paint (recolor it).
+   - The autonomous stacker is spindly and tiny: make it about 1.5× more solid.
+2. **Agent visibility at overview:**
+   - A soft 0.9 m type-colored glow disc under every agent (it also grounds them; today people seem to float).
+   - A screen-space minimum size (about 14 px desktop, 10 px phone) at overview zoom.
+   - Delete the capsule-and-ball people.
+3. **Route ribbons:**
+   - 10 to 15 cm flat ribbons 1 cm above the floor, additive, emissive above the bloom threshold.
+   - Colors: AMRs cyan #22D3EE, forklifts orange #FF8A3D, humanoids violet #A78BFA (vendor shade within the type).
+   - Dashes flow toward the goal at about 1.5 m/s, with the tail fading.
+   - Full route only for the selected agent; others show only the next ~10 m (no spaghetti).
+4. **Follow camera:**
+   - Today it's too close, too high and too wide, so rack faces fill the frame. Target: 3 to 3.5 m behind, 1.8 to 2.2 m up, looking 2 m ahead at 0.6 m height, FOV 40 to 45°, spring damping about 0.25 s.
+   - The subject should fill 25 to 30% of frame height, in the lower third.
+   - Replace the thick yellow decal ring with a thin (6 cm) glowing cyan ring.
+   - Fade racks between camera and subject if cheap.
+
+   **The lead already applied the chase distances and FOV 38° in the Phase 0 rig.** You own the ring, the rack fading and any extra camera behaviour in `src/render/camera/`; report any further rig changes as requests.
+5. **Overview framing:** the lead applied about 30° yaw and 38° pitch in Phase 0. Check it with your agents in it.
+6. **Materials:** match one style across SimReady, code models and the worker (matte PBR, hi-vis #C8F031 vests). The AMR (white base, cyan glow, orange totes) is the best match today.

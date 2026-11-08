@@ -14,7 +14,7 @@ export interface FollowTarget {
 }
 
 export class CameraRig {
-  readonly camera = new PerspectiveCamera(45, 1, 0.3, 600);
+  readonly camera = new PerspectiveCamera(38, 1, 0.3, 900);
   readonly controls: OrbitControls;
   private followFn: (() => FollowTarget | null) | null = null;
   private fly: { from: Pose; to: Pose; t0: number; ms: number } | null = null;
@@ -45,10 +45,11 @@ export class CameraRig {
     const along = portrait ? this.sizeX : this.sizeZ;
     const vfov = (this.camera.fov * Math.PI) / 180;
     const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
-    const fitW = (across * 0.56) / Math.tan(hfov / 2);
-    const fitH = (along * 0.62) / Math.tan(vfov / 2);
-    const d = Math.max(fitW, fitH) * 0.95;
-    const dir = portrait ? new Vector3(0.6, 0.78, -0.12).normalize() : new Vector3(-0.12, 0.72, 0.68).normalize();
+    const fitW = (across * 0.6) / Math.tan(hfov / 2);
+    const fitH = (along * 0.6) / Math.tan(vfov / 2);
+    const d = Math.max(fitW, fitH) * 0.92;
+    // Landscape: about 30° yaw and 38° pitch so walls and trusses read and racks don't lean (Gate 0 visual review).
+    const dir = portrait ? new Vector3(0.6, 0.78, -0.12).normalize() : new Vector3(-0.394, 0.616, 0.682).normalize();
     const tz = portrait ? 0 : this.sizeZ * 0.06;
     return { position: [dir.x * d, dir.y * d, dir.z * d + tz], target: [0, 0, tz] };
   }
@@ -82,13 +83,14 @@ export class CameraRig {
     this.flyTo(this.overviewPose(), ms);
   }
 
-  /** Chase pose: behind the agent along its heading, looking down the aisle ahead of it. */
+  /** Chase cam (Gate 0 visual review): 3.2 m behind, 2 m up, looking 2 m ahead at 0.6 m, so the subject fills about
+   *  a quarter of the frame height in the lower third. */
   private chase(t: FollowTarget): Pose {
     const dx = Math.cos(this.chaseYaw);
     const dz = -Math.sin(this.chaseYaw);
     return {
-      position: [t.pos.x - dx * 6.5, 4.2, t.pos.z - dz * 6.5],
-      target: [t.pos.x + dx * 4, 0.9, t.pos.z + dz * 4],
+      position: [t.pos.x - dx * 3.2, 2.0, t.pos.z - dz * 3.2],
+      target: [t.pos.x + dx * 2, 0.6, t.pos.z + dz * 2],
     };
   }
 
@@ -134,7 +136,7 @@ export class CameraRig {
         while (d < -Math.PI) d += 2 * Math.PI;
         this.chaseYaw += d * 0.04;
         const want = this.chase(t);
-        const k = 0.12;
+        const k = 0.1;
         const p = this.camera.position;
         const tg = this.controls.target;
         p.set(p.x + (want.position[0] - p.x) * k, p.y + (want.position[1] - p.y) * k, p.z + (want.position[2] - p.z) * k);

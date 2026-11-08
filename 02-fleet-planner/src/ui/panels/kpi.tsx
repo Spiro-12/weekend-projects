@@ -13,10 +13,10 @@ function KpiTiles({ host }: { host: Host }) {
   const s = host.settings.value;
   const pending = host.pending.value;
   const tiles = [
-    { id: 'oph', label: 'Orders / hour', value: fmt(k?.oph), unit: '', note: `demand ${fmt(s.orders.perHour)}` },
-    { id: 'util', label: 'Robot utilization', value: fmt(k?.robotUtilizationPct), unit: '%', note: 'busy time' },
-    { id: 'jams', label: 'Jams', value: fmt(k?.jamsPerHour, 1), unit: '/h', note: `${fmt(k?.deadlocksPerShift)} deadlocks / shift` },
-    { id: 'order-time', label: 'Avg order time', value: k ? fmt(k.avgOrderSec / 60, 1) : '—', unit: 'min', note: k?.keepsUp === false ? 'backlog growing' : 'arrive → ship' },
+    { id: 'oph', label: 'Orders / hour', short: 'Orders/h', value: fmt(k?.oph), unit: '', note: `demand ${fmt(s.orders.perHour)}` },
+    { id: 'util', label: 'Robot utilization', short: 'Utilization', value: fmt(k?.robotUtilizationPct), unit: '%', note: 'busy time' },
+    { id: 'jams', label: 'Jams', short: 'Jams/h', value: fmt(k?.jamsPerHour, 1), unit: '/h', note: `${fmt(k?.deadlocksPerShift)} deadlocks/shift` },
+    { id: 'order-time', label: 'Avg order time', short: 'Order time', value: k ? fmt(k.avgOrderSec / 60, 1) : '—', unit: 'min', note: k?.keepsUp === false ? 'backlog growing' : 'arrive → ship' },
   ];
   return (
     <>
@@ -32,7 +32,10 @@ function KpiTiles({ host }: { host: Host }) {
       <div class="tiles">
         {tiles.map((t) => (
           <div key={t.id} class={`card tile${pending ? ' pending' : ''}`} data-testid={`kpi-${t.id}`}>
-            <div class="label">{t.label}</div>
+            <div class="label">
+              <span class="long">{t.label}</span>
+              <span class="short">{t.short}</span>
+            </div>
             <div class="value">
               {t.value}
               <span class="unit">{t.unit}</span>

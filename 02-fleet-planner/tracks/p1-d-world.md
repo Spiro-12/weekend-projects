@@ -82,3 +82,27 @@ Use `npx tsx scripts/perf.ts --url http://localhost:5201/weekend-projects/02-fle
 - Screenshots reviewed.
 - `CREDITS.md` and the About panel are complete.
 - Committed on your branch.
+
+## Gate 0 visual review notes (address these)
+An independent visual reviewer compared the Phase 0 skeleton and the spike c contact sheet with the references.
+1. **Shell and lighting are the biggest gap:**
+   - Walls 10 to 12 m, light grey (≈ #D6DAE0, roughness 0.8), with a translucent window band near the top.
+   - Black steel columns about every 12 m, dark roof trusses (≈ #2B2F36).
+   - Rows of linear LED fixtures (emissive 3 to 5, so they catch bloom on high).
+   - Cut away the walls facing the camera, and the roof.
+   - Contact shadows (baked or cheap AO) under racks, pallets and props.
+2. **Floor:**
+   - ≈ #1F2226 to #262A2F, roughness 0.25 to 0.35, so it reflects the environment (planar reflection only on high, if the budget allows).
+   - Lanes in safety yellow #F2C230, 10 to 12 cm wide; the current mustard is too dull.
+   - Anisotropy is now 16 in the lead's version; keep it.
+3. **Racks:**
+   - Pallets with carton stacks, not one big flat box per slot.
+   - Uprights only at bay ends: bays about 2.7 m with 3 pallets, so the blue "barcode" noise goes away.
+   - Uprights ≈ #1F5FAF with some metalness, beams ≈ #E2621B.
+   - Fill 65 to 80% with empty slots and uneven stack heights. Drop the stark white boxes (they read as holes).
+4. **Areas:**
+   - Move the zone labels out from under the racks ("SHIPPING & RECEIVING" is hidden today).
+   - Dock doors with yellow/black bumpers.
+   - Conveyors with rollers and yellow guard frames.
+   - Pack stations as white tables on blue frames, not grey blocks with a black slot.
+5. **Building proportions:** in the overview, 30 to 40% of the floor should show between the racks.

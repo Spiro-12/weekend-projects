@@ -210,7 +210,7 @@ export function buildProceduralWorld(layout: LayoutFile, opts: { farBoxes?: bool
 
   const floorTex = new CanvasTexture(canvas);
   floorTex.colorSpace = SRGBColorSpace;
-  floorTex.anisotropy = 8;
+  floorTex.anisotropy = 16; // three clamps to the GPU max; stops lane lines smearing at low camera angles
   floorTex.minFilter = LinearMipmapLinearFilter;
   const floorMat = new MeshStandardMaterial({ map: floorTex, roughness: 0.38, metalness: 0.18, envMapIntensity: 0.9 });
   const floor = new Mesh(new PlaneGeometry(sizeX, sizeZ), floorMat);

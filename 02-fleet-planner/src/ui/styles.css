@@ -4,7 +4,7 @@
   --panel-solid: #121722;
   --line: rgba(255, 255, 255, 0.09);
   --text: #e9eef5;
-  --muted: #8d99ab;
+  --muted: #9aa4b2;
   --accent: #ffc531;
   --cyan: #38d9ff;
   --good: #3ddc97;
@@ -38,6 +38,7 @@ body { -webkit-font-smoothing: antialiased; }
 .tiles { display: flex; gap: 10px; flex-wrap: wrap; }
 .tile { padding: 10px 14px; min-width: 132px; }
 .tile .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
+.tile .short { display: none; }
 .tile .value { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
 .tile .unit { font-size: 13px; color: var(--muted); margin-left: 4px; font-weight: 500; }
 .tile .note { font-size: 11px; color: var(--muted); margin-top: 2px; }
@@ -53,8 +54,12 @@ button.primary { background: var(--accent); color: #141414; border-color: transp
 @media (max-width: 760px), (pointer: coarse) and (max-height: 520px) {
   .slot-kpi { right: 14px; left: 10px; top: 10px; }
   .tiles { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .tile { min-width: 112px; padding: 8px 10px; }
-  .tile .value { font-size: 20px; }
+  .tile { min-width: 0; padding: 7px 10px; box-shadow: none; flex: 0 0 auto; }
+  .tile .value { font-size: 19px; }
+  .tile .label, .tile .note { white-space: nowrap; }
+  .tile .long { display: none; }
+  .tile .short { display: inline; }
+  .brand { padding: 6px 12px; }
   .slot-left, .slot-right, .slot-bottom { display: none; }
   .slot-left.open, .slot-right.open, .slot-bottom.open { display: flex; position: absolute; left: 0; right: 0; top: auto; bottom: 52px; width: auto; transform: none;
     max-height: 55%; padding: 10px; flex-direction: column; }

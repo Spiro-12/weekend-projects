@@ -74,3 +74,11 @@ Also take desktop and phone screenshots (`npx tsx scripts/shots.ts --url http://
 
 ## Done when
 `E2E_WEB_PORT=5203 npm run gate` is green, your screenshots look right on desktop and phone, and the work is committed on your branch. Report: what you built, the screenshots' paths, and any host/contract requests.
+
+## Gate 0 visual review notes (address these)
+- **Keep the frosted style** (rgba(15,18,24,0.72), blur 12 px, 1 px rgba(255,255,255,0.08) border). Sub-label contrast is raised to #9AA4B2.
+- **Phone:**
+  - a single-row chip strip that scrolls sideways, about 60% of today's height, with short labels that never wrap ("Orders/h", "Utilization", "Jams/h", "Order time"; the lead added short labels to the Phase 0 tiles)
+  - no box-shadow band behind the strip
+  - money panel and follow card as bottom sheets
+- **Follow card:** bottom-right on desktop (ID, task, speed, battery, next stop), like An Xuan's "Forklift FL-1" card. Fleet controls bottom-left on desktop, or wherever reads cleanest; justify your layout in the report.
