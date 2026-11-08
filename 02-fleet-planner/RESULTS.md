@@ -18,7 +18,7 @@ which made robots look worse than they are. Every fleet sees the same orders at 
 can't tell short from unlucky. The same rule sizes the people-only baseline crew, so both sides are judged alike.
 
 ## Baseline crew search
-The people-only crew is found in at most 4 runs (so the money panel stays fast), not by brute force. On the default
+The people-only crew is found in at most 4 searches (1 capacity run, then up to 3 crews, each of which also needs its own capacity run: up to 7 simulations, about 3 to 8 s for the large building on one worker), not by brute force. On the default
 scenario it is 20 pickers + 1 driver, and the `zero-robots` golden test checks both that the search returns exactly that
 crew and that one picker fewer doesn't keep up. Against brute force on test models the search lands on the minimum
 in most cases and is never under it; a crew that comes out too big makes people-only look a little more expensive.
@@ -61,3 +61,12 @@ All runs: 30 min warm-up + 2 h measured. Uplift = units per picker-hour with car
   stuck for 30 s.
 - **Held robots the planner pushes aside wait where they land:** about 18% of held time is on main or cross aisles.
   Sending them back to a pick-aisle cell cost up to 10% capacity when over-fleeted, so it is not done.
+
+## Open items for Phase 2
+- **Faster order-rate changes:** a capacity run doesn't use the order rate for its verdict, but the run cache key
+  includes it, so every order-rate slider step reruns the capacity run. Check whether saturate runs are truly independent
+  of `orders.perHour` (arrival draws still happen) and, if so, leave it out of the capacity half's key.
+- **Phones with one runner worker** run demand and capacity one after the other: up to about 2 s per evaluate for the
+  large building in Node, more on a phone. Measure on Spiro's phone with the sweep (Track J).
+- **Traffic modes:** every mode runs the one-brain planner until Track G lands; add a guard before the UI offers another mode.
+- **The sweep** may want bare demand runs in the browser: export the unwrapped worker runner then.

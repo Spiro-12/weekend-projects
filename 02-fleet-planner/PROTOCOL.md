@@ -186,13 +186,13 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
   | `deadlocksOver2MinPerShift` | deadlocks that last ≥ 240 ticks (2 min), per shift: ended in the window after ≥ 240 ticks, or still open at the end and already ≥ 240 ticks old. The runner passes deadlocks still open from warm-up (their `deadlockStart`, tick < warm-up end) right after `start()`; they count here, not in `deadlocksPerShift`. |
   | `avgOrderSec`, `p90OrderSec` | (ship tick − arrive tick) × 0.5 s for orders shipped in the window |
   | `backlogEnd` | open orders at the end of the window |
-  | `backlogTrendPerHour` | least-squares slope of open orders over the window. **`keepsUp`** = trend ≤ +5% of demand per hour (a 2 h window can't resolve less: arrival noise alone moves the slope about ±3%; Phase 1 integration). |
+  | `backlogTrendPerHour` | least-squares slope of open orders over the window. **`keepsUp`** = **capacity ≥ demand** (the runner fetches the same settings' capacity run, `src/host/runner/capacity.ts`) **and** trend ≤ +5% of demand per hour. Phase 1 integration (was trend ≤ +2%): a trend over a 2 h window can't tell a crew 3% short from an unlucky bunching of orders, so capacity decides. The KPI recorder alone gives only the trend part. |
   | `pickerUplift` | units per picker-hour with this fleet ÷ units per picker-hour without picking robots (`withoutPickingRobots`: cart robots and humanoids set to 0, forklifts unchanged), both at capacity. **An output, not an input**: it comes from walk speed, `pickSecPerLine` and zones, calibrated so the default lands near 75 → 135 units/h. |
   | `unitsPerPickerHour`, `resetsPerHour`, `retasksPerHour` | |
   | `keepsUp` on saturate runs | not meaningful (the queue is always full); only read it on demand runs |
 
 - **`fp-sweep v1`** = `{ axes, base, results: RunResult[] }`.
-- **The fake runner** (`createFakeRunner`) returns toy numbers for UI work; the UI shows **"demo data"** whenever `host.demoData` is true. Like the real runner, it fills `capacityOph` only on saturate runs and never `pickerUplift` (computed from two capacity runs).
+- **The fake runner** (`createFakeRunner`) returns toy numbers for UI work; the UI shows **"demo data"** whenever `host.demoData` is true. It fills `capacityOph` only on saturate runs and never `pickerUplift` (computed from two capacity runs). The real runners (worker pool, inline) also put `capacityOph` on demand runs, from the capacity run their keeps-up verdict uses.
 - **Host signals:** `result` + `pending` (the run), `baseline` + `money` + **`moneyPending`** (true until the baseline search and money report finish).
 
 ## §7 Economics (`src/econ/`, Track C)

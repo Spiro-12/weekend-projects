@@ -132,7 +132,9 @@ export async function findBaseline(s: Scenario, runner: Runner): Promise<{ crew:
   const pickerBusyAtCap = starved ? ASSUMED_PICKER_BUSY_PCT : capPickerBusy;
   // Pallet moves a run made ÷ its busy driver-hours = moves one fully busy driver makes per hour (null if unknown).
   const movesPerBusyDriver = (r: RunResult, drivers: number): number | null => {
-    const oph = r.kpis.capacityOph ?? r.kpis.oph;
+    // This run's own shipments (on a capacity run oph = capacityOph). Not capacityOph: the runner also puts the capacity
+    // run's figure on demand runs, and mixing it with the demand run's driver busy share would overstate a driver.
+    const oph = r.kpis.oph;
     const moved = (s.pallets.linesPerReplenish > 0 ? (oph * meanLinesPerOrder(s)) / s.pallets.linesPerReplenish : 0) + s.pallets.inboundPerHour;
     const busy = (r.kpis.byType.driver?.utilizationPct ?? 0) / 100;
     return drivers > 0 && busy > 0.05 && moved > 0 ? moved / (drivers * busy) : null;

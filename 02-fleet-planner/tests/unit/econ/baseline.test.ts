@@ -10,6 +10,7 @@ import { validateScenario } from '../../../src/contracts/validate.ts';
 import { createFakeRunner } from '../../../src/host/runner/fake.ts';
 import { runScenario } from '../../../src/host/runner/run.ts';
 import type { EvaluateOptions, Runner } from '../../../src/host/runner/types.ts';
+import { withCapacity } from '../../../src/host/runner/capacity.ts';
 import { runKey } from '../../../src/host/settings.ts';
 import { baselineScenario, findBaseline, MAX_BASELINE_EVALS, meanLinesPerOrder, type Crew } from '../../../src/econ/baseline.ts';
 import { computeMoney } from '../../../src/econ/money.ts';
@@ -20,7 +21,11 @@ const scenarios: Record<string, Scenario> = { small: smallJson as Scenario, defa
 const withDemand = (s: Scenario, perHour: number): Scenario => ({ ...s, orders: { ...s.orders, perHour } });
 
 /** A fake runner that records every call. */
-function counted(inner: Runner = createFakeRunner()) {
+/** Counts the search's evaluate calls. With no runner given it uses the toy runner wrapped like the app's runners
+ *  (`withCapacity`: demand runs carry the capacity run's figure and verdict). The stub models below are passed in bare:
+ *  they make capacity runs disagree with demand runs on purpose and build capacity ≥ demand into their own verdict. */
+function counted(raw?: Runner) {
+  const inner = raw ?? withCapacity(createFakeRunner());
   const calls: { s: Scenario; opts?: EvaluateOptions; r: RunResult }[] = [];
   const runner: Runner = {
     ...inner,
@@ -55,8 +60,8 @@ describe('findBaseline (auto)', () => {
       const b = await findBaseline(s, runner);
       expect(calls.length).toBeLessThanOrEqual(MAX_BASELINE_EVALS);
       expect(b.result.kpis.keepsUp).toBe(true);
-      // The returned result is a demand run of exactly that crew, people only.
-      expect(b.result.kpis.capacityOph).toBeUndefined();
+      // The returned result is a demand run of exactly that crew, people only, with enough capacity (keeps up needs it).
+      expect(b.result.kpis.capacityOph).toBeGreaterThanOrEqual(s.orders.perHour);
       expect(b.result.fleet).toEqual({ amr: 0, forklift: 0, humanoid: 0, picker: b.crew.picker, driver: b.crew.driver });
       // No crew the search ran on demand that kept up is smaller.
       const keepers = calls.filter((c) => !c.opts?.saturate && c.r.kpis.keepsUp).map((c) => c.s.fleet);
