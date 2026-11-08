@@ -3,13 +3,17 @@
 // agent stops for a long dwell (so the camera doesn't stare at a rack face), then back in when it moves again.
 import type { AgentTypeId } from '../../contracts/types.ts';
 
-/** Chase framing per type (Gate 0: 3 to 3.5 m behind, 1.8 to 2.2 m up for a person-sized subject). */
+/**
+ * Chase framing per type. Gate 0 asked for 3 to 3.5 m behind AND a subject filling 25 to 30% of the frame height;
+ * with the rig's 38° lens a 1.7 m subject at 3.2 m fills about 75%, so these sit in between (about 40 to 50% for
+ * people-sized agents, in the lower half) without the racks swallowing the frame.
+ */
 export const CHASE: Record<AgentTypeId, { distance: number; height: number }> = {
-  amr: { distance: 3.2, height: 2.0 },
-  humanoid: { distance: 3.3, height: 2.1 },
-  picker: { distance: 3.3, height: 2.1 },
-  forklift: { distance: 5.2, height: 3.0 },
-  driver: { distance: 6.0, height: 3.2 },
+  amr: { distance: 4.4, height: 2.4 },
+  humanoid: { distance: 4.4, height: 2.4 },
+  picker: { distance: 4.4, height: 2.4 },
+  forklift: { distance: 6.2, height: 3.3 },
+  driver: { distance: 7.0, height: 3.5 },
 };
 
 /** The wider shot during a long dwell. */

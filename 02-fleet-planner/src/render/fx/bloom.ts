@@ -9,7 +9,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import type { RendererCore, View } from '../core/renderer.ts';
 
-export const BLOOM = { strength: 0.6, radius: 0.4, threshold: 1.25 };
+export const BLOOM = { strength: 0.4, radius: 0.12, threshold: 3.4 };
 
 interface PerView {
   composer: EffectComposer;

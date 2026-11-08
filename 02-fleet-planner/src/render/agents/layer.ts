@@ -299,6 +299,9 @@ export class AgentLayerImpl implements AgentLayer {
     const minPx = this.canHover ? 14 : 10;
     const tanHalf = cam ? Math.tan((cam.fov * Math.PI) / 360) : 0.35;
     const high = this.tier === 'high';
+    // High renders through the bloom composer in linear HDR: additive effects need more energy to look the same and
+    // to cross the bloom threshold (only emissive things should).
+    const fxk = high ? 1.2 : 1;
 
     // 1. Kinematics.
     for (const a of snap.agents) this.advance(a, renderTick, snap.tick, dTick, realSec, eff);
@@ -354,7 +357,7 @@ export class AgentLayerImpl implements AgentLayer {
       if (a.cargo === 'pallet') flags |= FLAG.PALLET;
       if (a.id === this.heroId) flags |= FLAG.HIDE_BODY;
       let accent = VENDOR_LIGHT[a.vendor] ?? DEFAULT_LIGHT;
-      let glow = (high ? 4.2 : 2.6) * (1 + far * 1.2);
+      let glow = (high ? 6.5 : 2.6) * (1 + far * 1.2);
       if (a.state === 'wait') glow *= 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(this.time * 4.2 + a.id));
       else if (a.state === 'broken') {
         accent = 0xff3b3b;
@@ -368,7 +371,7 @@ export class AgentLayerImpl implements AgentLayer {
       const grow = s * (1 + far * 0.7);
       const dl = Math.max(0.9, size.length + 0.35) * grow;
       const dw = Math.max(0.9, size.width + 0.35) * grow;
-      const gi = (human ? 0.4 : 0.55) * (0.75 + far * 1.6) * (high ? 1.2 : 1);
+      const gi = (human ? 0.4 : 0.55) * (0.75 + far * 1.6) * (high ? 1.15 : 1);
       this.decals.disc(m.x, m.z, 0.014, m.yaw, dl, dw, c.r, c.g, c.b, gi, 0.6 * (1 - far * 0.5));
       if (a.type === 'picker' && a.cargo === 'cart') {
         const fx = Math.cos(m.yaw);
@@ -381,13 +384,13 @@ export class AgentLayerImpl implements AgentLayer {
         const fz = -Math.sin(m.yaw);
         const ahead = (size.length / 2 + 0.9) * s;
         const b = FX.safetySpot;
-        this.decals.disc(m.x + fx * ahead, m.z + fz * ahead, 0.016, m.yaw, 1.15 * s, 0.85 * s, b.r, b.g, b.b, 1.6, 0);
+        this.decals.disc(m.x + fx * ahead, m.z + fz * ahead, 0.016, m.yaw, 1.15 * s, 0.85 * s, b.r, b.g, b.b, 1.6 * fxk, 0);
         d.safetySpots++;
       }
       // Blocked: amber ring.
       if (a.blockedTicks > 4 && !inDeadlock.has(a.id)) {
         const b = FX.blocked;
-        this.decals.ring(m.x, m.z, this.ringRadius(a, m) + 0.08, 0.07, b.r, b.g, b.b, 2.2, false);
+        this.decals.ring(m.x, m.z, this.ringRadius(a, m) + 0.08, 0.07, b.r, b.g, b.b, 2.2 * fxk, false);
         d.blockedRings++;
       }
     }
@@ -406,7 +409,7 @@ export class AgentLayerImpl implements AgentLayer {
         const a = byId.get(id)!;
         const m = this.motions.get(id)!;
         const r = this.ringRadius(a, m) + 0.12;
-        this.decals.ring(m.x, m.z, r, 0.1, red.r, red.g, red.b, 3, true);
+        this.decals.ring(m.x, m.z, r, 0.1, red.r, red.g, red.b, 3 * fxk, true);
         d.deadlockRings++;
         cx += m.x;
         cz += m.z;
@@ -415,7 +418,7 @@ export class AgentLayerImpl implements AgentLayer {
         if (nextId !== id) {
           const n = this.motions.get(nextId)!;
           const rn = this.ringRadius(byId.get(nextId)!, n) + 0.12;
-          if (this.arrowBetween(m.x, m.z, r, n.x, n.z, rn, 0.42, red.r, red.g, red.b, 2.6, true)) d.deadlockArrows++;
+          if (this.arrowBetween(m.x, m.z, r, n.x, n.z, rn, 0.42, red.r, red.g, red.b, 2.6 * fxk, true)) d.deadlockArrows++;
         }
       });
       const sec = Math.max(0, (snap.tick - dl.sinceTick) * 0.5);
@@ -426,13 +429,13 @@ export class AgentLayerImpl implements AgentLayer {
     if (sel && selM) {
       const sc = FX.select;
       const r = this.ringRadius(sel, selM) + 0.15;
-      this.decals.ring(selM.x, selM.z, r, 0.06, sc.r, sc.g, sc.b, 3.2, false);
+      this.decals.ring(selM.x, selM.z, r, 0.06, sc.r, sc.g, sc.b, 3.2 * fxk, false);
       d.selectionRings++;
       const w = sel.waitOn >= 0 ? byId.get(sel.waitOn) : undefined;
       const wm = w ? this.motions.get(w.id) : undefined;
       if (w && wm) {
         const y = FX.waitFor;
-        if (this.arrowBetween(selM.x, selM.z, r, wm.x, wm.z, this.ringRadius(w, wm) + 0.15, 0.36, y.r, y.g, y.b, 2.4, false)) d.waitArrows++;
+        if (this.arrowBetween(selM.x, selM.z, r, wm.x, wm.z, this.ringRadius(w, wm) + 0.15, 0.36, y.r, y.g, y.b, 2.4 * fxk, false)) d.waitArrows++;
       }
     }
     for (const t of TYPES) this.rigs[t].end(this.time);
@@ -578,7 +581,7 @@ export class AgentLayerImpl implements AgentLayer {
       if (!m) continue;
       const maxLen = selected ? Infinity : 10;
       const c = typeShade(a.type, a.vendor);
-      const k = (selected ? 1.05 : 0.7) * (high ? 1.7 : 1);
+      const k = (selected ? 1.05 : 0.7) * (high ? 5 : 1);
       // Points: the agent, its move target, then the route (skipping the cell it stands on).
       const pts: number[] = [m.x, m.z];
       if (a.to >= 0 && a.route[0] !== a.to) pts.push(this.cx(a.to), this.cz(a.to));
