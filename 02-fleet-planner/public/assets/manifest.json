@@ -1,0 +1,628 @@
+{
+ "format": "fp-assets",
+ "v": 1,
+ "generated": "scripts/assets/build-assets.ts",
+ "source": {
+  "codepawlRev": "3be2abd90406285b34f868907290aa4992dece7b",
+  "nvidiaRev": "7879e0e50423290300ac20ecd6e727325f680b60"
+ },
+ "decoder": {
+  "name": "three/examples/jsm/libs/meshopt_decoder.module.js",
+  "gzBytes": 7713
+ },
+ "models": {
+  "carton_a": {
+   "url": "assets/carton_a.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "size": [
+    0.699,
+    0.51,
+    0.521
+   ],
+   "tris": 300,
+   "drawCalls": 1,
+   "bytes": 25256,
+   "gzBytes": 23145,
+   "textures": [
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp"
+   ],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"box_cardboard_a01\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/box_cardboard_a01), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/box_cardboard_a01 via codepawl/simready-glb@3be2abd glb/box_cardboard_a01.glb",
+   "firstTier": true,
+   "label": "Carton 70 x 51 x 52 cm",
+   "urlLo": "assets/carton_a-lo.glb",
+   "trisLo": 50,
+   "drawCallsLo": 1,
+   "bytesLo": 5044,
+   "gzBytesLo": 3463,
+   "texturesLo": [
+    "256x256 webp"
+   ]
+  },
+  "carton_b": {
+   "url": "assets/carton_b.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    -0.0012,
+    0
+   ],
+   "size": [
+    0.51,
+    0.521,
+    0.51
+   ],
+   "tris": 300,
+   "drawCalls": 1,
+   "bytes": 31140,
+   "gzBytes": 29137,
+   "textures": [
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp"
+   ],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"box_cardboard_b01\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/box_cardboard_b01), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/box_cardboard_b01 via codepawl/simready-glb@3be2abd glb/box_cardboard_b01.glb",
+   "firstTier": true,
+   "label": "Cube carton 51 cm",
+   "urlLo": "assets/carton_b-lo.glb",
+   "trisLo": 56,
+   "drawCallsLo": 1,
+   "bytesLo": 5724,
+   "gzBytesLo": 4142,
+   "texturesLo": [
+    "256x256 webp"
+   ]
+  },
+  "carton_c": {
+   "url": "assets/carton_c.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    -0.0001,
+    0
+   ],
+   "size": [
+    0.513,
+    0.26,
+    0.511
+   ],
+   "tris": 300,
+   "drawCalls": 1,
+   "bytes": 28800,
+   "gzBytes": 26719,
+   "textures": [
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp"
+   ],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"box_cardboard_c01\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/box_cardboard_c01), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/box_cardboard_c01 via codepawl/simready-glb@3be2abd glb/box_cardboard_c01.glb",
+   "firstTier": true,
+   "label": "Flat carton 51 x 26 x 51 cm",
+   "urlLo": "assets/carton_c-lo.glb",
+   "trisLo": 50,
+   "drawCallsLo": 1,
+   "bytesLo": 5396,
+   "gzBytesLo": 3821,
+   "texturesLo": [
+    "256x256 webp"
+   ]
+  },
+  "column": {
+   "url": "assets/column.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "size": [
+    0.737,
+    8.499,
+    0.737
+   ],
+   "tris": 999,
+   "drawCalls": 2,
+   "bytes": 121208,
+   "gzBytes": 116147,
+   "textures": [
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp"
+   ],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"structure_wall_column_a01\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/structure_wall_column_a01), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/structure_wall_column_a01 via codepawl/simready-glb@3be2abd glb/structure_wall_column_a01.glb",
+   "firstTier": true,
+   "label": "Building column",
+   "urlLo": "assets/column-lo.glb",
+   "trisLo": 298,
+   "drawCallsLo": 2,
+   "bytesLo": 13348,
+   "gzBytesLo": 9880,
+   "texturesLo": [
+    "256x256 webp"
+   ]
+  },
+  "conveyor": {
+   "url": "assets/conveyor.glb",
+   "scale": 1,
+   "offset": [
+    -0.5014,
+    0.0001,
+    -1
+   ],
+   "size": [
+    1.151,
+    1.166,
+    2
+   ],
+   "tris": 7723,
+   "drawCalls": 2,
+   "bytes": 165980,
+   "gzBytes": 132352,
+   "textures": [],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"conveyor_belt_a05\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/conveyor_belt_a05), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/conveyor_belt_a05 via codepawl/simready-glb@3be2abd glb/conveyor_belt_a05.glb",
+   "firstTier": true,
+   "label": "Roller conveyor section",
+   "urlLo": "assets/conveyor-lo.glb",
+   "trisLo": 1920,
+   "drawCallsLo": 2,
+   "bytesLo": 41200,
+   "gzBytesLo": 31766,
+   "texturesLo": []
+  },
+  "dock_gate": {
+   "url": "assets/dock_gate.glb",
+   "scale": 1,
+   "offset": [
+    -1.5129,
+    -0.0002,
+    0.0085
+   ],
+   "size": [
+    3.162,
+    1.143,
+    0.148
+   ],
+   "tris": 2984,
+   "drawCalls": 2,
+   "bytes": 60520,
+   "gzBytes": 48625,
+   "textures": [],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"barrier_gate_safetyDock_a02\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/barrier_gate_safetyDock_a02), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/barrier_gate_safetyDock_a02 via codepawl/simready-glb@3be2abd glb/barrier_gate_safetyDock_a02.glb",
+   "firstTier": true,
+   "label": "Dock safety gate",
+   "urlLo": "assets/dock_gate-lo.glb",
+   "trisLo": 799,
+   "drawCallsLo": 2,
+   "bytesLo": 20416,
+   "gzBytesLo": 15312,
+   "texturesLo": []
+  },
+  "forklift": {
+   "url": "assets/forklift.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    0,
+    -0.5795
+   ],
+   "size": [
+    1.363,
+    2.174,
+    3.733
+   ],
+   "tris": 14862,
+   "drawCalls": 5,
+   "bytes": 341592,
+   "gzBytes": 272827,
+   "textures": [],
+   "parts": [
+    "forks",
+    "mast",
+    "carriage"
+   ],
+   "license": "CC-BY-4.0",
+   "credit": "\"vehicle_forklift_blue_c01\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/vehicle_forklift_blue_c01), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/vehicle_forklift_blue_c01 via codepawl/simready-glb@3be2abd glb/vehicle_forklift_blue_c01.glb",
+   "firstTier": true,
+   "label": "Counterbalance forklift (driven)",
+   "urlLo": "assets/forklift-lo.glb",
+   "trisLo": 3964,
+   "drawCallsLo": 5,
+   "bytesLo": 96684,
+   "gzBytesLo": 73477,
+   "texturesLo": []
+  },
+  "guard_rail": {
+   "url": "assets/guard_rail.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    -0.0001,
+    0
+   ],
+   "size": [
+    2.786,
+    1.009,
+    0.254
+   ],
+   "tris": 1495,
+   "drawCalls": 2,
+   "bytes": 32576,
+   "gzBytes": 25063,
+   "textures": [],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"rail_guard_a09\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/rail_guard_a09), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/rail_guard_a09 via codepawl/simready-glb@3be2abd glb/rail_guard_a09.glb",
+   "firstTier": true,
+   "label": "Steel guard rail",
+   "urlLo": "assets/guard_rail-lo.glb",
+   "trisLo": 391,
+   "drawCallsLo": 2,
+   "bytesLo": 11372,
+   "gzBytesLo": 7600,
+   "texturesLo": []
+  },
+  "light_panel": {
+   "url": "assets/light_panel.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    1.4553,
+    0
+   ],
+   "size": [
+    6,
+    1.455,
+    3.6
+   ],
+   "tris": 1991,
+   "drawCalls": 3,
+   "bytes": 35016,
+   "gzBytes": 23412,
+   "textures": [],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"lighting_overheadLed_lightPanel_a01\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/lighting_overheadLed_lightPanel_a01), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/lighting_overheadLed_lightPanel_a01 via codepawl/simready-glb@3be2abd glb/lighting_overheadLed_lightPanel_a01.glb",
+   "firstTier": true,
+   "label": "High-bay LED light panel",
+   "urlLo": "assets/light_panel-lo.glb",
+   "trisLo": 596,
+   "drawCallsLo": 3,
+   "bytesLo": 15192,
+   "gzBytesLo": 8963,
+   "texturesLo": []
+  },
+  "pack_table": {
+   "url": "assets/pack_table.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "size": [
+    1.867,
+    0.994,
+    1.219
+   ],
+   "tris": 2996,
+   "drawCalls": 2,
+   "bytes": 57004,
+   "gzBytes": 44617,
+   "textures": [],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"table_packing_heavyduty_c01\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/table_packing_heavyduty_c01), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/table_packing_heavyduty_c01 via codepawl/simready-glb@3be2abd glb/table_packing_heavyduty_c01.glb",
+   "firstTier": true,
+   "label": "Heavy-duty packing table",
+   "urlLo": "assets/pack_table-lo.glb",
+   "trisLo": 789,
+   "drawCallsLo": 2,
+   "bytesLo": 19052,
+   "gzBytesLo": 13362,
+   "texturesLo": []
+  },
+  "pallet": {
+   "url": "assets/pallet.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "size": [
+    1.204,
+    0.209,
+    0.8
+   ],
+   "tris": 300,
+   "drawCalls": 1,
+   "bytes": 73088,
+   "gzBytes": 69744,
+   "textures": [
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp"
+   ],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"pallet_a01\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/pallet_a01), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/pallet_a01 via codepawl/simready-glb@3be2abd glb/pallet_a01.glb",
+   "firstTier": true,
+   "label": "Wooden EUR pallet",
+   "urlLo": "assets/pallet-lo.glb",
+   "trisLo": 120,
+   "drawCallsLo": 1,
+   "bytesLo": 13128,
+   "gzBytesLo": 10629,
+   "texturesLo": [
+    "256x256 webp"
+   ]
+  },
+  "pallet_loaded": {
+   "url": "assets/pallet_loaded.glb",
+   "urlLo": "assets/pallet_loaded-lo.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "size": [
+    1.207,
+    1.161,
+    0.804
+   ],
+   "tris": 1200,
+   "trisLo": 1020,
+   "drawCalls": 2,
+   "drawCallsLo": 2,
+   "bytes": 109760,
+   "gzBytes": 97559,
+   "bytesLo": 32580,
+   "gzBytesLo": 21370,
+   "textures": [
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp"
+   ],
+   "texturesLo": [
+    "256x256 webp",
+    "256x256 webp"
+   ],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"pallet_a01\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/pallet_a01), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed). \"box_cardboard_a01\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/box_cardboard_a01), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "composed from pallet_a01 + box_cardboard_a01 (scripts/assets/compose.ts)",
+   "firstTier": true,
+   "label": "Pallet of cartons (3 x 2 x 3)"
+  },
+  "pallet_loaded_hero": {
+   "url": "assets/pallet_loaded_hero.glb",
+   "scale": 1,
+   "offset": [
+    0.0002,
+    0,
+    0.0089
+   ],
+   "size": [
+    0.921,
+    1.045,
+    0.928
+   ],
+   "tris": 11994,
+   "drawCalls": 3,
+   "bytes": 238140,
+   "gzBytes": 210406,
+   "textures": [
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp"
+   ],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"pallet_assembly_a05\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/pallet_assembly_a05), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/pallet_assembly_a05 via codepawl/simready-glb@3be2abd glb/pallet_assembly_a05.glb",
+   "firstTier": false,
+   "label": "Pallet of strapped cartons (close-up)"
+  },
+  "pallet_wrapped": {
+   "url": "assets/pallet_wrapped.glb",
+   "urlLo": "assets/pallet_wrapped-lo.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "size": [
+    1.233,
+    1.223,
+    0.829
+   ],
+   "tris": 1510,
+   "trisLo": 1330,
+   "drawCalls": 3,
+   "drawCallsLo": 3,
+   "bytes": 118812,
+   "gzBytes": 100981,
+   "bytesLo": 38236,
+   "gzBytesLo": 21376,
+   "textures": [
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp"
+   ],
+   "texturesLo": [
+    "256x256 webp",
+    "256x256 webp"
+   ],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"pallet_a01\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/pallet_a01), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed). \"box_cardboard_c01\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/box_cardboard_c01), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "composed from pallet_a01 + box_cardboard_c01 (scripts/assets/compose.ts)",
+   "firstTier": true,
+   "label": "Shrink-wrapped pallet of cartons"
+  },
+  "pallet_wrapped_hero": {
+   "url": "assets/pallet_wrapped_hero.glb",
+   "scale": 1,
+   "offset": [
+    0.0017,
+    0,
+    -0.003
+   ],
+   "size": [
+    0.907,
+    0.539,
+    0.917
+   ],
+   "tris": 11996,
+   "drawCalls": 3,
+   "bytes": 227988,
+   "gzBytes": 203760,
+   "textures": [
+    "512x512 webp",
+    "512x512 webp",
+    "512x512 webp"
+   ],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"pallet_assembly_transparent_a02\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/pallet_assembly_transparent_a02), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/pallet_assembly_transparent_a02 via codepawl/simready-glb@3be2abd glb/pallet_assembly_transparent_a02.glb",
+   "firstTier": false,
+   "label": "Shrink-wrapped pallet (close-up)"
+  },
+  "stacker": {
+   "url": "assets/stacker.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    -0.0076,
+    -0.5915
+   ],
+   "size": [
+    0.823,
+    1.957,
+    1.885
+   ],
+   "tris": 11979,
+   "drawCalls": 4,
+   "bytes": 254236,
+   "gzBytes": 210755,
+   "textures": [],
+   "parts": [
+    "tiller",
+    "forks"
+   ],
+   "license": "CC-BY-4.0",
+   "credit": "\"vehicle_forklift_blue_a01\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/vehicle_forklift_blue_a01), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/vehicle_forklift_blue_a01 via codepawl/simready-glb@3be2abd glb/vehicle_forklift_blue_a01.glb",
+   "firstTier": true,
+   "label": "Walk-behind pallet stacker (autonomous base)",
+   "urlLo": "assets/stacker-lo.glb",
+   "trisLo": 3469,
+   "drawCallsLo": 4,
+   "bytesLo": 87772,
+   "gzBytesLo": 69775,
+   "texturesLo": []
+  },
+  "tote": {
+   "url": "assets/tote.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    -0.0018,
+    0
+   ],
+   "size": [
+    0.605,
+    0.17,
+    0.405
+   ],
+   "tris": 1124,
+   "drawCalls": 1,
+   "bytes": 26372,
+   "gzBytes": 20057,
+   "textures": [],
+   "parts": [],
+   "license": "CC-BY-4.0",
+   "credit": "\"crate_blue_a08\" from NVIDIA SimReady Assets by NVIDIA Corporation (https://huggingface.co/datasets/nvidia/simready-assets/tree/main/crate_blue_a08), CC BY 4.0; web conversion by codepawl (SimReady GLB); modified for Fleet Planner (simplified, re-textured, re-compressed).",
+   "source": "nvidia/simready-assets/crate_blue_a08 via codepawl/simready-glb@3be2abd glb/crate_blue_a08.glb",
+   "firstTier": true,
+   "label": "Plastic tote",
+   "urlLo": "assets/tote-lo.glb",
+   "trisLo": 296,
+   "drawCallsLo": 1,
+   "bytesLo": 8596,
+   "gzBytesLo": 6549,
+   "texturesLo": []
+  },
+  "worker": {
+   "url": "assets/worker.glb",
+   "scale": 1,
+   "offset": [
+    0,
+    0,
+    0
+   ],
+   "size": [
+    2,
+    1.958,
+    0.313
+   ],
+   "tris": 12566,
+   "drawCalls": 1,
+   "bytes": 226812,
+   "gzBytes": 142251,
+   "textures": [],
+   "parts": [],
+   "clips": [
+    "walk",
+    "idle",
+    "push"
+   ],
+   "license": "CC0-1.0",
+   "credit": "Worker body from \"Universal Base Characters\" and clips from \"Universal Animation Library\" by Quaternius (https://quaternius.com), CC0 1.0; modified for Fleet Planner (hi-vis vest and work clothes painted as vertex colours, re-compressed).",
+   "source": "quaternius.itch.io universal-base-characters [Standard] Superhero_Male_FullBody + universal-animation-library [Standard] UAL1_Standard.glb",
+   "firstTier": true,
+   "label": "Warehouse worker (hi-vis vest), walk / idle / push"
+  }
+ }
+}

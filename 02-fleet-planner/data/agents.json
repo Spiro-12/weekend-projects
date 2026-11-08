@@ -125,7 +125,7 @@
    "id": "forklift",
    "label": "Autonomous forklift",
    "kind": "robot",
-   "model": "forklift-auto",
+   "model": "code:autonomous_forklift",
    "basedOn": [
     "Vecna CPJ",
     "OTTO Lifter",
@@ -393,7 +393,7 @@
    "id": "driver",
    "label": "Forklift driver (person)",
    "kind": "human",
-   "model": "forklift-manual",
+   "model": "forklift",
    "basedOn": [
     "BLS material moving machine operators"
    ],
