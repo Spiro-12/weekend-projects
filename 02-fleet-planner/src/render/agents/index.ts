@@ -1,8 +1,9 @@
-// Agent layer entry (Track E owns this folder from Phase 1). Phase 0: the basic instanced shapes.
+// Agent layer entry (Track E, PROTOCOL §9): cart robots, autonomous and driven forklifts, humanoids and people as
+// instanced rig meshes, route ribbons, glow discs, selection / blocked / deadlock markers, the hero worker, hover
+// and deadlock labels, and high-tier bloom. See layer.ts.
 import type { AgentLayer, AgentLayerOptions } from '../core/layers.ts';
-import { BasicAgentLayer } from './basic.ts';
+import { AgentLayerImpl } from './layer.ts';
 
 export function createAgentLayer(o: AgentLayerOptions): AgentLayer {
-  const layer = new BasicAgentLayer({ width: o.layout.grid[0].length, height: o.layout.grid.length });
-  return Object.assign(layer, { setTier() {} }) as unknown as AgentLayer;
+  return new AgentLayerImpl(o);
 }
