@@ -1,6 +1,7 @@
 // Every SimEvent type the core emits has a test here (or in flow / pallets / breakdown tests), with its payload checked.
 import { describe, expect, it } from 'vitest';
 import type { SimEvent } from '../../../src/contracts/types.ts';
+import { classIndex } from '../../../src/sim/world.ts';
 import { count, makeSim, run, scenario } from './helpers/data.ts';
 import { ScriptedController } from './helpers/test-controller.ts';
 
@@ -74,8 +75,8 @@ describe('work events (default scenario, 2 h, one-brain planner)', () => {
   });
 });
 
-describe('traffic detection events (80 cart robots at capacity, test PIBT controller: knots form and clear)', () => {
-  const sim = makeSim(scenario({ fleet: { amr: 80 }, orders: { mode: 'saturate' } }), { testPibt: true });
+describe('traffic detection events (NaiveController, no recovery: knots form, some clear)', () => {
+  const sim = makeSim(scenario({ orders: { mode: 'saturate' } }), {});
   const ev = run(sim, 2 * 7200);
   it('deadlockStart / deadlockEnd with stable ids and member lists', () => {
     const s = of(ev, 'deadlockStart');
@@ -85,9 +86,6 @@ describe('traffic detection events (80 cart robots at capacity, test PIBT contro
     for (const e of of(ev, 'deadlockEnd')) expect(started.has(e.deadlock)).toBe(true);
     expect(count(ev, 'deadlockEnd')).toBeGreaterThan(0);
     expect(sim.snapshot().deadlocks.length).toBe(s.length - count(ev, 'deadlockEnd'));
-  });
-  it('manualReset: the controller’s 5-minute reset is applied and reported', () => {
-    expect(count(ev, 'manualReset')).toBeGreaterThan(0);
   });
   it('jamStart / jamEnd: ≥ 3 agents, a cell', () => {
     const j = of(ev, 'jamStart');
@@ -114,7 +112,7 @@ describe('controller events: manualReset, retask, safetyStop, yield', () => {
               const a = input.agents[id];
               if (!a || input.ready[id] !== input.tick) continue;
               for (let c = 0; c < input.world.n; c++)
-                if (input.world.passable[0][c] && !input.world.isPocket[c] && input.occ[c] < 0 && input.world.faceAt[c] < 0) {
+                if (input.world.passable[classIndex(a.passClass)][c] && !input.world.isPocket[c] && input.occ[c] < 0 && input.world.faceAt[c] < 0) {
                   resetDone = true;
                   return [{ agent: id, cell: c }];
                 }
@@ -123,11 +121,14 @@ describe('controller events: manualReset, retask, safetyStop, yield', () => {
           },
           retasks: (input) => {
             if (retaskDone) return [];
-            for (const r of sim.robots)
-              if (r.job === 1 && r.stage === 2 && input.ready[r.id] === input.tick) {
+            for (const r of sim.robots) {
+              const task = (sim as unknown as { taskById: Map<number, { stops: unknown[]; stop: number }> }).taskById.get(r.taskId);
+              const rotatable = r.job === 1 && r.stage === 0 && !!task && task.stops.length - task.stop >= 2;
+              if ((rotatable || (r.job === 1 && r.stage === 2)) && input.ready[r.id] === input.tick) {
                 retaskDone = true;
                 return [r.id];
               }
+            }
             return [];
           },
           events: (input) => {

@@ -39,12 +39,13 @@ export class PackFloor {
   }
 
   /** The WMS rule (PROTOCOL §5 rule 8): the least-loaded station; ties go to the nearest, then the lowest id. */
-  leastLoaded(distTo: (station: PackStation) => number, except = -1): number {
+  leastLoaded(distTo: (station: PackStation) => number, except = -1, open?: (station: PackStation) => boolean): number {
     let best = -1;
     let bestLoad = 0;
     let bestD = 0;
     for (const s of this.stations) {
       if (s.id === except && this.stations.length > 1) continue;
+      if (open && !open(s)) continue;
       const d = distTo(s);
       if (best < 0 || s.load < bestLoad || (s.load === bestLoad && d < bestD)) {
         best = s.id;
