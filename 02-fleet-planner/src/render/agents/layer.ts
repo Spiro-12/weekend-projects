@@ -237,7 +237,8 @@ export class AgentLayerImpl implements AgentLayer {
     if (s.bloom && !this.bloom) {
       void import('../fx/bloom.ts').then(({ Bloom }) => {
         if (this.disposed || !this.bloomWanted || this.bloom) return;
-        this.bloom = new Bloom(this.core, s.bloomScale || 0.5, s.antialias ? 4 : 0);
+        // No MSAA in the HDR target: 4x multisampled half-float at DPR 1.5 costs more than the bloom itself (spike a: high = no MSAA).
+        this.bloom = new Bloom(this.core, s.bloomScale || 0.5, 0);
         this.core.setRenderPass(this.bloom.render);
       });
     } else if (!s.bloom && this.bloom) {
