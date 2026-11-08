@@ -40,6 +40,8 @@ export const PK_AT_STOP = 1; // cart robot: waiting for a picker or stock, or be
 export const PK_TO_PACK = 2;
 export const PK_HANDOFF = 3;
 export const PK_SETUP = 4; // manual cart: induct (label totes, set up the cart) before the first stop
+export const PK_HOLD = 5; // all lines picked, held back until a pack station has a free queue slot
+export const PK_ZONE_HOLD = 6; // between stops, held back until one of its remaining zones has room
 /** Stages of J_SERVE. */
 export const SV_TO_AMR = 0;
 export const SV_WAIT_STOCK = 1;
@@ -149,6 +151,8 @@ export class CoreAgent {
   swappedAt = -1;
   /** Tick it was handed to the planner as a pushable robot standing at its own goal (waiting at a stop, resting). */
   parkReady = -1;
+  /** Zone this cart robot counts toward in this tick's zone loads (scratch, recomputed every tick; not state). */
+  countedZone = -1;
 
   // ── work ──
   job = J_NONE;

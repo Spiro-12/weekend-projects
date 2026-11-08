@@ -54,12 +54,21 @@ export const SATURATE_ORDERS_PER_AGENT = 6;
 export const SATURATE_MIN_QUEUE = 16;
 
 /**
- * Zone admission: at most this many cart robots per zone worker head to or wait in one pick zone at a time (more go to
- * their other stops first). Estimate: a hot zone near packing is only a few rows of one aisle; 3 waiting robots still leave the
+ * Zone admission: at most this many cart robots per zone worker head to or wait in one pick zone at a time. More go to
+ * their other stops first; a robot whose remaining zones are all full holds where it is (pushable, state 'wait') until
+ * one has room, and a new batch is released to a robot only if one of its zones has room (WMS release control).
+ * Without the hold, robots drove into full hot zones anyway past about 50 cart robots and locked up the cross aisle at
+ * the hot aisle's mouth (seen in calibration). Estimate: a hot zone near packing is only a few rows of one aisle; 3 waiting robots still leave the
  * picker a lane to walk in, while 2-lane aisles full of waiting robots wall the picker in (seen in testing). Cart-robot
  * fleet managers cap robots per zone for the same reason.
  */
 export const ZONE_MAX_AMRS = 3;
+
+/** ...and a zone admits at most one cart robot per this many of its faces (at least 2): the small hot zones near
+ *  packing (about 20 faces, a few rows of one aisle) otherwise took 6 robots each, and two of them side by side filled
+ *  one aisle with robots, pickers and drivers until it locked (seen in calibration). Estimate: a robot waiting at a face
+ *  plus room to pass is about 5 faces of a 2-lane aisle. */
+export const ZONE_FACES_PER_AMR = 5;
 
 /**
  * A free zone worker is sent to a cart robot still on its way into the zone once the robot is within this many cells
@@ -135,3 +144,30 @@ export const ASSISTED_PICK_PCT = 60;
  */
 export const WAIT_CREDIT_TICKS = 20;
 export const WAIT_CREDIT_MAX_CELLS = 10;
+
+/**
+ * Pack admission (WMS release control): a carrier with all its lines picked drives to pack only when the least-loaded
+ * station with a free queue slot exists; a station's queue is the carriers heading to it or handing off there, at most
+ * PACK_QUEUE_SLOTS. Otherwise it holds: on its pick-aisle cell, or the nearest free one if it is on a main or cross
+ * aisle, state 'wait'. Held carriers are released first in, first out. Estimate from the lane geometry: a 2-cell
+ * station has 2 hand-off cells and about 1 approach cell in the 2-wide pack lane before robots spill into the cross
+ * aisle, so 3. Without it, robots delivering faster than 6 stations pack queued into the cross aisle and the floor
+ * locked up past about 50 cart robots (seen in calibration: 337 manual resets in 2.5 h at 56 robots).
+ */
+export const PACK_QUEUE_SLOTS = 3;
+
+/**
+ * Batch release: a cart robot (or manual cart) gets a batch only when TOTES_PER_AMR (ORDERS_PER_CART) orders are queued,
+ * or when the oldest queued order has waited this long. Estimate: WMS waves and batch release hold orders for a
+ * minute or so to fill a trip. Without it, at 600 orders/h with idle robots, two thirds of trips left with one order,
+ * so demand mode needed twice the trips that saturate capacity suggested and fell behind (seen in calibration).
+ */
+export const BATCH_MAX_WAIT_SEC = 60;
+
+/**
+ * A picker waiting at a face for an incoming cart robot gives the meeting up once that robot has been blocked this
+ * many ticks (30 s), and stands down like an idle person (it steps off cells robots claim and lets pickers pass).
+ * Pickers standing in both lanes of an aisle for robots that their own bodies were blocking formed wait-for cycles
+ * that only manual resets broke (seen in calibration with drivers doing all the pallet work). Estimate.
+ */
+export const MEET_GIVEUP_TICKS = 60;

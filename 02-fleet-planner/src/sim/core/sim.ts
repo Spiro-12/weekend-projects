@@ -61,7 +61,9 @@ import {
   N_STATES,
   PK_AT_STOP,
   PK_HANDOFF,
+  PK_HOLD,
   PK_SETUP,
+  PK_ZONE_HOLD,
   PK_TO_PACK,
   PK_TO_STOP,
   PL_LOAD,
@@ -94,6 +96,8 @@ import {
 } from './agent.ts';
 import {
   ASSISTED_PICK_PCT,
+  MEET_GIVEUP_TICKS,
+  BATCH_MAX_WAIT_SEC,
   BATCH_WINDOW,
   BLEED_PENALTY_CELLS,
   BLEED_WAIT_TICKS,
@@ -104,6 +108,7 @@ import {
   DEFAULT_HANDOFF_SEC,
   HOME_SPACING,
   ORDERS_PER_CART,
+  PACK_QUEUE_SLOTS,
   SATURATE_MIN_QUEUE,
   SATURATE_ORDERS_PER_AGENT,
   PRESEND_CELLS,
@@ -112,6 +117,7 @@ import {
   TOTES_PER_AMR,
   WAIT_CREDIT_MAX_CELLS,
   WAIT_CREDIT_TICKS,
+  ZONE_FACES_PER_AMR,
   ZONE_MAX_AMRS,
   ZONE_PICKERS,
 } from './constants.ts';
@@ -223,7 +229,7 @@ export class CoreSim implements Sim {
   agents: CoreAgent[] = [];
   people: CoreAgent[] = [];
   robots: CoreAgent[] = [];
-  readonly counters = { stepAsides: 0, stepOffs: 0, swaps: 0, detours: 0, trafficStepAsides: 0, resets: 0, retasks: 0, pushedOff: 0 };
+  readonly counters = { stepAsides: 0, stepOffs: 0, swaps: 0, detours: 0, trafficStepAsides: 0, resets: 0, retasks: 0, pushedOff: 0, meetsGivenUp: 0 };
   readonly violations: Violations = {
     overlap: 0, occMismatch: 0, moveIntoHeld: 0, robotIntoPerson: 0, forkOnNarrow: 0, pocketNotGoal: 0, badMove: 0, negativeBattery: 0,
   };
@@ -256,6 +262,7 @@ export class CoreSim implements Sim {
   private readonly pack: PackFloor;
   private readonly packTicks: number;
   private readonly setupTicks = secToTicks(CART_SETUP_SEC);
+  private readonly batchWaitTicks = secToTicks(BATCH_MAX_WAIT_SEC);
   private readonly putTicks = secToTicks(PUT_TO_CART_SEC);
   private readonly toteHandoffTicks = secToTicks(TOTE_HANDOFF_SEC);
   private readonly faults: FaultSchedule;
@@ -277,6 +284,10 @@ export class CoreSim implements Sim {
   private readonly parkingHolder: Int32Array;
   private readonly restHolder: Int32Array;
   private chargeQueue: number[] = [];
+  /** Carriers holding a full batch until a pack station has a free queue slot, in the order they became ready. */
+  private packHold: number[] = [];
+  /** Cart robots between stops held until one of their remaining zones has room, in the order they were held. */
+  private zoneHold: number[] = [];
   /** restOk[classIndex][cell]: a robot / driver may rest here without blocking anything important. */
   private readonly restOk: Uint8Array[];
   /** Rest cells for forklifts and drivers in the dock zone (tried first). */
@@ -288,6 +299,10 @@ export class CoreSim implements Sim {
 
   private zones: Zones | null = null;
   private zonesDirty = true;
+  /** Cart robots each zone admits (see zoneHasRoom). */
+  private zoneCap: number[] = [];
+  private zoneLoads: number[] = [];
+  private zoneLoadTick = -1;
   private readonly zoneOrder: number[];
   private readonly zoneWeights: number[];
   private activeAmrs = 0;
@@ -959,6 +974,7 @@ export class CoreSim implements Sim {
     if (r.to >= 0 || r.brokenUntil > 0 || r.dwellUntil > 0 || this.world.isPocket[r.cell] || r.removing) return false;
     if (r.job === J_REST) return r.stage === RS_AT;
     if (r.job === J_NONE) return true;
+    if (r.job === J_PICK && (r.stage === PK_HOLD || r.stage === PK_ZONE_HOLD)) return r.goal < 0;
     if (r.job !== J_PICK || r.stage !== PK_AT_STOP || r.waiting !== 1 || !this.isAmrTask(r)) return false;
     const w = r.partner >= 0 ? this.byId[r.partner] : null;
     return !w || (w.stage !== SV_PICKING && w.stage !== SV_WAIT_STOCK);
@@ -968,6 +984,7 @@ export class CoreSim implements Sim {
    *  wherever it ends up. */
   private pushedOff(r: CoreAgent, t: number): void {
     this.counters.pushedOff++;
+    if (r.job === J_PICK && (r.stage === PK_HOLD || r.stage === PK_ZONE_HOLD)) return; // still held, wherever it was pushed
     if (r.job === J_PICK) {
       const task = this.taskById.get(r.taskId) as PickTask;
       r.stage = PK_TO_STOP;
@@ -1199,7 +1216,16 @@ export class CoreSim implements Sim {
       if (a.waiting === 1 && a.goal < 0) {
         if (a.job === J_PICK && a.stage === PK_AT_STOP && !this.isAmrTask(a)) this.tryCartPick(a, t);
         else if (a.job === J_SERVE && a.stage === SV_WAIT_STOCK) this.tryServe(a, t);
-        else if (a.job === J_SERVE && a.stage === SV_WAIT_AMR) this.checkMeet(a, t);
+        else if (a.job === J_SERVE && a.stage === SV_WAIT_AMR) {
+          // a meeting that can't happen: the robot it waits for has been blocked MEET_GIVEUP_TICKS (often by the
+          // waiting picker itself, standing in the aisle): give it up and stand down like an idle person
+          const r = this.byId[a.partner];
+          if (r && r.partner === a.id && r.stage === PK_TO_STOP && r.blockedTicks >= MEET_GIVEUP_TICKS) {
+            r.partner = -1;
+            this.freeAgent(a);
+            this.counters.meetsGivenUp++;
+          } else this.checkMeet(a, t);
+        }
       }
       // A cart robot whose picker already waits right beside it, within 2 cells of the face, stops there to be picked.
       if (a.job === J_PICK && a.stage === PK_TO_STOP && a.partner >= 0 && a.goal >= 0) {
@@ -1211,6 +1237,8 @@ export class CoreSim implements Sim {
       }
       if (a.goal >= 0 && this.atGoal(a)) this.arrive(a, t);
     }
+    this.releaseZoneHold(t);
+    this.releasePackHold(t);
     this.matchZones(t);
     this.assign(t);
     this.packAndShip(t);
@@ -1240,6 +1268,8 @@ export class CoreSim implements Sim {
             const wk = a.partner >= 0 ? this.byId[a.partner] : null;
             if (wk && wk.partner === a.id && wk.stage === SV_TO_AMR && wk.goal !== a.cell) this.sendToMeet(wk, a, t);
           } else this.tryCartPick(a, t);
+        } else if (a.stage === PK_HOLD) {
+          // reached its holding cell: keep waiting for a pack slot
         } else if (a.stage === PK_TO_PACK) {
           a.stage = PK_HANDOFF;
           // a cart robot hands its totes off in one go (its spec handoffSec); a person unloads a cart tote by tote
@@ -1404,19 +1434,110 @@ export class CoreSim implements Sim {
     carrier.waiting = 0;
     task.stop++;
     if (task.stop < task.stops.length) {
-      this.admitStop(carrier, task);
+      if (!this.admitStop(carrier, task)) {
+        // every remaining zone is full: hold here (on the pick-aisle cell of the last stop, pushable) until one has room
+        carrier.stage = PK_ZONE_HOLD;
+        carrier.waiting = 1;
+        carrier.waitSince = t;
+        this.clearGoal(carrier);
+        this.zoneHold.push(carrier.id);
+        return;
+      }
       carrier.stage = PK_TO_STOP;
       this.setGoal(carrier, this.world.faces[task.stops[task.stop].face].cell, G_NEAR, t);
       return;
     }
-    // All lines picked: the WMS sends the tote(s) to the least-loaded pack station (PROTOCOL §5 rule 8).
-    const from = carrier.cell;
-    const s = this.pack.leastLoaded((st) => this.dist.to(carrier.distCls, st.service)[from]);
+    // All lines picked: the WMS releases the tote(s) to the least-loaded pack station with a free queue slot
+    // (PROTOCOL §5 rule 8 plus pack admission); with none free, the carrier holds (PACK_QUEUE_SLOTS).
+    if (this.packHold.length === 0 && this.sendToPack(carrier, task, t)) return;
+    carrier.stage = PK_HOLD;
+    carrier.waiting = 1;
+    carrier.waitSince = t;
+    // first in, first out by hold tick, then id
+    let slot = this.packHold.length;
+    while (slot > 0) {
+      const prev = this.byId[this.packHold[slot - 1]];
+      if (!prev || prev.waitSince < t || prev.id < carrier.id) break;
+      slot--;
+    }
+    this.packHold.splice(slot, 0, carrier.id);
+    this.clearGoal(carrier);
+    // hold out of the main and cross aisles: stay on a pick-aisle cell, or move to the nearest free one
+    const at = carrier.to >= 0 ? carrier.to : carrier.cell;
+    if (this.world.faceAt[at] < 0) {
+      const c = this.findHoldCell(carrier);
+      if (c >= 0) {
+        this.restHolder[c] = carrier.id;
+        carrier.restCell = c;
+        this.setGoal(carrier, c, G_EXACT, t);
+      }
+    }
+  }
+
+  /** Carriers (cart robots and manual carts) heading to or handing off at pack station s. */
+  private packQueue(s: number): number {
+    let n = 0;
+    for (const a of this.agents) {
+      if (a.job !== J_PICK || (a.stage !== PK_TO_PACK && a.stage !== PK_HANDOFF)) continue;
+      const task = this.taskById.get(a.taskId) as PickTask;
+      if (task.station === s) n++;
+    }
+    return n;
+  }
+
+  /** Send a carrier with a full batch to the least-loaded station that has a free queue slot; false if none. */
+  private sendToPack(carrier: CoreAgent, task: PickTask, t: number): boolean {
+    const from = carrier.to >= 0 ? carrier.to : carrier.cell;
+    const s = this.pack.leastLoaded((st) => this.dist.to(carrier.distCls, st.service)[from], -1, (st) => this.packQueue(st.id) < PACK_QUEUE_SLOTS);
+    if (s < 0) return false;
+    if (carrier.restCell >= 0) {
+      if (this.restHolder[carrier.restCell] === carrier.id) this.restHolder[carrier.restCell] = -1;
+      carrier.restCell = -1;
+    }
     task.station = s;
     this.pack.stations[s].load += task.orders.length;
     for (const oid of task.orders) this.orders.open.get(oid)!.station = s;
     carrier.stage = PK_TO_PACK;
+    carrier.waiting = 0;
     this.setGoal(carrier, this.pack.stations[s].service, G_STATION, t, s);
+    return true;
+  }
+
+  /** Release held carriers first in, first out (ready tick, then id) while stations have free slots. */
+  private releasePackHold(t: number): void {
+    while (this.packHold.length > 0) {
+      const a = this.byId[this.packHold[0]];
+      if (!a || a.job !== J_PICK || a.stage !== PK_HOLD || a.brokenUntil > 0) {
+        this.packHold.shift();
+        continue;
+      }
+      if (!this.sendToPack(a, this.taskById.get(a.taskId) as PickTask, t)) return;
+      this.packHold.shift();
+    }
+  }
+
+  /** Nearest free pick-aisle (face) cell to hold on, by BFS over the carrier's cells; -1 if none. */
+  private findHoldCell(a: CoreAgent): number {
+    const w = this.world;
+    const st = ++this.stamp;
+    const q = this.bfsQueue;
+    const seen = this.bfsStamp;
+    const start = a.to >= 0 ? a.to : a.cell;
+    let head = 0;
+    let tail = 0;
+    q[tail++] = start;
+    seen[start] = st;
+    while (head < tail) {
+      const u = q[head++];
+      if (w.faceAt[u] >= 0 && this.occ[u] < 0 && this.restHolder[u] < 0) return u;
+      for (let d = 0; d < 4; d++) {
+        const j = w.nbr[u * 4 + d];
+        if (j < 0 || !a.pass[j] || w.isPocket[j] || seen[j] === st) continue;
+        seen[j] = st;
+        q[tail++] = j;
+      }
+    }
+    return -1;
   }
 
   private deliver(a: CoreAgent, task: PickTask, t: number): void {
@@ -1477,6 +1598,18 @@ export class CoreSim implements Sim {
           }
           this.removeTask(task.id);
         }
+        if (a.stage === PK_ZONE_HOLD) {
+          const k = this.zoneHold.indexOf(a.id);
+          if (k >= 0) this.zoneHold.splice(k, 1);
+        }
+        if (a.stage === PK_HOLD) {
+          const k = this.packHold.indexOf(a.id);
+          if (k >= 0) this.packHold.splice(k, 1);
+          if (a.restCell >= 0) {
+            if (this.restHolder[a.restCell] === a.id) this.restHolder[a.restCell] = -1;
+            a.restCell = -1;
+          }
+        }
         a.cargo = C_NONE;
         break;
       }
@@ -1525,6 +1658,11 @@ export class CoreSim implements Sim {
       .filter((a) => (a.type === T_PICKER || a.type === T_HUMANOID) && !a.removing && a.pickTicks > 0)
       .map((a) => ({ id: a.id, weight: Math.floor((1_000_000 / a.assistTicks) * (a.batteryMax > 0 ? a.batteryMax / (a.batteryMax + a.chargeC) : 1)) }));
     this.zones = computeZones(this.world, this.zoneOrder, this.zoneWeights, workers, ZONE_PICKERS);
+    this.zoneLoadTick = -1;
+    // a zone takes ZONE_MAX_AMRS robots per worker, but no more than its aisle space holds (ZONE_FACES_PER_AMR faces each)
+    const faces = new Array<number>(this.zones.members.length).fill(0);
+    for (let f = 0; f < this.zones.faceZone.length; f++) if (this.zones.faceZone[f] >= 0) faces[this.zones.faceZone[f]]++;
+    this.zoneCap = this.zones.members.map((m, z) => Math.max(2, Math.min(ZONE_MAX_AMRS * m.length, Math.floor(faces[z] / ZONE_FACES_PER_AMR))));
     for (const a of this.agents) a.zone = -1;
     this.zones.workers.forEach((id, k) => (this.byId[id]!.zone = k));
     // Resting zone workers re-plan where to wait (their zone may have moved).
@@ -1683,31 +1821,81 @@ export class CoreSim implements Sim {
    * zone has fewer than ZONE_MAX_AMRS robots heading to or waiting at it; if every remaining zone is full, the planned
    * next stop. Robots queued in a small hot zone would otherwise fill both aisle lanes and wall in its picker.
    */
-  private admitStop(carrier: CoreAgent, task: PickTask): void {
-    if (!task.amr || !this.zones || task.stop >= task.stops.length - 1) return;
+  private admitStop(carrier: CoreAgent, task: PickTask): boolean {
+    if (!task.amr || !this.zones) return true;
     const fz = this.zones.faceZone;
     for (let i = task.stop; i < task.stops.length; i++) {
-      const zone = fz[task.stops[i].face];
-      if (zone < 0 || this.zoneLoad(zone, carrier.id) < ZONE_MAX_AMRS * this.zones.members[zone].length) {
-        if (i > task.stop) {
-          const moved = task.stops.splice(i, 1)[0];
-          task.stops.splice(task.stop, 0, moved);
-        }
-        return;
+      const z = fz[task.stops[i].face];
+      if (!this.zoneHasRoom(z, carrier.id)) continue;
+      if (i > task.stop) {
+        const moved = task.stops.splice(i, 1)[0];
+        task.stops.splice(task.stop, 0, moved);
       }
+      // keep this tick's zone loads current: the carrier now counts toward zone z
+      if (z >= 0 && this.zoneLoadTick === this.t && carrier.countedZone !== z) {
+        if (carrier.countedZone >= 0) this.zoneLoads[carrier.countedZone]--;
+        this.zoneLoads[z]++;
+        carrier.countedZone = z;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  private zoneHasRoom(zone: number, except: number): boolean {
+    return zone < 0 || this.zoneLoad(zone, except) < this.zoneCap[zone];
+  }
+
+  /** WMS release control for a new cart-robot batch: some line of it is in a zone with room. */
+  private batchAdmissible(batch: Order[]): boolean {
+    if (!this.zones) return true;
+    for (const o of batch) for (const f of o.faces) if (this.zoneHasRoom(this.zones.faceZone[f], -1)) return true;
+    return false;
+  }
+
+  /** Release zone-held cart robots (in the order they were held) whose remaining stops now have a zone with room. */
+  private releaseZoneHold(t: number): void {
+    for (let i = 0; i < this.zoneHold.length; ) {
+      const a = this.byId[this.zoneHold[i]];
+      if (!a || a.job !== J_PICK || a.stage !== PK_ZONE_HOLD || a.brokenUntil > 0) {
+        this.zoneHold.splice(i, 1);
+        continue;
+      }
+      const task = this.taskById.get(a.taskId) as PickTask;
+      if (!this.admitStop(a, task)) {
+        i++;
+        continue;
+      }
+      this.zoneHold.splice(i, 1);
+      a.stage = PK_TO_STOP;
+      a.waiting = 0;
+      this.setGoal(a, this.world.faces[task.stops[task.stop].face].cell, G_NEAR, t);
     }
   }
 
   /** Cart robots (other than `except`) heading to or waiting at a stop in this zone. */
   private zoneLoad(zone: number, except: number): number {
+    if (this.zoneLoadTick !== this.t) this.refreshZoneLoads();
+    const e = except >= 0 ? this.byId[except] : null;
+    return this.zoneLoads[zone] - (e && e.countedZone === zone ? 1 : 0);
+  }
+
+  /** Zone loads, counted once per tick (and kept up to date as robots are admitted within the tick). */
+  private refreshZoneLoads(): void {
+    this.zoneLoadTick = this.t;
     const fz = this.zones!.faceZone;
-    let n = 0;
+    this.zoneLoads.length = this.zones!.members.length;
+    this.zoneLoads.fill(0);
     for (const r of this.robots) {
-      if (r.id === except || r.type !== T_AMR || r.job !== J_PICK || (r.stage !== PK_TO_STOP && r.stage !== PK_AT_STOP)) continue;
+      r.countedZone = -1;
+      if (r.type !== T_AMR || r.job !== J_PICK || (r.stage !== PK_TO_STOP && r.stage !== PK_AT_STOP)) continue;
       const task = this.taskById.get(r.taskId) as PickTask;
-      if (task.amr && task.stop < task.stops.length && fz[task.stops[task.stop].face] === zone) n++;
+      if (!task.amr || task.stop >= task.stops.length) continue;
+      const z = fz[task.stops[task.stop].face];
+      if (z < 0) continue;
+      this.zoneLoads[z]++;
+      r.countedZone = z;
     }
-    return n;
   }
 
   private isFree(a: CoreAgent): boolean {
@@ -1796,10 +1984,20 @@ export class CoreSim implements Sim {
       const carriers = zone ? this.candidates(T_AMR, T_AMR, 'pick', this.cand) : this.candidates(T_PICKER, T_HUMANOID, 'pick', this.cand);
       const cap = zone ? TOTES_PER_AMR : ORDERS_PER_CART;
       while (this.orders.queued > 0 && carriers.length > 0) {
+        // batch release: a batch leaves full, or once its oldest order has waited BATCH_MAX_WAIT_SEC
+        if (this.orders.queued < cap) {
+          const oldest = this.orders.open.get(this.orders.peek(1, this.peekList)[0])!;
+          if (t - oldest.arrived < this.batchWaitTicks) break;
+        }
         const batch = this.formBatch(cap);
         const ref = this.world.faces[batch[0].faces[0]].cell;
         const k = this.nearest(carriers, null, ref);
         if (k < 0) {
+          this.orders.requeue(batch.map((o) => o.id));
+          break;
+        }
+        if (zone && !this.batchAdmissible(batch)) {
+          // every zone this batch needs is full: the WMS keeps it queued rather than send another robot in
           this.orders.requeue(batch.map((o) => o.id));
           break;
         }
@@ -2242,6 +2440,8 @@ export class CoreSim implements Sim {
    *  with a task, or task work); a trip to park or rest is 'idle' and a trip to a charger is 'charge'. */
   private stateOf(a: CoreAgent, t: number): number {
     if (a.brokenUntil > 0) return ST_BROKEN;
+    // held for a pack slot (on its way to a holding cell or standing): waiting, not productive
+    if (a.job === J_PICK && (a.stage === PK_HOLD || a.stage === PK_ZONE_HOLD) && (a.to >= 0 || a.blockedAt !== t)) return ST_WAIT;
     // queued for a charger (resting or on its way to rest meanwhile): waiting
     if (a.chargeQueuedAt >= 0 && a.job !== J_CHARGE && (a.to >= 0 || a.blockedAt !== t)) return ST_WAIT;
     const moving = a.to >= 0;
@@ -2265,7 +2465,9 @@ export class CoreSim implements Sim {
     let task: Task | undefined;
     if (a.job === J_PICK) task = this.taskById.get(a.taskId);
     else if (a.job === J_SERVE) task = this.taskById.get(this.byId[a.partner]?.taskId ?? -1);
-    if (task && task.kind === 'pick') {
+    // held for a pack slot or zone room: waiting for capacity, not for an agent
+    if (a.job === J_PICK && (a.stage === PK_HOLD || a.stage === PK_ZONE_HOLD)) return -1;
+    if (task && task.kind === 'pick' && task.stop < task.stops.length) {
       const r = this.replenOpen[task.stops[task.stop].face];
       const p = r >= 0 ? (this.taskById.get(r) as PalletTask | undefined) : undefined;
       return p ? p.agent : -1;
@@ -2381,6 +2583,8 @@ export class CoreSim implements Sim {
           else stage = task.amr ? (partner ? `picker coming ${n}` : `waiting for picker ${n}`) : `picking ${n}`;
         } else if (a.stage === PK_HANDOFF) stage = 'handoff';
         else if (a.stage === PK_SETUP) stage = 'cart setup';
+        else if (a.stage === PK_HOLD) stage = 'waiting for a pack slot';
+        else if (a.stage === PK_ZONE_HOLD) stage = 'waiting for room in a zone';
       }
       return { id: task.id, kind: 'pick', orderIds: task.orders.slice(), lines: task.lines, stage, createdTick: task.created, agentIds: ids };
     }
@@ -2430,7 +2634,7 @@ export class CoreSim implements Sim {
     for (const arr of [this.stock, this.replenOpen, this.chargerHolder, this.parkingHolder]) for (let i = 0; i < arr.length; i++) words.push(arr[i]);
     for (let c = 0; c < this.restHolder.length; c++) if (this.restHolder[c] >= 0) words.push(c, this.restHolder[c]);
     for (let c = 0; c < this.claim.length; c++) if (this.claim[c] > this.t) words.push(c, this.claim[c]);
-    words.push(this.chargeQueue.length, ...this.chargeQueue, this.order.length, ...this.order);
+    words.push(this.chargeQueue.length, ...this.chargeQueue, this.packHold.length, ...this.packHold, this.zoneHold.length, ...this.zoneHold, this.order.length, ...this.order);
     if (this.zones) words.push(...this.zones.workers, ...this.zones.workerZone, ...this.zones.home);
     for (const r of [this.arrivals, this.rngHumans, this.rngSpawn, this.rngBattery, this.rngFaults]) words.push(...r.state());
     for (const v of [...this.tiebreak.keys()].sort()) words.push(fnv1a32(v), ...this.tiebreak.get(v)!.state());
