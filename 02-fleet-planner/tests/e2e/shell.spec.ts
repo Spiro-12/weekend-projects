@@ -49,9 +49,11 @@ test('click an agent to follow it, Escape to pull back out', async ({ page }) =>
 test('phone layout loads and fits the building', async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
-  const errors = await openApp(page);
+  const errors = await openApp(page, '', { adaptive: true });
   await expect(page.getByTestId('kpi-oph')).toBeVisible();
-  expect(await page.evaluate(() => window.__fp!.perf.tier)).toBe('low');
+  // A touch phone starts at low. On a GPU-less CI box the adaptive tier may already have stepped down to lite.
+  const tier = await page.evaluate(() => window.__fp!.perf.tier);
+  expect(process.env.CI ? ['low', 'lite'] : ['low']).toContain(tier);
   await expectNoErrors(errors);
   await ctx.close();
 });

@@ -23,8 +23,10 @@ jobs:
 
   fleet:
     name: Fleet Planner (typecheck, unit, golden, e2e, build)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Apple Silicon runner: its browsers get a (paravirtual) Metal GPU. Linux runners only have SwiftShader, which draws
+    # the Phase 1 warehouse (SimReady world, about 500k triangles) too slowly for the e2e suite (> 30 min, timeouts).
+    runs-on: macos-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: 02-fleet-planner
@@ -42,6 +44,11 @@ jobs:
       - run: npx vitest run --project golden --passWithNoTests
       # e2e builds the app, serves it gzipped like Pages, checks budgets (bytes, draw calls) and the
       # cross-engine determinism hash (Chromium, Firefox, WebKit vs Node). Real fps is measured on Spiro's Mac.
+      - name: Which GPU the browser gets (for the log)
+        run: >
+          node -e "const {chromium}=require('playwright');(async()=>{const b=await chromium.launch({channel:'chromium'});const p=await b.newPage();
+          console.log('WebGL renderer:',await p.evaluate(()=>{const g=document.createElement('canvas').getContext('webgl2');
+          const e=g&&g.getExtension('WEBGL_debug_renderer_info');return g?g.getParameter(e?e.UNMASKED_RENDERER_WEBGL:g.RENDERER):'none'}));await b.close()})()"
       - run: npx playwright test
       - name: Pages build includes 02 with the right base path
         working-directory: .
