@@ -15,14 +15,18 @@ test('initial JS stays under budget (gzipped)', () => {
 });
 
 test('first useful view downloads under budget', async ({ page }) => {
-  let bytes = 0;
-  page.on('response', async (r) => {
-    const len = Number((await r.allHeaders())['content-length'] ?? 0);
-    bytes += len;
-  });
+  // Bytes requested before the first useful view (the browser's own resource timing, so models that start loading
+  // afterwards don't count however slow the machine is), plus the page itself.
   await openApp(page);
-  const kb = bytes / 1024;
-  console.log(`first useful view: ${kb.toFixed(1)} KB transferred`);
+  const { kb, n } = await page.evaluate(() => {
+    const fuv = window.__fp!.perf.firstUsefulViewMs!;
+    const size = (e: PerformanceResourceTiming) => e.transferSize || e.encodedBodySize;
+    const nav = performance.getEntriesByType('navigation') as PerformanceResourceTiming[];
+    const res = (performance.getEntriesByType('resource') as PerformanceResourceTiming[]).filter((e) => e.startTime <= fuv);
+    return { kb: [...nav, ...res].reduce((t, e) => t + size(e), 0) / 1024, n: res.length + nav.length };
+  });
+  console.log(`first useful view: ${kb.toFixed(1)} KB transferred in ${n} requests`);
+  expect(n).toBeGreaterThan(1);
   expect(kb).toBeLessThanOrEqual(budgets.firstUsefulViewKB);
 });
 

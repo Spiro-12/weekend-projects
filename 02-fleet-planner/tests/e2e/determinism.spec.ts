@@ -8,14 +8,16 @@ import type { AgentsFile, LayoutFile, Scenario } from '../../src/contracts/types
 import { createSim } from '../../src/sim/index.ts';
 
 const TICKS = 7200; // one simulated hour
+// Firefox on the CI runner can take a minute to run an hour of sim; the hook doesn't need the page fully loaded.
+test.describe.configure({ timeout: 180_000 });
 
 for (const [name, sc] of [['default', scenario], ['mixed fleet (every agent type)', mixed]] as const) {
   test(`the browser sim hash equals the Node hash: ${name}`, async ({ page }) => {
     const sim = createSim(sc as Scenario, { agents: agents as AgentsFile, layout: layout as LayoutFile });
     sim.step(TICKS);
     const nodeHash = sim.hash();
-    await page.goto('./?tier=lite&freeze=1');
-    await page.waitForFunction(() => window.__fpSim !== undefined, null, { timeout: 30_000 });
+    await page.goto('./?tier=lite&freeze=1', { waitUntil: 'commit' });
+    await page.waitForFunction(() => window.__fpSim !== undefined, null, { timeout: 90_000 });
     const browserHash = await page.evaluate(([s, t]) => window.__fpSim!.runHash(s as Scenario, t), [sc, TICKS] as const);
     expect(browserHash).toBe(nodeHash);
   });
