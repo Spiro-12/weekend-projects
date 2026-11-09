@@ -37,7 +37,7 @@ jobs:
         run: |
           url="${{ steps.deployment.outputs.page_url }}"
           # Fleet Planner (02): pin to this build's hashed entry file so the old deploy can't pass the check.
-          fp=$(grep -o 'assets/index-[A-Za-z0-9_-]*\.js' _site/02-fleet-planner/index.html | head -1)
+          fp=$(grep -o 'assets/main-[A-Za-z0-9_-]*\.js' _site/02-fleet-planner/index.html | head -1)
           test -n "$fp" || { echo "::error::could not find the 02 entry file"; exit 1; }
           for i in $(seq 1 12); do
             if curl -fsS --max-time 20 "${url}" | grep -q 'Weekend Projects' \

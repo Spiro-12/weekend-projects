@@ -5,6 +5,7 @@ import type { Group } from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import type { Tier } from '../../host/index.ts';
+import { afterFirstView } from './load-gate.ts';
 
 export interface ManifestModel {
   url: string;
@@ -53,7 +54,8 @@ export class AssetLoader {
   constructor(private baseUrl: string) {}
 
   manifest(): Promise<Manifest> {
-    this.manifestP ??= fetch(`${this.baseUrl}assets/manifest.json`).then((r) => {
+    // Nothing heavy downloads before the first useful view (load-gate.ts).
+    this.manifestP ??= afterFirstView.then(() => fetch(`${this.baseUrl}assets/manifest.json`)).then((r) => {
       if (!r.ok) throw new Error(`manifest: HTTP ${r.status}`);
       return r.json() as Promise<Manifest>;
     });
