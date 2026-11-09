@@ -21,7 +21,7 @@ export function tierSettings(t: Tier): TierSettings {
   const dev = typeof devicePixelRatio === 'number' ? devicePixelRatio : 1;
   switch (t) {
     case 'high':
-      return { dpr: Math.min(dev, 1.5), bloom: true, bloomScale: 0.5, shadows: true, farBoxes: true, antialias: true };
+      return { dpr: Math.min(dev, 1.5), bloom: true, bloomScale: 0.5, shadows: true, farBoxes: true, antialias: false }; // bloom renders to its own target; canvas MSAA would be unused (Track E)
     case 'medium':
       return { dpr: Math.min(dev, 1.5), bloom: false, bloomScale: 0, shadows: false, farBoxes: true, antialias: true };
     case 'low':

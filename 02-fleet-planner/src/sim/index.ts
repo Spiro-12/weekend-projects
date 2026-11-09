@@ -1,14 +1,22 @@
-// Sim entry point (lead-owned). Phase 0 ships FakeSim; Phase 1 integration switches the default to the real core.
-import type { Scenario, Sim } from '../contracts/types.ts';
-import { createFakeSim, type SimData } from './fake.ts';
+// Sim entry point (lead-owned). The default is the real core (Track A) with the one-brain planner (Track B).
+// FakeSim (src/sim/fake.ts) stays for tests that want planner-free motion: pass `createFakeSim` as the SimImpl.
+import type { Scenario, Sim, TrafficMode } from '../contracts/types.ts';
+import { createCoreSim } from './core/index.ts';
+import type { SimData } from './fake.ts';
+import { CentralController } from './traffic/central/index.ts';
+import type { TrafficController } from './traffic/types.ts';
 
 export type { SimData } from './fake.ts';
-export type SimImpl = 'fake' | 'core';
+/** Which simulator to build. A factory (not a name), so the app bundle only carries the one it uses. */
+export type SimImpl = (scenario: Scenario, data: SimData) => Sim;
 
-/** The implementation used when none is asked for. */
-export const DEFAULT_IMPL: SimImpl = 'fake';
+/** Traffic controller per mode. Phase 1 has one brain only: every mode gets the CentralController until Track G's many
+ *  brains land in Phase 2, so nothing in the Phase 1 UI offers another mode (a siloed run would be one brain labelled siloed). */
+export function trafficFor(_mode: TrafficMode): TrafficController {
+  return new CentralController();
+}
 
-export function createSim(scenario: Scenario, data: SimData, impl: SimImpl = DEFAULT_IMPL): Sim {
-  if (impl === 'core') throw new Error('The real sim core lands in Phase 1 (Track A).');
-  return createFakeSim(scenario, data);
+/** The real sim. `impl` swaps in another (FakeSim in tests). */
+export function createSim(scenario: Scenario, data: SimData, impl?: SimImpl): Sim {
+  return impl ? impl(scenario, data) : createCoreSim(scenario, data, { traffic: trafficFor });
 }

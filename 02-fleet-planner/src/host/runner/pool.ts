@@ -1,11 +1,16 @@
 // Web Worker pool runner (browser). min(cores − 1, 8) workers; results cached by settings hash; the same scenario
 // is never run twice at once.
+import { withCapacity } from './capacity.ts';
 import type { RunResult, Scenario } from '../../contracts/types.ts';
 import { runKey } from '../settings.ts';
 import type { EvaluateOptions, Runner } from './types.ts';
 import type { RunReply, RunRequest } from './worker.ts';
 
-export function createWorkerRunner(size = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1))): Runner {
+export function createWorkerRunner(size?: number): Runner {
+  return withCapacity(createRawWorkerRunner(size));
+}
+
+function createRawWorkerRunner(size: number = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1))): Runner {
   const workers: Worker[] = [];
   const idle: Worker[] = [];
   const queue: { req: RunRequest; resolve: (r: RunResult) => void; reject: (e: Error) => void }[] = [];

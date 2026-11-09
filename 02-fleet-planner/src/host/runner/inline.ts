@@ -3,9 +3,15 @@ import type { KpiRecorderFactory, RunResult, Scenario } from '../../contracts/ty
 import type { SimData, SimImpl } from '../../sim/index.ts';
 import { runKey } from '../settings.ts';
 import { runScenario } from './run.ts';
+import { withCapacity } from './capacity.ts';
 import type { EvaluateOptions, Runner } from './types.ts';
 
 export function createInlineRunner(dataFor: (s: Scenario) => SimData, recorder: KpiRecorderFactory, impl?: SimImpl): Runner {
+  return withCapacity(createRawInlineRunner(dataFor, recorder, impl));
+}
+
+/** Without the capacity check (tests that need a bare run). */
+export function createRawInlineRunner(dataFor: (s: Scenario) => SimData, recorder: KpiRecorderFactory, impl?: SimImpl): Runner {
   const cache = new Map<string, RunResult>();
   const key = (s: Scenario, o?: EvaluateOptions) => runKey(s) + (o?.saturate ? '-sat' : '');
   return {

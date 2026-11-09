@@ -1,0 +1,116 @@
+{
+ "format": "fp-scenario",
+ "v": 1,
+ "id": "default-central",
+ "name": "Golden: default, one brain",
+ "layout": "default",
+ "seed": 42,
+ "run": {
+  "warmupMin": 30,
+  "measureMin": 120,
+  "batterySpread": true
+ },
+ "shift": {
+  "hoursPerShift": 8,
+  "shiftsPerDay": 2,
+  "daysPerYear": 260
+ },
+ "orders": {
+  "mode": "demand",
+  "perHour": 600,
+  "linesWeights": [
+   45,
+   25,
+   12,
+   8,
+   5,
+   3,
+   1,
+   1
+  ],
+  "sku": {
+   "aPct": 20,
+   "aPicksPct": 80
+  }
+ },
+ "pallets": {
+  "linesPerReplenish": 40,
+  "inboundPerHour": 12
+ },
+ "pack": {
+  "stations": 6,
+  "secPerOrder": 30
+ },
+ "fleet": {
+  "amr": 32,
+  "forklift": 0,
+  "humanoid": 0,
+  "picker": 12,
+  "driver": 1
+ },
+ "vendors": {
+  "amr": [
+   {
+    "id": "A",
+    "pct": 60
+   },
+   {
+    "id": "D",
+    "pct": 40
+   }
+  ],
+  "forklift": [
+   {
+    "id": "B",
+    "pct": 100
+   }
+  ],
+  "humanoid": [
+   {
+    "id": "C",
+    "pct": 100
+   }
+  ]
+ },
+ "traffic": {
+  "mode": "central",
+  "silo": {
+   "sensorCells": 3,
+   "waitTicks": 5,
+   "resetMin": 5,
+   "retaskSec": 90
+  }
+ },
+ "economics": {
+  "financing": "buy",
+  "baseline": "auto"
+ },
+ "events": [],
+ "expect": {
+  "oph": [
+   585,
+   600
+  ],
+  "keepsUp": true,
+  "capacityOph": [
+   597,
+   700
+  ],
+  "deadlocks": [
+   0,
+   16
+  ],
+  "longDeadlocks": [
+   0,
+   0
+  ],
+  "resetsPerHour": [
+   0,
+   0
+  ],
+  "pickerUplift": [
+   1.5,
+   2.2
+  ]
+ }
+}

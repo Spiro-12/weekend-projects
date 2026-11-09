@@ -11,7 +11,8 @@ export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 60_000,
   fullyParallel: false,
-  workers: 1,
+  // CI (macOS runner, 3 cores): two browsers at a time. Locally one, so other work on the Mac doesn't skew timings.
+  workers: process.env.CI ? 2 : 1,
   reporter: process.env.CI ? [['github'], ['list']] : 'list',
   expect: { toHaveScreenshot: { maxDiffPixelRatio: 0.01 } },
   projects: [

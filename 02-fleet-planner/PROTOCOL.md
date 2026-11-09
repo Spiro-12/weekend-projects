@@ -103,7 +103,7 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
   - Phase 1: `breakdown {atMin, agent, forMin}`, where `agent` is `'<type>:<n>'` (the n-th agent of that type in spawn order, 0-based; validated)
   - Phase 2: `personInAisle`, `chargers`, `orderSurge {factorPct}`
   - The default scenario has **no events**.
-- **`expect`** (golden files only): ranges for `oph`, `capacityOph`, `deadlocks`, `pickerUplift`, plus `keepsUp`, `backlogGrows`, `robotCostUsd`.
+- **`expect`** (golden files only): ranges for `oph`, `capacityOph`, `deadlocks`, `longDeadlocks` (over 2 min, per shift), `resetsPerHour`, `pickerUplift`, plus `keepsUp`, `backlogGrows`, `robotCostUsd`, `isAutoCrew` (the fleet's people are the auto-sized people-only crew). Phase 1 integration added the last three.
 - `validateScenario()` lists every problem in plain words. The AI consultant (Phase 3) uses it too.
 
 ## §5 Sim API (`src/sim/index.ts`)
@@ -129,13 +129,13 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
 - **People are cell agents, not in the robot planner.** The sim core moves them first each tick along the `human` distance gradient, then hands the planner `occ` and `yields`. **Drivers** (people on manual forklifts) are moved the same way but use the `forklift` pass class and keep a safety cell; robots treat them like people. Shared rules for **both** traffic modes (spike b found each one necessary; none favours one brain):
   1. Robots treat people's cells (and their move targets) as fixed obstacles.
   2. **Robots yield to people:** a person blocked by a robot asks it to make way (`yields`); the planner pushes it.
-  3. **Robot cell claim:** a robot that has waited 3+ ticks claims the cell it wants and people let it go first.
+  3. **Robot cell claim:** a robot that has waited 3+ ticks claims the cell it wants and people let it go first, **for up to 60 blocked ticks (30 s)**. A person blocked longer ignores claims (still never entering a held cell), so no claim can hold a person forever (Phase 1 integration: fixed a driver held for an hour by a gridlocked robot).
   4. **People's manners:** step to the side (not back) after 4 blocked ticks; two people head-on swap; wait for an agent that is already leaving; don't crowd a busy goal (wait 2 cells back).
   5. **Local detours for every robot** blocked `waitTicks` by something it can't negotiate with (a person, a parked robot; in many brains also foreign robots).
   6. PIBT pushes a robot out of a forklift's needed safety cell.
   7. Tie-break toward fewer turns.
-  8. **The WMS sends each tote to the least-loaded pack station** (always on, both modes).
-- **Work model (Phase 1):** with cart robots, **pickers stay in their pick zones** and meet AMRs at faces (the Locus model); only AMRs and humanoids visit pack stations. Without cart robots (people only), pickers push carts and walk to pack stations themselves.
+  8. **The WMS sends each tote to the least-loaded pack station that has a free queue slot** (at most 3 carriers heading to or handing off at a station; always on, both modes). With no free slot the carrier holds in a pick aisle (state `wait`) and is released first-in, first-out. Likewise a cart robot whose remaining pick zones are all full holds until one has room (zone cap: min(3 per zone worker, faces ÷ 5), at least 2). Phase 1 integration: without this release control the floor jammed past about 50 robots.
+- **Work model (Phase 1):** with cart robots, **pickers stay in their pick zones** and meet AMRs at faces (the Locus model). **Zone bleed:** a free picker also serves a cart robot that has waited ≥ 10 ticks in an adjacent zone (ranked behind its own zone), as cart-robot sites' "dynamic zones" do. Zones are rebuilt only when the fleet changes, not on breakdowns or charging. Units count as picked when their tote reaches packing. Only AMRs and humanoids visit pack stations. Without cart robots (people only), pickers push carts and walk to pack stations themselves.
 - **Shared, lead-owned modules:**
   - `world.ts` (graph, distances)
   - `motion.ts` (speed, turns)
@@ -155,6 +155,16 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
     - `traffic/central/`: Track B, one PIBT over every robot
     - `traffic/siloed/`: Track G (Phase 2), one PIBT per vendor + physical layer + recovery ladder
   - **Reference implementation:** `spikes/b-traffic/src/traffic.ts`.
+  - **Interface assumptions both sides keep** (Track B review):
+    - `order` lists every ready robot. A ready robot left out gets no `want` and can't be pushed.
+    - Robots parked or waiting at their goal may be `ready` with `goal === cell` (so they can be pushed); the planner decides them **last** (standard PIBT).
+    - Parked robots are walls for detour searches. They are pushed only by a robot blocked ≥ 2 × `waitTicks` (10 ticks), never by a robot whose own goal is that cell (until it has been blocked ≥ 6 × `waitTicks`), and always by a person's yield. Freely pushable parked robots cut throughput by a third (passers shoved working robots off their pick faces).
+    - `blockedSinceProgress` counts blocked ticks only (not dwell or travel).
+    - `ready` is valid before `recover()`. After applying resets the sim refreshes the views (`cell`, `sinceProgress = 0`, `blockedSinceProgress = 0`) and `occ`, then calls `plan()` with the same input.
+    - `blockedSinceProgress` drops to 0 on progress or a new goal.
+    - A forklift's safety cell is released when it arrives; the planner treats a safety cell holding its own id as free.
+    - `world` and `dist` keep the same object identity for a run (a new `World` resets controller state).
+    - Central mode never emits `safetyStop` (there are no cross-vendor conflicts); the one-brain safety-stop count is 0 by design.
 - **Assignment:** greedy nearest-idle by default (both modes). One brain may use batch optimal assignment capped at 32 robots per batch (Phase 2; 150 × 150 optimal costs 28 s per shift).
 
 ## §6 Runner and KPIs (`src/host/runner/`)
@@ -172,15 +182,17 @@ See `src/contracts/types.ts → Scenario` and `data/scenarios/default.json`. Key
   | `robotUtilizationPct` | Σ robot `travel` + `work` ticks ÷ Σ robot ticks not `broken` |
   | `byType[type]` | `utilizationPct, idlePct, blockedPct, waitPct, chargingPct, brokenPct` from `ticksByState` |
   | `jamsPerHour` | jam starts ÷ window hours |
-  | `deadlocksPerShift` | deadlock starts ÷ window hours × hoursPerShift |
+  | `deadlocksPerShift` | deadlock starts inside the window ÷ window hours × hoursPerShift |
+  | `deadlocksOver2MinPerShift` | deadlocks that last ≥ 240 ticks (2 min), per shift: ended in the window after ≥ 240 ticks, or still open at the end and already ≥ 240 ticks old. The runner passes deadlocks still open from warm-up (their `deadlockStart`, tick < warm-up end) right after `start()`; they count here, not in `deadlocksPerShift`. |
   | `avgOrderSec`, `p90OrderSec` | (ship tick − arrive tick) × 0.5 s for orders shipped in the window |
   | `backlogEnd` | open orders at the end of the window |
-  | `backlogTrendPerHour` | least-squares slope of open orders over the window. **`keepsUp`** = trend ≤ +2% of demand per hour. |
+  | `backlogTrendPerHour` | least-squares slope of open orders over the window. **`keepsUp`** = **capacity ≥ demand** (the runner fetches the same settings' capacity run, `src/host/runner/capacity.ts`) **and** trend ≤ +5% of demand per hour. Phase 1 integration (was trend ≤ +2%): a trend over a 2 h window can't tell a crew 3% short from an unlucky bunching of orders, so capacity decides. The KPI recorder alone gives only the trend part. |
   | `pickerUplift` | units per picker-hour with this fleet ÷ units per picker-hour without picking robots (`withoutPickingRobots`: cart robots and humanoids set to 0, forklifts unchanged), both at capacity. **An output, not an input**: it comes from walk speed, `pickSecPerLine` and zones, calibrated so the default lands near 75 → 135 units/h. |
-  | `unitsPerPickerHour`, `resetsPerHour`, `retasksPerHour`, `deadlocksOver2MinPerShift` | |
+  | `unitsPerPickerHour`, `resetsPerHour`, `retasksPerHour` | |
+  | `keepsUp` on saturate runs | not meaningful (the queue is always full); only read it on demand runs |
 
 - **`fp-sweep v1`** = `{ axes, base, results: RunResult[] }`.
-- **The fake runner** (`createFakeRunner`) returns toy numbers for UI work; the UI shows **"demo data"** whenever `host.demoData` is true. Like the real runner, it fills `capacityOph` only on saturate runs and never `pickerUplift` (computed from two capacity runs).
+- **The fake runner** (`createFakeRunner`) returns toy numbers for UI work; the UI shows **"demo data"** whenever `host.demoData` is true. It fills `capacityOph` only on saturate runs and never `pickerUplift` (computed from two capacity runs). The real runners (worker pool, inline) also put `capacityOph` on demand runs, from the capacity run their keeps-up verdict uses.
 - **Host signals:** `result` + `pending` (the run), `baseline` + `money` + **`moneyPending`** (true until the baseline search and money report finish).
 
 ## §7 Economics (`src/econ/`, Track C)
@@ -188,7 +200,7 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
 - `H` = hoursPerShift × shiftsPerDay × daysPerYear.
 - **Labor per year** = Σ people count × H × wage × (1 + laborLoad), plus resets (resetsPerHour × H × minPerReset ÷ 60 × supervisor wage). Packers are listed but identical in every option.
 - **Buy:**
-  - capex = Σ robots × (buyUsd + integrationUsd), plus drivers' equipment
+  - capex = Σ robots × (buyUsd + integrationUsd), plus a truck (`equipmentUsd`) for each driver beyond the people-only crew (the people-only crew already owns its trucks; no credit for trucks freed up, no residual value). Same truck rule under rent.
   - robot opex/yr = Σ robots × (buyUsd × maintPct + softwareUsdPerYear)
 - **Rent (RaaS):**
   - capex = Σ robots × (`raasSetupUsd` if the spec has one, else `integrationUsd`)
@@ -198,7 +210,9 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
   - `flag: 'never'` when S ≤ 0.
   - `flag: 'doesntKeepUp'` (no number) when the candidate doesn't keep up.
   - The baseline is auto-sized so it always keeps up; if a user-set baseline doesn't, it is flagged too.
-- **3-year net savings** = 3 × S − capex.
+- **3-year net savings** = 3 × S − capex. Flagged `doesntKeepUp` (value null) like payback when the candidate or a user-set baseline doesn't keep up: otherwise an option that ships fewer orders would show a fake saving. Savings/yr stays a number with a "not like for like" note.
+- **`MoneyReport.lines`** has all 5 agent types: robot lines carry price/setup (`capex`) and upkeep or rent (`opexYear`); people lines carry trucks (`capex`) and pay (`opexYear`). Σ lines.capex = capex; Σ robot lines.opexYear = robotOpexYear.
+- **Every money `Explained` cites at least one `source:` input** (prices, wages, benefits load), so every hover has something to click.
 - **Cost per order** = annual cost ÷ (OPH × H).
 - **Best mix** = highest 3-year net savings among fleets that keep up. Never ranked by payback: renting "pays back" instantly.
 - **Not modeled** (listed in every money hover): taxes, depreciation, discounting, interest, residual value, building changes.
@@ -231,8 +245,8 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
 
   | Tier | DPR | Effects |
   |---|---|---|
-  | high | ≤ 1.5 | half-size bloom, agent shadow map |
-  | medium (desktop default) | ≤ 1.5 | glow ribbons, blob shadows |
+  | high | ≤ 1.5 | half-size bloom (no canvas MSAA) |
+  | medium (desktop default) | ≤ 1.5 | glow ribbons, contact-shadow glow discs under agents |
   | low (touch / small screens) | 1 | far racks drop upper boxes, simple people |
   | lite | 0.75 | |
 
@@ -242,6 +256,8 @@ Pure functions. Each returns `Explained = { value, unit, formula, inputs: [{labe
   - `?tier=` freezes it.
   - A lost WebGL context shows a reload card that reopens in lite. No WebGL shows a friendly message.
 - **`LiveSim.reset(scenario, data)`** restarts in place: the same object, listeners, speed and pause survive a scenario or layout change; the selection is cleared.
+- **No real-time shadow maps on any tier:** agents get a contact-shadow glow disc, racks and props get baked contact shadows (Tracks D and E).
+- **Follow framing** (Track E, signed off): chase 4.4 m back / 2.4 m up for AMRs and people, 6.2 to 7.0 m for forklifts, so the subject fills about 45% of the frame low in the picture; an eased pull-out after about 5 s (real time) standing still.
 - **People are rendered as instanced rigid parts** with a procedural walk (40 people: 23 draw calls, 1.4 ms CPU), not skinned clones (779 draw calls, 12.4 ms). At most one skinned "hero" worker, for the followed person.
 - **Panels:** every file in `src/ui/panels/*.tsx` default-exports `definePanel({ id, slot, order, title, Component, when? })`.
   - Slots: `kpi`, `left`, `right`, `bottom`, `overlay`.

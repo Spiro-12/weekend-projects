@@ -5,7 +5,6 @@ import agents from '../../data/agents.json';
 import sources from '../../data/sources.json';
 import type { AgentsFile, LayoutFile, Scenario, SourcesFile } from '../contracts/types.ts';
 import { createHost, type AppData } from '../host/index.ts';
-import { createSim, DEFAULT_IMPL } from '../sim/index.ts';
 import { createFakeRunner } from '../host/runner/fake.ts';
 import { createWorkerRunner } from '../host/runner/pool.ts';
 import { createAgentLayer } from '../render/agents/index.ts';
@@ -13,6 +12,7 @@ import type { AgentLayer, WorldLayer } from '../render/core/layers.ts';
 import { CameraRig, type Pose } from '../render/core/camera.ts';
 import { makeTours, TOURS } from '../render/core/tours.ts';
 import { createRenderer } from '../render/core/renderer.ts';
+import { openLoadGate } from '../render/core/load-gate.ts';
 import { createWorldLayer } from '../render/world/index.ts';
 import { readParams } from '../ui/params.ts';
 import { mountShell } from '../ui/shell.tsx';
@@ -31,18 +31,9 @@ const data: AppData = {
   layouts: byId(layoutMods),
   scenarios: byId(scenarioMods),
 };
-// Sim-only hook, set before anything touches WebGL, so the cross-engine determinism test works everywhere.
-window.__fpSim = {
-  runHash(scenarioId, ticks) {
-    const sc = data.scenarios[scenarioId];
-    const sim = createSim(sc, { agents: data.agents, layout: data.layouts[sc.layout] });
-    sim.step(ticks);
-    return sim.hash();
-  },
-};
-const runner = params.runner === 'worker' ? createWorkerRunner() : createFakeRunner(120);
-// Numbers are "demo data" until the real sim core and KPI code are plugged in (Phase 1 integration).
-const host = createHost(data, runner, { scenario: params.scenario, seed: params.seed, demo: runner.kind === 'fake' || DEFAULT_IMPL === 'fake' });
+// Real numbers come from the worker pool on the real sim; ?runner=fake keeps the instant toy runner ("demo data").
+const runner = params.runner === 'fake' ? createFakeRunner(120) : createWorkerRunner();
+const host = createHost(data, runner, { scenario: params.scenario, seed: params.seed, econ: () => import('../econ/index.ts').then((m) => m.econ), demo: runner.kind === 'fake' });
 if (params.agents) host.setFleet('amr', params.agents);
 
 const stage = document.getElementById('stage')!;
@@ -118,6 +109,8 @@ host.bus.on('layoutChanged', ({ layout: l }) => {
 let frozen = params.freeze;
 let lastAspect = 0;
 let firstUsefulViewMs: number | null = null;
+// The full look starts downloading at the first useful view, or after 4 s at the latest.
+setTimeout(openLoadGate, 4000);
 let readyResolve: () => void = () => {};
 const whenReady = new Promise<void>((r) => (readyResolve = r));
 let tourState: { fn: (u: number) => Pose; t0: number; ms: number; done: () => void } | null = null;
@@ -150,6 +143,7 @@ core.onFrame((dt, now) => {
     core.perf.firstUsefulViewMs = firstUsefulViewMs;
     hooks.ready = true;
     host.bus.emit('firstUsefulView', { ms: firstUsefulViewMs });
+    openLoadGate(); // the SimReady models and workers may download now (src/render/core/load-gate.ts)
     document.getElementById('boot')?.remove();
     readyResolve();
   }

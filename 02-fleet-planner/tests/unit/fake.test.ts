@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import agents from '../../data/agents.json';
 import layout from '../../data/layouts/default.json';
-import scenarioJson from '../../data/scenarios/default.json';
+import scenarioJson from '../../fixtures/scenario-mixed.json';
 import type { AgentsFile, LayoutFile, Scenario } from '../../src/contracts/types.ts';
 import { createFakeSim } from '../../src/sim/fake.ts';
 

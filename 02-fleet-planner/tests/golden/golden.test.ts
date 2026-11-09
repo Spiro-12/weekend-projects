@@ -7,7 +7,9 @@ import type { AgentsFile, LayoutFile, Scenario } from '../../src/contracts/types
 import { validateScenario } from '../../src/contracts/validate.ts';
 import { GOLDEN_RECORDER, GOLDEN_IMPL } from './setup.ts';
 import { createInlineRunner } from '../../src/host/runner/inline.ts';
-import { withoutPickingRobots } from '../../src/host/settings.ts';
+import { econ } from '../../src/econ/index.ts';
+import { keepsUpAt } from '../../src/kpi/index.ts';
+import { peopleOnly, withFleet, withoutPickingRobots } from '../../src/host/settings.ts';
 
 const dir = new URL('./', import.meta.url);
 const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
@@ -30,15 +32,16 @@ describe.skipIf(files.length === 0)('golden scenarios', () => {
       const s = JSON.parse(readFileSync(new URL(f, dir), 'utf8')) as Scenario;
       expect(validateScenario(s, Object.keys(layouts))).toEqual([]);
       const e = s.expect ?? {};
-      const supported = ['oph', 'capacityOph', 'deadlocks', 'keepsUp', 'backlogGrows', 'pickerUplift'];
+      const supported = ['oph', 'capacityOph', 'deadlocks', 'longDeadlocks', 'resetsPerHour', 'keepsUp', 'backlogGrows', 'pickerUplift', 'robotCostUsd', 'isAutoCrew'];
       const unsupported = Object.keys(e).filter((k) => !supported.includes(k));
-      // robotCostUsd needs the economics (Phase 1, Track C); fail loudly instead of silently ignoring it.
       expect(unsupported, `expect keys not checked yet: ${unsupported}`).toEqual([]);
       const r = await runner.evaluate(s);
       if (e.oph) inRange(r.kpis.oph, e.oph, 'oph');
       if (e.deadlocks) inRange(r.kpis.deadlocksPerShift, e.deadlocks, 'deadlocks per shift');
+      if (e.longDeadlocks) inRange(r.kpis.deadlocksOver2MinPerShift, e.longDeadlocks, 'deadlocks over 2 min per shift');
+      if (e.resetsPerHour) inRange(r.kpis.resetsPerHour, e.resetsPerHour, 'manual resets per hour');
       if (e.keepsUp !== undefined) expect(r.kpis.keepsUp, 'keepsUp').toBe(e.keepsUp);
-      if (e.backlogGrows !== undefined) expect(r.kpis.backlogTrendPerHour > 0.02 * s.orders.perHour, 'backlog grows').toBe(e.backlogGrows);
+      if (e.backlogGrows !== undefined) expect(!keepsUpAt(r.kpis.backlogTrendPerHour, s.orders.perHour), 'backlog grows').toBe(e.backlogGrows);
       if (e.capacityOph) inRange((await runner.evaluate(s, { saturate: true })).kpis.capacityOph, e.capacityOph, 'capacity');
       if (e.pickerUplift) {
         // Units per picker-hour with this fleet vs without picking robots, both at capacity (PROTOCOL §6).
@@ -46,8 +49,37 @@ describe.skipIf(files.length === 0)('golden scenarios', () => {
         const peopleOnly = await runner.evaluate(withoutPickingRobots(s), { saturate: true });
         inRange(withRobots.kpis.unitsPerPickerHour / Math.max(1e-9, peopleOnly.kpis.unitsPerPickerHour), e.pickerUplift, 'picker uplift');
       }
-    });
+      if (e.isAutoCrew) {
+        // The fleet's people are exactly the crew the money panel compares against (auto-sized, people only).
+        const auto = await econ.findBaseline(peopleOnly(s), runner);
+        expect(auto.crew, 'auto-sized people-only crew').toEqual({ picker: s.fleet.picker, driver: s.fleet.driver });
+        // …and it is the smallest: one picker fewer doesn't keep up.
+        const fewer = await runner.evaluate({ ...s, fleet: { ...s.fleet, picker: s.fleet.picker - 1 } });
+        expect(fewer.kpis.keepsUp, 'one picker fewer keeps up, so the crew is not the minimum').toBe(false);
+      }
+      if (e.robotCostUsd !== undefined) {
+        // Robot cost = upfront + one year of upkeep, from the real money model against the auto-sized baseline.
+        const b = await econ.findBaseline(s, runner);
+        const m = econ.computeMoney({ scenario: s, agents: agents as AgentsFile, candidate: r, baseline: b.result, baselineCrew: b.crew });
+        expect((m.capex.value ?? NaN) + (m.robotOpexYear.value ?? NaN), 'robot cost').toBe(e.robotCostUsd);
+      }
+    }, 120_000);
   }
+});
+
+// PLAN §9.2 `saturation`: cart robots 4 → 60 on the default scenario at capacity. Capacity rises, then stays at ≥ 90% of
+// 95% of its peak past the knee: extra robots crowd the aisles and cost a little, but never collapse the floor (RESULTS.md).
+describe.skipIf(files.length === 0)('saturation', () => {
+  it('cart robots 4 → 60: capacity rises then flattens, never collapses', async () => {
+    const base = JSON.parse(readFileSync(new URL('../../data/scenarios/default.json', import.meta.url), 'utf8')) as Scenario;
+    const counts = [4, 12, 24, 36, 48, 60];
+    const caps: number[] = [];
+    for (const n of counts) caps.push((await runner.evaluate(withFleet(base, 'amr', n), { saturate: true })).kpis.capacityOph ?? 0);
+    const peak = Math.max(...caps);
+    const knee = caps.findIndex((c) => c >= 0.95 * peak);
+    expect(caps[knee], `capacities ${caps}`).toBeGreaterThan(caps[0] * 1.3);
+    for (let i = knee; i < caps.length; i++) expect(caps[i], `capacities ${caps} at ${counts[i]} robots`).toBeGreaterThanOrEqual(0.95 * peak);
+  }, 300_000);
 });
 
 it('golden harness is wired', () => expect(typeof runner.evaluate).toBe('function'));
