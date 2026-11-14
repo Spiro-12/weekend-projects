@@ -145,6 +145,14 @@ export function df_process_frame(st, input) {
     return takeObject(ret);
 }
 
+/**
+* Frees a DeepFilterNet state created by df_create. Added by Wind Test's build script.
+* @param {number} st
+*/
+export function df_free(st) {
+    wasm.df_free(st);
+}
+
 function handleError(f, args) {
     try {
         return f.apply(this, args);

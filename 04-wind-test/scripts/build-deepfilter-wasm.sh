@@ -22,10 +22,24 @@ if [ ! -d "$WORK/.git" ]; then
   git clone --filter=blob:none https://github.com/Rikorose/DeepFilterNet "$WORK"
 fi
 git -C "$WORK" checkout -q "$DF_REV"
-git -C "$WORK" checkout -q -- libDF/Cargo.toml   # undo the iOS script's crate-type edit; the web needs cdylib
+git -C "$WORK" checkout -q -- libDF/Cargo.toml libDF/src/wasm.rs   # undo the iOS script's crate-type edit; the web needs cdylib
 # The page downloads the model itself, so don't also bake an 8 MB copy into the .wasm.
 sed -i.bak '/^wasm = \[/,/^\]/{/"default-model",/d;}' "$WORK/libDF/Cargo.toml"
 grep -A3 '^wasm = ' "$WORK/libDF/Cargo.toml"
+# Add df_free so the page can drop a model state and start a fresh one for every recording
+# (the upstream wasm API only has df_create, so state could never be reset or released).
+if ! grep -q "fn df_free" "$WORK/libDF/src/wasm.rs"; then
+  cat >> "$WORK/libDF/src/wasm.rs" <<'RS'
+
+/// Frees a DeepFilterNet state created by df_create. Added by Wind Test's build script.
+#[wasm_bindgen]
+pub unsafe fn df_free(st: *mut DFState) {
+    if !st.is_null() {
+        drop(Box::from_raw(st));
+    }
+}
+RS
+fi
 
 (cd "$WORK" && cargo "+$TOOLCHAIN" build --release --target wasm32-unknown-unknown -p deep_filter --lib --no-default-features --features wasm)
 

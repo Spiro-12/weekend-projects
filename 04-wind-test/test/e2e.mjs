@@ -107,6 +107,16 @@ try {
   await page2.locator('#status.error').waitFor({ timeout: 15000 });
   check((await page2.locator('#status').innerText()).includes('AirPods'), 'only the iPhone mic → a clear "not your AirPods" message');
   check(await page2.getByTestId('record-airpods').isEnabled(), 'buttons work again after an error');
+  // The AI download fails once (bad signal): the page says so, and the next recording retries and gets cleaned.
+  const page3 = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  let blocked = 0;
+  await page3.route('**/model/DeepFilterNet3_onnx.tar.gz', (route) => (blocked++ === 0 ? route.fulfill({ status: 404 }) : route.continue()));
+  await page3.goto(`${base}?builtin=${encodeURIComponent('Fake Audio Input 1')}`);
+  await page3.getByText('The AI didn’t load').waitFor({ timeout: 60000 });
+  check(true, 'a failed AI download shows a message');
+  await page3.getByTestId('record-iphone').click();
+  await page3.getByTestId('play-cleaned-iphone').waitFor({ timeout: 120000 });
+  check(true, 'the next recording retries the download and gets cleaned');
   // Same maths in Node and the browser.
   check(Math.abs(analyze(voiceInWind(), 48000).lowRumblePercent - demo.original.lowRumblePercent) < 0.5, 'analysis matches Node');
 } finally {

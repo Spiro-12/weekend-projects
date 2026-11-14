@@ -13,7 +13,7 @@ const SENTENCES = [
 const params = new URLSearchParams(location.search);
 // The iPhone's own mic is called "iPhone Microphone" on iOS. Any other named input (AirPods, Beats, ...) counts
 // as the headset, whatever the user named it. `?builtin=` overrides the pattern for automated tests.
-const BUILT_IN = new RegExp(params.get('builtin') || 'iphone|built-?in', 'i');
+const BUILT_IN = new RegExp(params.get('builtin') || 'iphone|ipad|macbook|built-?in', 'i');
 
 const takes = [];
 let busy = false;
@@ -23,52 +23,60 @@ let countdown = null; // null = idle, 0 = getting ready, 1..8 = seconds left
 let player = null; // { audio, key }
 let nextId = 1;
 
-// ---- AI workers: one per recording (see cleaner-worker.js), the next one always warming up. ----
-let spare = null;
+// ---- The AI: one worker for the whole visit (see cleaner-worker.js), so it downloads once. ----
+const CLEAN_TIMEOUT_MS = 60000;
+let worker = null; // { w, pending: Map(takeId -> {take, timer}) }
 let ai = 'loading'; // loading | ready | error
 let aiError = '';
+let loadSeconds = null;
 
-function newWorker() {
-  const h = { w: new Worker(new URL('./cleaner-worker.js', import.meta.url), { type: 'module' }), take: null };
+function startWorker() {
+  const h = { w: new Worker(new URL('./cleaner-worker.js', import.meta.url), { type: 'module' }), pending: new Map() };
   h.w.onmessage = (e) => onWorker(h, e.data);
   h.w.onerror = (e) => { e.preventDefault(); workerFailed(h, e.message || 'The AI stopped working.'); };
   h.w.onmessageerror = () => workerFailed(h, 'The AI sent back something unreadable.');
+  worker = h;
+  ai = 'loading';
+  render();
   return h;
 }
 
-function warmSpare() {
-  spare = newWorker();
-  if (ai !== 'ready') ai = 'loading';
-  render();
-}
-
 function onWorker(h, m) {
+  if (h !== worker) return;
   if (m.type === 'ready') {
-    if (h === spare) { ai = 'ready'; aiError = ''; render(); }
+    ai = 'ready'; aiError = ''; loadSeconds = m.loadSeconds;
   } else if (m.type === 'loadError') {
-    if (h === spare) { ai = 'error'; aiError = m.error; render(); }
+    // Drop it; the next recording starts a new one (which retries the download).
+    workerFailed(h, m.error);
+    return;
   } else if (m.type === 'result') {
-    const t = h.take;
-    if (t && t.id === m.id) {
-      if (m.error) t.error = `The AI couldn't clean this one: ${m.error}`;
-      else Object.assign(t, { cleaned: m.cleaned, cleanedAnalysis: m.cleanedAnalysis, cleanSeconds: m.cleanSeconds, loadSeconds: m.loadSeconds });
+    const p = h.pending.get(m.id);
+    if (p) {
+      clearTimeout(p.timer);
+      h.pending.delete(m.id);
+      if (m.error) p.take.error = `The AI couldn't clean this one: ${m.error}`;
+      else Object.assign(p.take, { cleaned: m.cleaned, cleanedAnalysis: m.cleanedAnalysis, cleanSeconds: m.cleanSeconds, setupSeconds: m.setupSeconds });
     }
-    h.w.terminate();
-    render();
+    if (m.broken) { workerFailed(h, 'the AI crashed'); return; }
   }
+  render();
 }
 
 function workerFailed(h, msg) {
   h.w.terminate();
-  if (h.take && !h.take.cleaned && !h.take.error) h.take.error = `The AI couldn't clean this one: ${msg}`;
-  if (h === spare) { ai = 'error'; aiError = msg; spare = null; }
+  for (const p of h.pending.values()) {
+    clearTimeout(p.timer);
+    if (!p.take.cleaned && !p.take.error) p.take.error = `The AI couldn't clean this one: ${msg}`;
+  }
+  h.pending.clear();
+  if (h === worker) { worker = null; ai = 'error'; aiError = msg; }
   render();
 }
 
 function sendToAI(take) {
-  const h = spare || newWorker();
-  warmSpare(); // the next recording gets a fresh one
-  h.take = take;
+  const h = worker || startWorker();
+  const timer = setTimeout(() => workerFailed(h, 'it took too long'), CLEAN_TIMEOUT_MS + (ai === 'ready' ? 0 : 120000));
+  h.pending.set(take.id, { take, timer });
   const copy = take.original.slice();
   h.w.postMessage({ id: take.id, samples: copy }, [copy.buffer]);
 }
@@ -129,11 +137,12 @@ async function record(kind) {
   setStatus('');
   // A fresh audio context per recording, created inside the tap, closed afterwards: reusing one across
   // Bluetooth route changes is unreliable on iPhone, and a live one can keep the AirPods in call mode.
-  const ac = newAudioContext();
+  let ac = null;
   let stream = null;
   let src = null;
   let node = null;
   try {
+    ac = newAudioContext();
     await ac.resume();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('This browser can’t use the microphone. On iPhone, open this page in Safari.');
@@ -176,13 +185,16 @@ async function record(kind) {
       let timer = setTimeout(() => fail('The microphone didn’t start. Try again.'), 15000);
       function fail(msg) { clearTimeout(timer); reject(new Error(msg)); }
       track.onended = () => fail('The microphone stopped (did the AirPods disconnect?). Try again.');
+      // A short pause while the AirPods switch modes is normal: nudge it back and let the timers above decide.
       ac.onstatechange = () => {
-        if (ac.state !== 'running') fail('Recording was interrupted (screen locked, or another app took the mic). Keep the page open and try again.');
+        if (ac.state === 'closed') fail('Recording was interrupted. Keep the page open and try again.');
+        else if (ac.state !== 'running') ac.resume().catch(() => {});
       };
       node.port.onmessage = (e) => {
         const c = e.data;
+        if (got >= need) return;
         // Bluetooth mics send silence while they switch into call mode; start the clock on real sound.
-        if (got === 0 && !c.some((v) => v !== 0)) return;
+        if (got === 0 && !c.some((v) => Math.abs(v) > 1e-5)) return;
         if (got === 0) startedAt = performance.now();
         clearTimeout(timer);
         timer = setTimeout(() => fail('The microphone went quiet. Keep the screen on and try again.'), 3000);
@@ -229,8 +241,10 @@ async function record(kind) {
     if (node) { node.port.onmessage = null; node.disconnect(); }
     if (src) src.disconnect();
     if (stream) stream.getTracks().forEach((t) => { t.onended = null; t.stop(); });
-    ac.onstatechange = null;
-    ac.close().catch(() => {});
+    if (ac) {
+      ac.onstatechange = null;
+      ac.close().catch(() => {});
+    }
     countdown = null;
     busy = false;
     render();
@@ -287,13 +301,13 @@ function summary() {
       'Recorded in the browser with echoCancellation on (on iPhone this uses call-style voice processing; WebKit ignores noiseSuppression/autoGainControl).',
       'All audio is 48 kHz here. observedRate is how fast samples really arrived; far from contextSampleRate means a browser audio bug.',
       'Cleaned files: DeepFilterNet 3 (WebAssembly), a fresh model per take, delay-compensated and time-aligned with the original.',
-      'loadSeconds is how long that take’s AI worker took to start (it usually starts before the recording ends).',
+      `The AI loaded once in ${loadSeconds == null ? '?' : loadSeconds.toFixed(1)} s; setupSeconds is the per-take fresh model state.`,
     ],
     takes: takes.map((t) => ({
       file: stem(t), kind: t.kind, date: t.date.toISOString(), sentence: t.sentence, mic: t.mic, inputs: t.inputs,
       trackSettings: t.trackSettings, contextSampleRate: t.contextSampleRate, observedRate: t.observedRate,
       original: t.analysis || null, cleaned: t.cleanedAnalysis || null, cleanSeconds: t.cleanSeconds ?? null,
-      loadSeconds: t.loadSeconds ?? null, error: t.error || null,
+      setupSeconds: t.setupSeconds ?? null, error: t.error || null,
     })),
   };
 }
@@ -368,6 +382,9 @@ function render() {
     ? takes.map(takeCard).join('')
     : '<p class="muted empty">Nothing yet. Go somewhere windy, put your AirPods in, and tap a button above.</p>';
   $('share').hidden = takes.length === 0;
+  const stillCleaning = takes.some((t) => !t.cleaned && !t.error);
+  $('share').disabled = stillCleaning;
+  $('share').textContent = stillCleaning ? 'Send recordings (wait, still cleaning…)' : 'Send recordings';
 }
 
 document.addEventListener('click', (e) => {
@@ -380,7 +397,7 @@ document.addEventListener('click', (e) => {
 
 window.addEventListener('beforeunload', (e) => { if (takes.length) e.preventDefault(); });
 
-warmSpare(); // download the AI now (ideally at home on Wi-Fi), not after the first outdoor recording
+startWorker(); // download the AI now (ideally at home on Wi-Fi), not after the first outdoor recording
 if (params.has('demo')) addDemo();
 render();
 window.__windTest = { takes, summary, addDemo, aiState: () => ai };
