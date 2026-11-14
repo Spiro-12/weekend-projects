@@ -63,3 +63,19 @@ jobs:
           name: fleet-test-results
           path: 02-fleet-planner/test-results
           retention-days: 7
+
+  wind:
+    name: Wind Test (page e2e, fake mic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install Playwright (Chromium)
+        run: |
+          mkdir -p /tmp/pw && cd /tmp/pw && npm init -y >/dev/null && npm install --no-save playwright@1.65.0
+          npx playwright install --with-deps chromium
+      - name: Record, clean, compare (headless Chromium with a fake microphone)
+        run: PLAYWRIGHT_MODULE=/tmp/pw/node_modules/playwright/index.mjs node 04-wind-test/test/e2e.mjs

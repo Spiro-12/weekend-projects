@@ -1,4 +1,4 @@
-import { windWords, overloadWords, wavBlob } from './analyze.js';
+import { analyze, windWords, overloadWords, wavBlob } from './analyze.js';
 import { voiceInWind } from './demo.js';
 
 const SECONDS = 8;
@@ -10,11 +10,12 @@ const SENTENCES = [
   'These days a chicken leg is a rare dish.',
   'Rice is often served in round bowls.',
 ];
-const BLUETOOTH = /airpods|bluetooth|beats|buds|headset|hands-?free/i;
+const params = new URLSearchParams(location.search);
+// The iPhone's own mic is called "iPhone Microphone" on iOS. Any other named input (AirPods, Beats, ...) counts
+// as the headset, whatever the user named it. `?builtin=` overrides the pattern for automated tests.
+const BUILT_IN = new RegExp(params.get('builtin') || 'iphone|built-?in', 'i');
 
 const takes = [];
-let ctx = null;
-let workletReady = false;
 let busy = false;
 let statusText = '';
 let statusIsError = false;
@@ -22,33 +23,59 @@ let countdown = null; // null = idle, 0 = getting ready, 1..8 = seconds left
 let player = null; // { audio, key }
 let nextId = 1;
 
-const worker = new Worker(new URL('./cleaner-worker.js', import.meta.url), { type: 'module' });
-worker.onmessage = (e) => {
-  const m = e.data;
-  const t = takes.find((x) => x.id === m.id);
-  if (!t) return;
-  if (m.ok) {
-    t.cleaned = m.cleaned;
-    t.analysis = m.original;
-    t.cleanedAnalysis = m.cleanedAnalysis;
-    t.cleanSeconds = m.cleanSeconds;
-    t.loadSeconds = m.loadSeconds;
-  } else {
-    t.error = m.error;
-  }
-  render();
-};
+// ---- AI workers: one per recording (see cleaner-worker.js), the next one always warming up. ----
+let spare = null;
+let ai = 'loading'; // loading | ready | error
+let aiError = '';
 
+function newWorker() {
+  const h = { w: new Worker(new URL('./cleaner-worker.js', import.meta.url), { type: 'module' }), take: null };
+  h.w.onmessage = (e) => onWorker(h, e.data);
+  h.w.onerror = (e) => { e.preventDefault(); workerFailed(h, e.message || 'The AI stopped working.'); };
+  h.w.onmessageerror = () => workerFailed(h, 'The AI sent back something unreadable.');
+  return h;
+}
+
+function warmSpare() {
+  spare = newWorker();
+  if (ai !== 'ready') ai = 'loading';
+  render();
+}
+
+function onWorker(h, m) {
+  if (m.type === 'ready') {
+    if (h === spare) { ai = 'ready'; aiError = ''; render(); }
+  } else if (m.type === 'loadError') {
+    if (h === spare) { ai = 'error'; aiError = m.error; render(); }
+  } else if (m.type === 'result') {
+    const t = h.take;
+    if (t && t.id === m.id) {
+      if (m.error) t.error = `The AI couldn't clean this one: ${m.error}`;
+      else Object.assign(t, { cleaned: m.cleaned, cleanedAnalysis: m.cleanedAnalysis, cleanSeconds: m.cleanSeconds, loadSeconds: m.loadSeconds });
+    }
+    h.w.terminate();
+    render();
+  }
+}
+
+function workerFailed(h, msg) {
+  h.w.terminate();
+  if (h.take && !h.take.cleaned && !h.take.error) h.take.error = `The AI couldn't clean this one: ${msg}`;
+  if (h === spare) { ai = 'error'; aiError = msg; spare = null; }
+  render();
+}
+
+function sendToAI(take) {
+  const h = spare || newWorker();
+  warmSpare(); // the next recording gets a fresh one
+  h.take = take;
+  const copy = take.original.slice();
+  h.w.postMessage({ id: take.id, samples: copy }, [copy.buffer]);
+}
+
+// ---- helpers ----
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-
-function audioCtx() {
-  if (!ctx) {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    try { ctx = new AC({ sampleRate: RATE }); } catch { ctx = new AC(); }
-  }
-  return ctx;
-}
 
 function setStatus(text, isError = false) {
   statusText = text;
@@ -75,11 +102,16 @@ async function to48k(x, rate) {
   return (await off.startRendering()).getChannelData(0).slice();
 }
 
+function newAudioContext() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  try { return new AC({ sampleRate: RATE }); } catch { return new AC(); }
+}
+
 async function openMic(deviceId) {
   return navigator.mediaDevices.getUserMedia({
     audio: {
       deviceId: deviceId ? { exact: deviceId } : undefined,
-      // On iPhone these switch on the same voice processing a call uses.
+      // On iPhone, echo cancellation switches on the same voice processing a call uses.
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
@@ -88,19 +120,16 @@ async function openMic(deviceId) {
   });
 }
 
-async function pickDevice(kind) {
-  const inputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
-  if (kind === 'airpods') return inputs.find((d) => BLUETOOTH.test(d.label));
-  return inputs.find((d) => d.label && !BLUETOOTH.test(d.label) && d.deviceId !== 'default' && d.deviceId !== 'communications');
-}
-
+// ---- recording ----
 async function record(kind) {
   if (busy) return;
   busy = true;
   stopPlayback();
   countdown = 0;
   setStatus('');
-  const ac = audioCtx();
+  // A fresh audio context per recording, created inside the tap, closed afterwards: reusing one across
+  // Bluetooth route changes is unreliable on iPhone, and a live one can keep the AirPods in call mode.
+  const ac = newAudioContext();
   let stream = null;
   let src = null;
   let node = null;
@@ -110,22 +139,29 @@ async function record(kind) {
       throw new Error('This browser can’t use the microphone. On iPhone, open this page in Safari.');
     }
     stream = await openMic();
-    const want = await pickDevice(kind);
-    if (kind === 'airpods' && !want) {
-      throw new Error('Couldn’t find your AirPods. Put them in, check they’re connected, then try again.');
-    }
-    const current = stream.getAudioTracks()[0].getSettings().deviceId;
-    if (want && want.deviceId !== current) {
+    const inputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+    const real = inputs.filter((d) => d.deviceId !== 'default' && d.deviceId !== 'communications');
+    const builtIn = real.find((d) => BUILT_IN.test(d.label));
+    const headset = real.find((d) => d.label && !BUILT_IN.test(d.label));
+    const want = kind === 'iphone' ? builtIn : headset;
+    if (kind === 'iphone' && !want) throw new Error('Couldn’t find the iPhone’s own mic.');
+
+    let track = stream.getAudioTracks()[0];
+    if (want && track.getSettings().deviceId !== want.deviceId) {
       stream.getTracks().forEach((t) => t.stop());
       stream = await openMic(want.deviceId);
+      track = stream.getAudioTracks()[0];
     }
-    const track = stream.getAudioTracks()[0];
+    const label = track.label || '';
+    if (kind === 'airpods' && BUILT_IN.test(label)) {
+      throw new Error('This is using the iPhone mic, not your AirPods. Put them in, check they’re connected, then try again.');
+    }
+    if (kind === 'iphone' && label && !BUILT_IN.test(label)) {
+      throw new Error(`Safari wouldn’t switch to the iPhone mic while “${label}” is connected. Use the AirPods button instead.`);
+    }
     const settings = track.getSettings ? track.getSettings() : {};
 
-    if (!workletReady) {
-      await ac.audioWorklet.addModule(new URL('./recorder-worklet.js', import.meta.url));
-      workletReady = true;
-    }
+    await ac.audioWorklet.addModule(new URL('./recorder-worklet.js', import.meta.url));
     src = ac.createMediaStreamSource(stream);
     node = new AudioWorkletNode(ac, 'recorder');
     const sink = ac.createGain();
@@ -135,20 +171,29 @@ async function record(kind) {
     const need = SECONDS * ac.sampleRate;
     const chunks = [];
     let got = 0;
+    let startedAt = 0;
     await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('The microphone didn’t start. Try again.')), 15000);
+      let timer = setTimeout(() => fail('The microphone didn’t start. Try again.'), 15000);
+      function fail(msg) { clearTimeout(timer); reject(new Error(msg)); }
+      track.onended = () => fail('The microphone stopped (did the AirPods disconnect?). Try again.');
+      ac.onstatechange = () => {
+        if (ac.state !== 'running') fail('Recording was interrupted (screen locked, or another app took the mic). Keep the page open and try again.');
+      };
       node.port.onmessage = (e) => {
         const c = e.data;
         // Bluetooth mics send silence while they switch into call mode; start the clock on real sound.
-        if (got === 0 && !c.some((v) => Math.abs(v) > 1e-4)) return;
-        clearTimeout(timeout);
+        if (got === 0 && !c.some((v) => v !== 0)) return;
+        if (got === 0) startedAt = performance.now();
+        clearTimeout(timer);
+        timer = setTimeout(() => fail('The microphone went quiet. Keep the screen on and try again.'), 3000);
         chunks.push(c);
         got += c.length;
         const left = Math.max(1, Math.ceil((need - got) / ac.sampleRate));
         if (left !== countdown) { countdown = left; render(); }
-        if (got >= need) resolve();
+        if (got >= need) { clearTimeout(timer); resolve(); }
       };
     });
+    const observedRate = got / ((performance.now() - startedAt) / 1000);
 
     const raw = new Float32Array(need);
     let o = 0;
@@ -164,24 +209,28 @@ async function record(kind) {
       kind,
       date: new Date(),
       sentence: SENTENCES[takes.length % SENTENCES.length],
-      mic: track.label || 'Unknown mic',
-      micSampleRate: settings.sampleRate || null,
+      mic: label || 'Unknown mic',
+      inputs: inputs.map((d) => d.label || '(no name)'),
+      trackSettings: settings,
       contextSampleRate: ac.sampleRate,
+      observedRate: Math.round(observedRate),
+      speedWarning: Math.abs(observedRate / ac.sampleRate - 1) > 0.03,
       original: samples,
+      analysis: analyze(samples, RATE),
     };
     takes.unshift(take);
-    const copy = samples.slice();
-    worker.postMessage({ id: take.id, samples: copy, sampleRate: RATE }, [copy.buffer]);
+    sendToAI(take);
   } catch (err) {
-    const msg = err && err.name === 'NotAllowedError'
+    statusText = err && err.name === 'NotAllowedError'
       ? 'Microphone access was blocked. In Safari, tap “aA” in the address bar, then Website Settings, and allow the microphone.'
       : (err && err.message) || String(err);
-    statusText = msg;
     statusIsError = true;
   } finally {
     if (node) { node.port.onmessage = null; node.disconnect(); }
     if (src) src.disconnect();
-    if (stream) stream.getTracks().forEach((t) => t.stop());
+    if (stream) stream.getTracks().forEach((t) => { t.onended = null; t.stop(); });
+    ac.onstatechange = null;
+    ac.close().catch(() => {});
     countdown = null;
     busy = false;
     render();
@@ -191,19 +240,26 @@ async function record(kind) {
 function addDemo() {
   const samples = voiceInWind();
   const take = {
-    id: nextId++, kind: 'demo', date: new Date(), sentence: '(made-up voice)',
-    mic: 'Made-up voice + fake wind', micSampleRate: RATE, contextSampleRate: RATE, original: samples,
+    id: nextId++, kind: 'demo', date: new Date(), sentence: '(made-up voice)', mic: 'Made-up voice + fake wind',
+    inputs: [], trackSettings: {}, contextSampleRate: RATE, observedRate: RATE, speedWarning: false,
+    original: samples, analysis: analyze(samples, RATE),
   };
   takes.unshift(take);
-  const copy = samples.slice();
-  worker.postMessage({ id: take.id, samples: copy, sampleRate: RATE }, [copy.buffer]);
+  sendToAI(take);
   render();
 }
 
+// ---- playback and sharing ----
+function blobFor(t, which) {
+  t._blobs = t._blobs || {};
+  if (!t._blobs[which]) t._blobs[which] = wavBlob(which === 'cleaned' ? t.cleaned : t.original, RATE);
+  return t._blobs[which];
+}
+
 function urlFor(t, which) {
-  const key = which === 'cleaned' ? '_cleanedUrl' : '_originalUrl';
-  if (!t[key]) t[key] = URL.createObjectURL(wavBlob(which === 'cleaned' ? t.cleaned : t.original, RATE));
-  return t[key];
+  t._urls = t._urls || {};
+  if (!t._urls[which]) t._urls[which] = URL.createObjectURL(blobFor(t, which));
+  return t._urls[which];
 }
 
 function play(t, which) {
@@ -215,7 +271,7 @@ function play(t, which) {
   const audio = new Audio(urlFor(t, which));
   audio.onended = () => { if (player && player.audio === audio) { player = null; render(); } };
   player = { audio, key };
-  audio.play().catch((err) => setStatus(`Could not play: ${err.message}`, true));
+  audio.play().catch((err) => { if (player && player.audio === audio) player = null; setStatus(`Could not play: ${err.message}`, true); });
   render();
 }
 
@@ -228,44 +284,47 @@ function summary() {
     page: 'Wind Test (web) 04-wind-test',
     browser: navigator.userAgent,
     notes: [
-      'Recorded in the browser with echoCancellation/noiseSuppression/autoGainControl on, which on iPhone uses the same voice processing as calls.',
-      'All audio is 48 kHz here; micSampleRate (if the browser reports it) is the real mic rate. 16000 or 24000 means Bluetooth call mode.',
-      'Cleaned files: DeepFilterNet 3 (WebAssembly), delay-compensated, time-aligned with the original.',
+      'Recorded in the browser with echoCancellation on (on iPhone this uses call-style voice processing; WebKit ignores noiseSuppression/autoGainControl).',
+      'All audio is 48 kHz here. observedRate is how fast samples really arrived; far from contextSampleRate means a browser audio bug.',
+      'Cleaned files: DeepFilterNet 3 (WebAssembly), a fresh model per take, delay-compensated and time-aligned with the original.',
+      'loadSeconds is how long that take’s AI worker took to start (it usually starts before the recording ends).',
     ],
     takes: takes.map((t) => ({
-      file: stem(t), kind: t.kind, date: t.date.toISOString(), sentence: t.sentence, mic: t.mic,
-      micSampleRate: t.micSampleRate, contextSampleRate: t.contextSampleRate, original: t.analysis || null,
-      cleaned: t.cleanedAnalysis || null, cleanSeconds: t.cleanSeconds ?? null, loadSeconds: t.loadSeconds ?? null,
-      error: t.error || null,
+      file: stem(t), kind: t.kind, date: t.date.toISOString(), sentence: t.sentence, mic: t.mic, inputs: t.inputs,
+      trackSettings: t.trackSettings, contextSampleRate: t.contextSampleRate, observedRate: t.observedRate,
+      original: t.analysis || null, cleaned: t.cleanedAnalysis || null, cleanSeconds: t.cleanSeconds ?? null,
+      loadSeconds: t.loadSeconds ?? null, error: t.error || null,
     })),
   };
 }
 
-async function share() {
+function share() {
+  // No awaits before navigator.share: Safari only allows it straight after the tap.
   const files = [];
   for (const t of takes) {
-    files.push(new File([wavBlob(t.original, RATE)], `${stem(t)}-original.wav`, { type: 'audio/wav' }));
-    if (t.cleaned) files.push(new File([wavBlob(t.cleaned, RATE)], `${stem(t)}-cleaned.wav`, { type: 'audio/wav' }));
+    files.push(new File([blobFor(t, 'original')], `${stem(t)}-original.wav`, { type: 'audio/wav' }));
+    if (t.cleaned) files.push(new File([blobFor(t, 'cleaned')], `${stem(t)}-cleaned.wav`, { type: 'audio/wav' }));
   }
   files.push(new File([JSON.stringify(summary(), null, 2)], 'wind-test-summary.txt', { type: 'text/plain' }));
-  try {
-    if (navigator.canShare && navigator.canShare({ files })) {
-      await navigator.share({ files, title: 'Wind Test recordings' });
-      return;
-    }
-  } catch (err) {
-    if (err && err.name === 'AbortError') return;
+  if (navigator.canShare && navigator.canShare({ files })) {
+    navigator.share({ files, title: 'Wind Test recordings' }).catch((err) => {
+      if (!err || err.name !== 'AbortError') setStatus(`Couldn’t share: ${err && err.message}`, true);
+    });
+    return;
   }
-  for (const f of files) {
+  // Computers: download the files one by one.
+  files.forEach((f, i) => setTimeout(() => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(f);
     a.download = f.name;
     document.body.appendChild(a);
     a.click();
     a.remove();
-  }
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }, i * 400));
 }
 
+// ---- screen ----
 const KIND_TITLE = { airpods: 'AirPods, like a call', iphone: 'iPhone mic', demo: 'Demo (fake wind)' };
 
 function takeCard(t) {
@@ -276,21 +335,26 @@ function takeCard(t) {
     return `<button class="play ${which}" data-take="${t.id}" data-which="${which}" data-testid="play-${which}-${t.kind}"
       ${busy ? 'disabled' : ''}>${on ? '■ Stop' : `▶ ${label}`}</button>`;
   };
-  const rate = t.micSampleRate ? `, ${Math.round(t.micSampleRate / 1000)} kHz` : '';
   return `<article class="take" data-testid="take-${t.kind}">
     <header><h3>${esc(KIND_TITLE[t.kind] || t.kind)}</h3><time>${t.date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></header>
-    <p class="muted">Mic: ${esc(t.mic)}${rate}</p>
-    ${a ? `<p>${windWords(a)}</p>` : ''}
-    ${a && overloadWords(a) ? `<p class="warn">${overloadWords(a)}</p>` : ''}
-    ${t.cleanSeconds != null && a ? `<p class="muted small">AI took ${t.cleanSeconds.toFixed(2)} s for ${a.seconds.toFixed(0)} s of sound</p>` : ''}
+    <p class="muted">Mic: ${esc(t.mic)}</p>
+    <p>${windWords(a)}</p>
+    ${overloadWords(a) ? `<p class="warn">${overloadWords(a)}</p>` : ''}
+    ${t.speedWarning ? '<p class="warn">The sound came in at the wrong speed (a browser glitch). Please tell Claude.</p>' : ''}
+    ${t.cleanSeconds != null ? `<p class="muted small">AI took ${t.cleanSeconds.toFixed(2)} s for ${a.seconds.toFixed(0)} s of sound</p>` : ''}
     ${t.error ? `<p class="error">${esc(t.error)}</p>` : ''}
-    ${cleaning ? '<p class="muted"><span class="spinner"></span> Cleaning with AI… (the first one takes a bit longer)</p>' : ''}
+    ${cleaning ? '<p class="muted"><span class="spinner"></span> Cleaning with AI…</p>' : ''}
     <div class="buttons">${btn('original', 'Original')}${t.cleaned ? btn('cleaned', 'AI cleaned') : ''}</div>
   </article>`;
 }
 
 function render() {
   $('sentence').textContent = `“${SENTENCES[takes.length % SENTENCES.length]}”`;
+  const aiEl = $('ai');
+  aiEl.dataset.state = ai;
+  aiEl.textContent = ai === 'ready' ? '✓ AI ready'
+    : ai === 'error' ? `The AI didn’t load (${aiError}). It will try again on your next recording.`
+    : 'Loading the AI (about 10 MB, best on Wi-Fi)…';
   for (const b of document.querySelectorAll('[data-record]')) b.disabled = busy;
   const rec = $('recording');
   rec.hidden = countdown === null;
@@ -303,7 +367,7 @@ function render() {
   $('takes').innerHTML = takes.length
     ? takes.map(takeCard).join('')
     : '<p class="muted empty">Nothing yet. Go somewhere windy, put your AirPods in, and tap a button above.</p>';
-  $('share').hidden = !takes.some((t) => t.cleaned);
+  $('share').hidden = takes.length === 0;
 }
 
 document.addEventListener('click', (e) => {
@@ -316,6 +380,7 @@ document.addEventListener('click', (e) => {
 
 window.addEventListener('beforeunload', (e) => { if (takes.length) e.preventDefault(); });
 
-if (new URLSearchParams(location.search).has('demo')) addDemo();
+warmSpare(); // download the AI now (ideally at home on Wi-Fi), not after the first outdoor recording
+if (params.has('demo')) addDemo();
 render();
-window.__windTest = { takes, summary };
+window.__windTest = { takes, summary, addDemo, aiState: () => ai };

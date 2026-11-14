@@ -25,7 +25,8 @@ People on calls keep telling me I sound like I'm in a wind tunnel. It's not just
 - **Recording:** an AudioWorklet records the raw microphone samples at 48 kHz. The echo cancellation, noise suppression and auto gain options are on, which on iPhone switches on the same voice processing a call uses.
 - **Cleaning:** a Web Worker runs DeepFilterNet 3, compiled to WebAssembly (`df/`, built by `scripts/build-deepfilter-wasm.sh`), with the ONNX model in `model/`. It feeds the model 10 ms frames, like a live call would, and removes the model's 30 ms delay so the two versions line up.
 - **Measuring:** the share of sound below 150 Hz (wind is mostly there, speech isn't), the share of samples at full scale, and the overall level.
-- **Test:** `node 04-wind-test/test/e2e.mjs` runs the whole page in headless Chromium with a fake microphone playing a made-up voice in wind.
+- **Test:** `node 04-wind-test/test/e2e.mjs` (the `wind` CI job) runs the whole page in headless Chromium with a fake microphone playing a made-up voice in wind: it records, cleans, checks the wind is cut, the cleaned copy lines up, and every take is cleaned the same way.
+- **One AI per recording:** the model remembers recent audio and its WebAssembly version can't be reset, so each recording gets a fresh worker (the next one warms up in the background), which keeps the comparison fair.
 
 A native iPhone version (more mic modes, Voice Isolation) is being built alongside this.
 

@@ -49,6 +49,9 @@
   .take h3 { margin: 0; font-size: 17px; }
   .take time { color: var(--muted); font-size: 14px; }
   .take p { margin: 4px 0; }
+  .ai { font-size: 14px; color: var(--muted); margin: -8px 0 16px; }
+  .ai[data-state="ready"] { color: var(--good); }
+  .ai[data-state="error"] { color: var(--error); }
   .muted { color: var(--muted); }
   .small { font-size: 14px; }
   .warn { color: var(--warn); }
@@ -70,6 +73,7 @@
 <main>
   <h1>Wind Test</h1>
   <p class="lede">Do your AirPods sound terrible on calls when it’s windy? Record yourself outside, then hear what AI cleanup does. Everything stays on your phone.</p>
+  <p id="ai" class="ai" data-testid="ai-status"></p>
 
   <div class="card">
     <div class="muted small">Read this out loud, at your normal volume:</div>
