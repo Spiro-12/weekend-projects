@@ -231,7 +231,7 @@ async function record(kind) {
       analysis: analyze(samples, RATE),
     };
     takes.unshift(take);
-    sendToAI(take);
+    try { sendToAI(take); } catch (e) { take.error = `The AI couldn't start: ${e.message || e}`; }
   } catch (err) {
     statusText = err && err.name === 'NotAllowedError'
       ? 'Microphone access was blocked. In Safari, tap “aA” in the address bar, then Website Settings, and allow the microphone.'
