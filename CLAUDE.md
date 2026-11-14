@@ -28,7 +28,7 @@ A one line hook, live demo link, a demo GIF or screenshot, and short "what / why
 ## Ship checklist (every PR, before merge)
 1. Author agent passes its own gate (typecheck, unit, e2e, build).
 2. A fresh reviewer agent that did not write the code reviews the diff against its brief and the project's `PROTOCOL.md` if it has one (high effort). Fix findings, re-review until clean.
-3. GitHub CI (`.github/workflows/ci.yml`) green: the site job, plus the `fleet` job for Fleet Planner (02). (Silent Speech moved to `Spiro-12/silent-speech`, which has its own CLAUDE.md, CI and checklist.)
+3. GitHub CI (`.github/workflows/ci.yml`) green: the site job, plus the `fleet` job for Fleet Planner (02). The `fleet` job only runs when a PR touches `02-fleet-planner/`, `scripts/build-site.sh` or `ci.yml`; otherwise it shows as skipped, which counts as green. (Silent Speech moved to `Spiro-12/silent-speech`, which has its own CLAUDE.md, CI and checklist.)
 4. Claude checks it for real: headless browser screenshots and click through; on his Mac when connected.
 5. Merge with the GitHub REST API (`gh api repos/Spiro-12/weekend-projects/pulls/N/merge -X PUT`). After the Pages deploy, load the live URL and confirm.
 6. Plain English update to Spiro.

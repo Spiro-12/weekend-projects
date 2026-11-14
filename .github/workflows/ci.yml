@@ -9,6 +9,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      fleet: ${{ steps.diff.outputs.fleet }}
+    steps:
+      # The PR's merge commit and its first parent (the base GitHub merged against).
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+      # Fleet Planner's suite takes ~45 min on a macOS runner, so it only runs when a pull request touches
+      # 02-fleet-planner/, scripts/build-site.sh (its last step runs it) or this file. A manual run always runs it.
+      - id: diff
+        name: Does this change touch Fleet Planner?
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "fleet=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # --no-renames: a file moved out of 02-fleet-planner/ must list its old path too.
+          files=$(git diff --no-renames --name-only HEAD^1 HEAD)
+          echo "Changed files:"; echo "$files"
+          if echo "$files" | grep -q -E '^(02-fleet-planner/|scripts/build-site\.sh$|\.github/workflows/ci\.yml$)'; then
+            echo "fleet=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "fleet=false" >> "$GITHUB_OUTPUT"
+          fi
+
   site:
     name: Site build (every project)
     runs-on: ubuntu-latest
@@ -24,6 +51,8 @@ jobs:
 
   fleet:
     name: Fleet Planner (typecheck, unit, golden, e2e, build)
+    needs: changes
+    if: needs.changes.outputs.fleet == 'true'
     # Apple Silicon runner: its browsers get a (paravirtual) Metal GPU. Linux runners only have SwiftShader, which draws
     # the Phase 1 warehouse (SimReady world, about 500k triangles) too slowly for the e2e suite (> 30 min, timeouts).
     runs-on: macos-latest
