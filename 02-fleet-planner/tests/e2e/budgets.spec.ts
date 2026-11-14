@@ -15,19 +15,54 @@ test('initial JS stays under budget (gzipped)', () => {
 });
 
 test('first useful view downloads under budget', async ({ page }) => {
-  // Bytes requested before the first useful view (the browser's own resource timing, so models that start loading
-  // afterwards don't count however slow the machine is), plus the page itself.
-  await openApp(page);
-  const { kb, n } = await page.evaluate(() => {
-    const fuv = window.__fp!.perf.firstUsefulViewMs!;
-    const size = (e: PerformanceResourceTiming) => e.transferSize || e.encodedBodySize;
-    const nav = performance.getEntriesByType('navigation') as PerformanceResourceTiming[];
-    const res = (performance.getEntriesByType('resource') as PerformanceResourceTiming[]).filter((e) => e.startTime <= fuv);
-    return { kb: [...nav, ...res].reduce((t, e) => t + size(e), 0) / 1024, n: res.length + nav.length };
+  // Bytes requested before the first useful view (the browser's own resource timing), plus the page itself.
+  // The full-look files (the asset manifest and the models it lists) wait behind the load gate
+  // (src/render/core/load-gate.ts), which opens at the first useful view, or after 4 s when the first view is slow (as
+  // on CI's shared runner). So the count doesn't depend on machine speed, the test holds the manifest's response until
+  // the first view: no model can then download before it, and a first view that needed a model would never arrive
+  // (timeout). The held request still records when the app asked for it, so none may have started before the gate.
+  // Still speed-dependent, but small: on a slow machine the world layer imports the loader chunk (GLTFLoader + meshopt,
+  // ~21 KB gz) 2.5 s after its first frame (src/render/world/index.ts), and that counts.
+  const m = JSON.parse(readFileSync('public/assets/manifest.json', 'utf8')) as { models: Record<string, { url: string; urlLo?: string }> };
+  const fullLook = ['assets/manifest.json', ...Object.values(m.models).flatMap((x) => (x.urlLo ? [x.url, x.urlLo] : [x.url]))];
+  await page.route('**/assets/manifest.json', async (route) => {
+    await page.waitForFunction(() => window.__fp?.perf.firstUsefulViewMs != null, null, { timeout: 30_000 }).catch(() => {});
+    await route.continue().catch(() => {}); // the page may have closed (test failed or timed out)
   });
-  console.log(`first useful view: ${kb.toFixed(1)} KB transferred in ${n} requests`);
-  expect(n).toBeGreaterThan(1);
-  expect(kb).toBeLessThanOrEqual(budgets.firstUsefulViewKB);
+  await openApp(page);
+  // Wait for the world's full look so its downloads have finished and show up in resource timing (entries appear on
+  // completion). The agent layer's forklift models start 250 ms after the first view and may still be loading; they
+  // go through the same manifest, so they can't skip the gate either.
+  await page.waitForFunction(() => window.__fp!.perf.fullLookMs != null, null, { timeout: 30_000 });
+  const r = await page.evaluate((fullLook) => {
+    const fuv = window.__fp!.perf.firstUsefulViewMs!;
+    const gate = performance.getEntriesByName('fp:load-gate')[0] as PerformanceMark | undefined;
+    const size = (e: PerformanceResourceTiming) => e.transferSize || e.encodedBodySize;
+    const isFullLook = (e: PerformanceResourceTiming) => fullLook.some((u) => new URL(e.name).pathname.endsWith(`/${u}`));
+    const nav = performance.getEntriesByType('navigation') as PerformanceResourceTiming[];
+    const res = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+    const first = res.filter((e) => e.startTime <= fuv && !isFullLook(e));
+    const full = res.filter(isFullLook);
+    const name = (e: PerformanceResourceTiming) => new URL(e.name).pathname.split('/').pop();
+    return {
+      kb: [...nav, ...first].reduce((t, e) => t + size(e), 0) / 1024,
+      n: first.length + nav.length,
+      fuv,
+      gate: gate ? { ms: gate.startTime, by: String(gate.detail) } : null,
+      fullN: full.length,
+      fullBeforeFuv: full.filter((e) => e.startTime <= fuv).map(name),
+      early: full.filter((e) => !gate || e.startTime < gate.startTime).map((e) => `${name(e)} at ${e.startTime.toFixed(0)} ms`),
+    };
+  }, fullLook);
+  console.log(
+    `first useful view: ${r.kb.toFixed(1)} KB transferred in ${r.n} requests at ${r.fuv} ms; ` +
+      `load gate opened by ${r.gate?.by} at ${r.gate?.ms.toFixed(0)} ms; ${r.fullN} full-look files, not counted (${r.fullBeforeFuv.join(', ') || 'none'} requested before the first view)`,
+  );
+  expect(r.gate, 'the load gate opened').not.toBeNull();
+  expect(r.fullN, 'full-look files loaded').toBeGreaterThan(1);
+  expect(r.early, 'full-look files that started before the load gate opened').toEqual([]);
+  expect(r.n).toBeGreaterThan(1);
+  expect(r.kb).toBeLessThanOrEqual(budgets.firstUsefulViewKB);
 });
 
 test('draw calls and triangles: each view at most half the two-view budget, after the full look loads', async ({ page }) => {
