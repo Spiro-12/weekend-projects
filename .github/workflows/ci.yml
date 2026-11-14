@@ -47,6 +47,7 @@ jobs:
       - run: ./scripts/build-site.sh && test -f _site/index.html
       # Projects that moved to their own repo keep a forwarding page here.
       - run: grep -q 'spiro-12.github.io/silent-speech/' _site/01-silent-speech/index.html
+      - run: grep -q 'github.com/Spiro-12/rokid-finder' _site/03-rokid-finder/index.html
 
   fleet:
     name: Fleet Planner (typecheck, unit, golden, e2e, build)

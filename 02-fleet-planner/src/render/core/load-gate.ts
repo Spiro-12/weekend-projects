@@ -2,7 +2,12 @@
 // the gate when the first useful view is on screen, or after a few seconds at the latest, so a slow first view can
 // never hold the models back for good. Tiny on purpose: main.ts and the lazily loaded asset loader both import it.
 let open!: () => void;
+let opened = false;
 export const afterFirstView: Promise<void> = new Promise((r) => (open = r));
-export function openLoadGate(): void {
+/** Open the gate (once). `by` says why, for the 'fp:load-gate' performance mark that tests/e2e/budgets.spec.ts reads. */
+export function openLoadGate(by: 'first-view' | 'timer'): void {
+  if (opened) return;
+  opened = true;
+  performance.mark('fp:load-gate', { detail: by });
   open();
 }
