@@ -9,6 +9,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      fleet: ${{ steps.diff.outputs.fleet }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # Fleet Planner's suite takes ~45 min on a macOS runner, so it only runs when a pull request touches
+      # 02-fleet-planner/ or this file. A manual run (workflow_dispatch) always runs it.
+      - id: diff
+        name: Does this change touch Fleet Planner?
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "fleet=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD)
+          echo "Changed files:"; echo "$files"
+          if echo "$files" | grep -q -E '^(02-fleet-planner/|\.github/workflows/ci\.yml$)'; then
+            echo "fleet=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "fleet=false" >> "$GITHUB_OUTPUT"
+          fi
+
   site:
     name: Site build (every project)
     runs-on: ubuntu-latest
@@ -23,6 +48,8 @@ jobs:
 
   fleet:
     name: Fleet Planner (typecheck, unit, golden, e2e, build)
+    needs: changes
+    if: needs.changes.outputs.fleet == 'true'
     # Apple Silicon runner: its browsers get a (paravirtual) Metal GPU. Linux runners only have SwiftShader, which draws
     # the Phase 1 warehouse (SimReady world, about 500k triangles) too slowly for the e2e suite (> 30 min, timeouts).
     runs-on: macos-latest
