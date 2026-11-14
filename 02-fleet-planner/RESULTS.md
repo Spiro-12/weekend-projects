@@ -7,6 +7,7 @@ results and the sweep knee.
 | Budget | Was | Now | Why |
 |---|---|---|---|
 | Initial JS + CSS (gz) | 250 KB (tightened from the plan's 300 KB after Phase 0) | 280 KB | Phase 1 puts the real sim core and the one-brain planner on the main thread: the live view runs them every frame, so they can't load later (about +20 KB). The money model and FakeSim are kept out of the first-view bundle (money loads lazily). Still under the plan's 300 KB. |
+| First useful view downloads | 400 KB | 400 KB (how it's measured changed) | The e2e check counted the asset manifest and models when the first view took over 4 s and the load gate's timer let them start first (CI's shared macOS runner: 292 KB on one run, 742 KB on another, same code). The first view never needs them, so the test now holds the manifest until the first view and fails if any model or manifest request starts before the load gate opens (2026-11-14). |
 
 ## Keeps up
 "Keeps up" (PROTOCOL §6) = **capacity ≥ demand** (the same settings run with the order queue always full) **and** the

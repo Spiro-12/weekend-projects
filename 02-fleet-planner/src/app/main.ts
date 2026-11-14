@@ -110,7 +110,7 @@ let frozen = params.freeze;
 let lastAspect = 0;
 let firstUsefulViewMs: number | null = null;
 // The full look starts downloading at the first useful view, or after 4 s at the latest.
-setTimeout(openLoadGate, 4000);
+setTimeout(() => openLoadGate('timer'), 4000);
 let readyResolve: () => void = () => {};
 const whenReady = new Promise<void>((r) => (readyResolve = r));
 let tourState: { fn: (u: number) => Pose; t0: number; ms: number; done: () => void } | null = null;
@@ -143,7 +143,7 @@ core.onFrame((dt, now) => {
     core.perf.firstUsefulViewMs = firstUsefulViewMs;
     hooks.ready = true;
     host.bus.emit('firstUsefulView', { ms: firstUsefulViewMs });
-    openLoadGate(); // the SimReady models and workers may download now (src/render/core/load-gate.ts)
+    openLoadGate('first-view'); // the SimReady models and workers may download now (src/render/core/load-gate.ts)
     document.getElementById('boot')?.remove();
     readyResolve();
   }
